@@ -89,7 +89,7 @@ const ProjectsPage = () => {
                 memberBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
                 memberBadge.innerHTML = `
                     ${memberName}
-                    <button type="button" onclick="removeMember('${memberId}')" class="ml-1 text-blue-500 hover:text-blue-700">
+                    <button type="button" onclick="removeMember('${memberId}')" className="ml-1 text-blue-500 hover:text-blue-700">
                         <i className="fas fa-times"></i>
                     </button>
                 `;
@@ -117,7 +117,7 @@ const ProjectsPage = () => {
                 tagBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 tag-pill';
                 tagBadge.innerHTML = `
                     ${tagValue}
-                    <button type="button" onclick="removeTag('${tagValue}')" class="ml-1 text-gray-500 hover:text-gray-700">
+                    <button type="button" onclick="removeTag('${tagValue}')" className="ml-1 text-gray-500 hover:text-gray-700">
                         <i className="fas fa-times"></i>
                     </button>
                 `;
