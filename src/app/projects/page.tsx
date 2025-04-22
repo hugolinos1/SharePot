@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faProjectDiagram, faBell, faPlus, faArrowRight, faTimes, faTrashAlt, faSave, faEdit } from '@fortawesome/free-solid-svg-icons';
 import { library } from '@fortawesome/fontawesome-svg-core';
 import { useRouter } from 'next/navigation';
+import { Button } from "@/components/ui/button";
 
 library.add(faProjectDiagram, faBell, faPlus, faArrowRight, faTimes, faTrashAlt, faSave, faEdit);
 
@@ -152,21 +153,21 @@ const ProjectsPage = () => {
             
                 
                     
-                        <h1 className="text-2xl font-bold text-blue-600">
+                        <h1 className="text-2xl font-bold text-blue-600 flex items-center justify-between">
                             <FontAwesomeIcon icon="project-diagram" className="mr-2" /> ExpenseShare
-                        </h1>
-                        <div className="flex items-center space-x-4">
-                            <button className="p-2 text-gray-500 hover:text-blue-600">
-                                <FontAwesomeIcon icon="bell" />
-                            </button>
-                            <div className="relative">
-                                <button className="flex items-center space-x-2 focus:outline-none" id="user-menu-button">
-                                    <span className="text-sm font-medium">Admin User</span>
-                                    <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
-                                         alt="User" className="w-8 h-8 rounded-full" />
+                            <div className="flex items-center space-x-4">
+                                <button className="p-2 text-gray-500 hover:text-blue-600">
+                                    <FontAwesomeIcon icon="bell" />
                                 </button>
+                                <div className="relative">
+                                    <button className="flex items-center space-x-2 focus:outline-none" id="user-menu-button">
+                                        <span className="text-sm font-medium">Admin User</span>
+                                        <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
+                                             alt="User" className="w-8 h-8 rounded-full" />
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        </h1>
                     
                 
 
@@ -176,10 +177,10 @@ const ProjectsPage = () => {
                             <h2 className="text-2xl font-bold text-gray-800">Gestion des Projets</h2>
                             <p className="text-gray-600">Créez et gérez vos projets collaboratifs</p>
                         
-                        <button onClick={openProjectModal}
+                        <Button onClick={() => router.push('/projects/create')}
                                 className="mt-4 md:mt-0 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg flex items-center">
                             <FontAwesomeIcon icon="plus" className="mr-2" /> Nouveau Projet
-                        </button>
+                        </Button>
                     
 
                     
@@ -335,9 +336,9 @@ const ProjectsPage = () => {
                     
                         
                             <h3 className="text-xl font-bold text-gray-800">Nouveau Projet</h3>
-                            <button onClick={closeNewProjectModal} className="text-gray-500 hover:text-gray-700">
+                            <Button onClick={closeNewProjectModal}  variant="ghost">
                                 <FontAwesomeIcon icon="times" />
-                            </button>
+                            </Button>
                         
 
                         <form id="project-form" onSubmit={handleSubmit}>
@@ -431,14 +432,14 @@ const ProjectsPage = () => {
                             
 
                             
-                                <button type="button" onClick={closeNewProjectModal}
+                                <Button type="button" onClick={closeNewProjectModal} variant="ghost"
                                         className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">
                                     Annuler
-                                </button>
-                                <button type="submit"
+                                </Button>
+                                <Button type="submit"
                                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
                                     <FontAwesomeIcon icon="save" className="mr-2" /> Enregistrer
-                                </button>
+                                </Button>
                             
                         
                     </form>
@@ -449,20 +450,20 @@ const ProjectsPage = () => {
                 
                     
                         <h3 className="text-lg font-bold text-gray-800">Confirmer la suppression</h3>
-                        <button onClick={closeDeleteConfirmModal} className="text-gray-500 hover:text-gray-700">
+                        <Button onClick={closeDeleteConfirmModal} variant="ghost">
                             <FontAwesomeIcon icon="times" />
-                        </button>
+                        </Button>
                     
                     <p className="text-gray-600 mb-6">Êtes-vous sûr de vouloir supprimer ce projet? Cette action est irréversible et toutes les données associées seront perdues.</p>
                     
-                        <button onClick={closeDeleteConfirmModal}
+                        <Button onClick={closeDeleteConfirmModal} variant="ghost"
                                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">
                             Annuler
-                        </button>
-                        <button onClick={deleteProject}
+                        </Button>
+                        <Button onClick={deleteProject}
                                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
                             <FontAwesomeIcon icon="trash-alt" className="mr-2" /> Supprimer
-                        </button>
+                        </Button>
                     
                 
             
