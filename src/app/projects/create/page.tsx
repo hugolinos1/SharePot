@@ -14,7 +14,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import Link from "next/link";
 
 const formSchema = z.object({
   name: z.string().min(2, {
@@ -38,11 +37,6 @@ export default function ProjectCreatePage() {
 
   return (
     <div className="container mx-auto py-8">
-      <div className="mb-4">
-        <Button asChild>
-          <Link href="/dashboard">Back to Dashboard</Link>
-        </Button>
-      </div>
       <h1 className="text-2xl font-bold mb-4">Create New Project</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -81,3 +75,4 @@ export default function ProjectCreatePage() {
     </div>
   );
 }
+

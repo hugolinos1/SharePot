@@ -17,6 +17,7 @@ import { Icons } from "@/components/icons";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Button } from "@/components/ui/button";
 
 const data = [
   { name: "Jean D.", depenses: 300 },
@@ -105,7 +106,12 @@ export default function DashboardPage() {
             </SidebarFooter>
           </Sidebar>
           <div className="container mx-auto p-4">
-            <h1 className="text-2xl font-bold mb-4">Tableau de bord</h1>
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-2xl font-bold">Tableau de bord</h1>
+              <Button asChild>
+                <Link href="/projects/create">Nouveau projet</Link>
+              </Button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
               <Card>
                 <CardHeader>
