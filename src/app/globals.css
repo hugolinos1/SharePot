@@ -83,4 +83,8 @@ body {
     @apply bg-background text-foreground;
   }
 }
+/* Add subtle box shadows to cards and other elements */
+.card, .button, .input, .textarea {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
 
