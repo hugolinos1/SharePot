@@ -14,6 +14,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Icons } from "@/components/icons";
+import Link from "next/link";
 
 export default function DashboardPage() {
   return (
@@ -32,15 +33,27 @@ export default function DashboardPage() {
             <SidebarContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton>
-                    <Icons.home className="mr-2 h-4 w-4"/>
-                    <span>Home</span>
+                  <SidebarMenuButton asChild>
+                    <Link href="/dashboard">
+                      <Icons.home className="mr-2 h-4 w-4"/>
+                      <span>Home</span>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton>
-                    <Icons.plusCircle className="mr-2 h-4 w-4"/>
-                    <span>New Expense</span>
+                  <SidebarMenuButton asChild>
+                    <Link href="/projects/create">
+                      <Icons.plusCircle className="mr-2 h-4 w-4"/>
+                      <span>New Project</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <Link href="/projects">
+                      <Icons.file className="mr-2 h-4 w-4"/>
+                      <span>Manage Projects</span>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
@@ -72,7 +85,7 @@ export default function DashboardPage() {
           </Sidebar>
           <div className="container mx-auto p-4">
             <h1 className="text-2xl font-bold mb-4">Dashboard Content</h1>
-            <p>Main content area. Add your dashboard elements here.</p>
+            <p>Welcome to your Dépense Partagée dashboard!</p>
           </div>
         </div>
       </div>
