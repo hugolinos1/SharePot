@@ -18,6 +18,8 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState } from "react";
 
 const data = [
   { name: "Jean D.", depenses: 300 },
@@ -26,12 +28,14 @@ const data = [
   { name: "Marie P.", depenses: 200 },
 ];
 
-const recentExpenses = [
+const allExpenses = [
   { id: 1, description: "Restaurant Chez Michel", project: "Voyage à Prague", date: "22 avr. 2025", amount: "120,50 €", tag: "nourriture" },
   { id: 2, description: "Tickets de métro", project: "Voyage à Prague", date: "22 avr. 2025", amount: "45,20 €", tag: "transport" },
   { id: 3, description: "Visite du musée", project: "Voyage à Prague", date: "22 avr. 2025", amount: "85,00 €", tag: "musée" },
   { id: 4, description: "Loyer", project: "Colocation Juin", date: "22 avr. 2025", amount: "350,75 €", tag: "logement" },
   { id: 5, description: "Courses alimentaires", project: "Colocation Juin", date: "22 avr. 2025", amount: "65,45 €", tag: "nourriture" },
+  { id: 6, description: "Taxi", project: "Dîner d'équipe", date: "23 avr. 2025", amount: "30,00 €", tag: "transport" },
+  { id: 7, description: "Restaurant", project: "Dîner d'équipe", date: "23 avr. 2025", amount: "200,00 €", tag: "nourriture" },
 ];
 
 const activeProjects = [
@@ -41,6 +45,32 @@ const activeProjects = [
 ];
 
 export default function DashboardPage() {
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+
+  const filteredExpenses = selectedProject
+    ? allExpenses.filter(expense => expense.project === selectedProject)
+    : allExpenses;
+
+  const totalSpent = filteredExpenses.reduce((acc, expense) => {
+    const amount = parseFloat(expense.amount.replace(/[^\d,.]/g, '').replace(',', '.'));
+    return acc + amount;
+  }, 0);
+
+  const expenseCount = filteredExpenses.length;
+
+  const projectExpensesMap = new Map<string, number>();
+  data.forEach(item => {
+    projectExpensesMap.set(item.name, item.depenses);
+  });
+
+  const averagePerPerson = data.length > 0 ? totalSpent / data.length : 0;
+
+  const handleProjectChange = (value: string) => {
+    setSelectedProject(value);
+  };
+
+  const projectOptions = [...new Set(allExpenses.map(expense => expense.project))];
+
   return (
     <SidebarProvider>
       <div className="flex flex-col">
@@ -112,13 +142,28 @@ export default function DashboardPage() {
                 <Link href="/projects/create">Nouveau projet</Link>
               </Button>
             </div>
+
+            <div className="mb-4">
+              <Select onValueChange={handleProjectChange}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Filtrer par projet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={""}>Tous les projets</SelectItem>
+                  {projectOptions.map((project) => (
+                    <SelectItem key={project} value={project}>{project}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
               <Card>
                 <CardHeader>
                   <CardTitle>Total dépensé</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">666,90 €</div>
+                  <div className="text-2xl font-bold">{totalSpent.toFixed(2)} €</div>
                 </CardContent>
               </Card>
               <Card>
@@ -126,7 +171,7 @@ export default function DashboardPage() {
                   <CardTitle>Dépenses</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">5</div>
+                  <div className="text-2xl font-bold">{expenseCount}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -134,7 +179,7 @@ export default function DashboardPage() {
                   <CardTitle>Projets actifs</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">3</div>
+                  <div className="text-2xl font-bold">{activeProjects.length}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -142,7 +187,7 @@ export default function DashboardPage() {
                   <CardTitle>Moyenne / pers.</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">222,30 €</div>
+                  <div className="text-2xl font-bold">{averagePerPerson.toFixed(2)} €</div>
                 </CardContent>
               </Card>
             </div>
@@ -171,7 +216,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <ul>
-                    {recentExpenses.map(expense => (
+                    {filteredExpenses.map(expense => (
                       <li key={expense.id} className="py-2 border-b">
                         <div className="font-bold">{expense.description}</div>
                         <div className="text-sm">{expense.project} - {expense.date}</div>
