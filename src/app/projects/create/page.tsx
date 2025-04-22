@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
+import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
   name: z.string().min(2, {
@@ -31,8 +32,11 @@ export default function ProjectCreatePage() {
     },
   });
 
+  const router = useRouter();
+
   function onSubmit(values: z.infer<typeof formSchema>) {
     console.log(values);
+    router.push('/dashboard');
   }
 
   return (
@@ -75,4 +79,3 @@ export default function ProjectCreatePage() {
     </div>
   );
 }
-
