@@ -149,7 +149,7 @@ export default function DashboardPage() {
                   <SelectValue placeholder="Filtrer par projet" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={""}>Tous les projets</SelectItem>
+                  <SelectItem value={null}>Tous les projets</SelectItem>
                   {projectOptions.map((project) => (
                     <SelectItem key={project} value={project}>{project}</SelectItem>
                   ))}
