@@ -1,10 +1,10 @@
 "use client";
 
-import {Button} from "@/components/ui/button";
-import {useRouter} from 'next/navigation';
-import {Icons} from "@/components/icons";
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
-import {useEffect, useState} from "react";
+import { Button } from "@/components/ui/button";
+import { useRouter } from 'next/navigation';
+import { Icons } from "@/components/icons";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogClose,
@@ -15,16 +15,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {Textarea} from "@/components/ui/textarea";
-import {Input} from "@/components/ui/input";
-import {Label} from "@/components/ui/label";
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
-import {Checkbox} from "@/components/ui/checkbox";
-import {Separator} from "@/components/ui/separator";
-import {Progress} from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
-import {FontAwesomeIcon} from "@fortawesome/react-fontawesome";
-import {faBell, faProjectDiagram, faEdit, faTrashAlt, faPlus, faSave, faTimes, faArrowRight} from "@fortawesome/free-solid-svg-icons";
 
 const initialProjects = [
   {
@@ -37,9 +35,9 @@ const initialProjects = [
     budget: 2000.00,
     members: ['Jean Dupont', 'Marie Martin', 'Paul Durand'],
     recentExpenses: [
-      {name: 'Hôtel Mercure', date: '12 juin 2023', amount: 450.00, payer: 'Jean Dupont'},
-      {name: 'Billets de train', date: '10 juin 2023', amount: 320.50, payer: 'Marie Martin'},
-      {name: 'Dîner au restaurant', date: '8 juin 2023', amount: 175.00, payer: 'Paul Durand'},
+      { name: 'Hôtel Mercure', date: '12 juin 2023', amount: 450.00, payer: 'Jean Dupont' },
+      { name: 'Billets de train', date: '10 juin 2023', amount: 320.50, payer: 'Marie Martin' },
+      { name: 'Dîner au restaurant', date: '8 juin 2023', amount: 175.00, payer: 'Paul Durand' },
     ],
     notes: 'Projet de vacances pour l\'équipe du 15 au 20 juin 2023. Budget total de €2000. Hôtel réservé pour 5 personnes. Activités prévues : visite de la Tour Eiffel, croisière sur la Seine, et journée à Disneyland. Les repas du midi sont à la charge de chacun. Les dîners sont pris en charge par le projet.',
     tags: ['voyage', 'équipe'],
@@ -170,7 +168,7 @@ export default function ProjectsPage() {
         
           
             
-              <Icons.file className="mr-2 h-4 w-4"/>
+              <Icons.file className="mr-2 h-4 w-4" />
               Dépense Partagée
             
           
@@ -178,7 +176,7 @@ export default function ProjectsPage() {
             
               Admin User
               <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
-                   alt="User" className="w-8 h-8 rounded-full"/>
+                   alt="User" className="w-8 h-8 rounded-full" />
             
           
         
@@ -192,7 +190,7 @@ export default function ProjectsPage() {
           
           
             <Button asChild>
-                <Link href="/projects/create">Nouveau Projet</Link>
+              <Link href="/projects/create">Nouveau Projet</Link>
             </Button>
           
         
@@ -452,7 +450,7 @@ export default function ProjectsPage() {
                         
                           {member}
                           <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
-                            <Icons.close/>
+                            <Icons.close />
                           </Button>
                         
                       ))}
@@ -467,7 +465,7 @@ export default function ProjectsPage() {
                         
                         
                           <Button type="button" size="icon" onClick={handleAddMember}>
-                            <Icons.plus/>
+                            <Icons.plus />
                           </Button>
                         
                       
@@ -481,7 +479,7 @@ export default function ProjectsPage() {
                         
                           {tag}
                           <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveTag(tag)}>
-                            <Icons.close/>
+                            <Icons.close />
                           </Button>
                         
                       ))}
@@ -491,7 +489,7 @@ export default function ProjectsPage() {
                         
                         
                           <Button type="button" size="icon" onClick={handleAddTag}>
-                            <Icons.plus/>
+                            <Icons.plus />
                           </Button>
                         
                       
@@ -500,12 +498,11 @@ export default function ProjectsPage() {
 
                   
                     Annuler
-                     asChild>
-                        Fermer
-                      
-                   asChild>
-                        Enregistrer
-                      
+                    
+                      Fermer
+                    
+                    
+                      Enregistrer
                     
                   
                 
