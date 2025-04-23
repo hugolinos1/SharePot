@@ -3,7 +3,6 @@
 import {Button} from "@/components/ui/button";
 import {useRouter} from 'next/navigation';
 import {Icons} from "@/components/icons";
-import Link from "next/link";
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
 import {useEffect, useState} from "react";
 import {
@@ -174,13 +173,9 @@ export default function ProjectsPage() {
           
           
             
-              
-                
-                  Admin User
-                  <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
-                       alt="User" className="w-8 h-8 rounded-full"/>
-                
-              
+              Admin User
+              <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
+                   alt="User" className="w-8 h-8 rounded-full"/>
             
           
         
@@ -189,18 +184,15 @@ export default function ProjectsPage() {
       
         
           
-            
-              Gestion des Projets
-              Créez et gérez vos projets collaboratifs
-            
-            
-              <Button onClick={handleOpenChange}>
-                Nouveau Projet
-              </Button>
-            
+            Gestion des Projets
+            Créez et gérez vos projets collaboratifs
+          
+          
+            <Button onClick={handleOpenChange}>
+              Nouveau Projet
+            </Button>
           
         
-
         
           
             {projects.map((project) => (
@@ -538,3 +530,4 @@ export default function ProjectsPage() {
     
   );
 }
+
