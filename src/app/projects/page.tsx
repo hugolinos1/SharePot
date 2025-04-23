@@ -23,6 +23,8 @@ import {Checkbox} from "@/components/ui/checkbox";
 import {Separator} from "@/components/ui/separator";
 import {Progress} from "@/components/ui/progress";
 import Link from "next/link";
+import {FontAwesomeIcon} from "@fortawesome/react-fontawesome";
+import {faBell, faProjectDiagram, faEdit, faTrashAlt, faPlus, faSave, faTimes, faArrowRight} from "@fortawesome/free-solid-svg-icons";
 
 const initialProjects = [
   {
@@ -533,3 +535,4 @@ export default function ProjectsPage() {
     
   );
 }
+
