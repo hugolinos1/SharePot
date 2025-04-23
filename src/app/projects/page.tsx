@@ -207,19 +207,21 @@ export default function ProjectsPage() {
               
                 
                   
-                    {project.name}
-                    {project.status}
-                  
-                  {project.description}
+                    
+                      {project.name}
+                      {project.status}
+                    
+                    {project.description}
 
-                  
                     
-                      Dépenses totales
-                      €{project.totalExpenses.toFixed(2)}
-                    
-                    
-                      Dernière activité
-                      {project.lastActivity}
+                      
+                        Dépenses totales
+                        €{project.totalExpenses.toFixed(2)}
+                      
+                      
+                        Dernière activité
+                        {project.lastActivity}
+                      
                     
                   
 
