@@ -4,8 +4,6 @@ import {Button} from "@/components/ui/button";
 import {useRouter} from 'next/navigation';
 import {Icons} from "@/components/icons";
 import Link from "next/link";
-import {FontAwesomeIcon} from "@fortawesome/react-fontawesome";
-import {faBell, faPlus, faProjectDiagram, faArrowRight, faTimes, faTrashAlt, faSave, faEdit} from "@fortawesome/free-solid-svg-icons";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -16,8 +14,8 @@ export default function ProjectsPage() {
         
           
             
-              <FontAwesomeIcon icon={faProjectDiagram} className="mr-2"/>
-              ExpenseShare
+              <Icons.file className="mr-2 h-4 w-4"/>
+              Dépense Partagée
             
           
           
@@ -25,15 +23,10 @@ export default function ProjectsPage() {
               
                 
                   
-                    <button className="p-2 text-gray-500 hover:text-blue-600">
-                      <FontAwesomeIcon icon={faBell}/>
-                    </button>
                     
-                      
-                        Admin User
-                        <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
-                             alt="User" className="w-8 h-8 rounded-full"/>
-                      
+                      Admin User
+                      <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
+                           alt="User" className="w-8 h-8 rounded-full"/>
                     
                   
                 
@@ -51,7 +44,9 @@ export default function ProjectsPage() {
               Créez et gérez vos projets collaboratifs
             
             
-              Nouveau Projet
+              <Button asChild>
+                <Link href="/projects/create">Nouveau Projet</Link>
+              </Button>
             
           
         
