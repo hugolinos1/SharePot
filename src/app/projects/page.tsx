@@ -530,4 +530,3 @@ export default function ProjectsPage() {
     
   );
 }
-
