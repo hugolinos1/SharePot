@@ -22,6 +22,7 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/c
 import {Checkbox} from "@/components/ui/checkbox";
 import {Separator} from "@/components/ui/separator";
 import {Progress} from "@/components/ui/progress";
+import Link from "next/link";
 
 const initialProjects = [
   {
@@ -188,8 +189,8 @@ export default function ProjectsPage() {
             Créez et gérez vos projets collaboratifs
           
           
-            <Button onClick={handleOpenChange}>
-              Nouveau Projet
+            <Button asChild>
+                <Link href="/projects/create">Nouveau Projet</Link>
             </Button>
           
         
@@ -497,8 +498,10 @@ export default function ProjectsPage() {
 
                   
                     Annuler
-                    
+                     asChild>
+                        Fermer
                       
+                   asChild>
                         Enregistrer
                       
                     
