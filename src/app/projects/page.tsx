@@ -174,13 +174,15 @@ export default function ProjectsPage() {
         
           
             
-              <Icons.file className="mr-2 h-4 w-4" />
-              Dépense Partagée
+              <span>
+                <Icons.file className="mr-2 h-4 w-4" />
+                Dépense Partagée
+              </span>
             
           
           
             
-              Admin User
+              <span>Admin User</span>
               <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
                    alt="User" className="w-8 h-8 rounded-full" />
             
@@ -538,4 +540,3 @@ export default function ProjectsPage() {
     
   );
 }
-
