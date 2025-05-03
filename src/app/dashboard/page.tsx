@@ -1,3 +1,5 @@
+"use client";
+
 import React from 'react';
 import {
   Card,
@@ -15,7 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button'; // Import Button
 import Link from 'next/link'; // Import Link
@@ -121,6 +123,7 @@ export default function DashboardPage() {
                      tickLine={false}
                      axisLine={false}
                      tickMargin={8}
+                     fontSize={12} // Adjusted font size for better fit
                    />
                    <ChartTooltip
                      cursor={false}
