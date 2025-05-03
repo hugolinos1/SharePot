@@ -1,75 +1,36 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Icons } from "@/components/icons";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Import Avatar components
+import { initialProjects, Project } from '@/data/mock-data'; // Import data from central location
 
-// Mock data - replace with actual data fetching later
-const initialProjects = [
-  {
-    id: '1',
-    name: 'Voyage à Paris',
-    status: 'Actif',
-    description: 'Vacances d\'été avec l\'équipe',
-    totalExpenses: 1245.50,
-    lastActivity: '15 juin 2023',
-    budget: 2000.00,
-    members: ['Jean Dupont', 'Marie Martin', 'Paul Durand', 'Alice Dubois', 'Bob Moreau'],
-    recentExpenses: [
-      { name: 'Hôtel Mercure', date: '12 juin 2023', amount: 450.00, payer: 'Jean Dupont' },
-      { name: 'Billets de train', date: '10 juin 2023', amount: 320.50, payer: 'Marie Martin' },
-      { name: 'Dîner au restaurant', date: '8 juin 2023', amount: 175.00, payer: 'Paul Durand' },
-    ],
-    notes: 'Projet de vacances pour l\'équipe du 15 au 20 juin 2023. Budget total de €2000. Hôtel réservé pour 5 personnes. Activités prévues : visite de la Tour Eiffel, croisière sur la Seine, et journée à Disneyland. Les repas du midi sont à la charge de chacun. Les dîners sont pris en charge par le projet.',
-    tags: ['voyage', 'équipe'],
-  },
-  {
-    id: '2',
-    name: 'Événement Startup',
-    status: 'En attente',
-    description: 'Conférence annuelle des startups',
-    totalExpenses: 780.00,
-    lastActivity: '3 juin 2023',
-    budget: 5000.00,
-    members: ['Admin User', 'Sarah Leroy'],
-    recentExpenses: [],
-    notes: '',
-    tags: ['conférence', 'startup'],
-  },
-  {
-    id: '3',
-    name: 'Déménagement Bureau',
-    status: 'Terminé',
-    description: 'Relocalisation des bureaux',
-    totalExpenses: 3420.75,
-    lastActivity: '15 mai 2023',
-    budget: 3500.00,
-    members: ['Admin User', 'Lucie Petit', 'Marc Blanc', 'Sophie Vert', 'Julien Noir', 'Claire Jaune'],
-    recentExpenses: [
-       { name: 'Location camion', date: '10 mai 2023', amount: 150.00, payer: 'Admin User' },
-       { name: 'Achat cartons', date: '5 mai 2023', amount: 80.75, payer: 'Lucie Petit' },
-    ],
-    notes: 'Déménagement des anciens locaux vers le nouveau site. Contrat avec déménageurs signé. Installation prévue le 14 mai.',
-    tags: ['logistique', 'bureau'],
-  },
-];
+// Remove FontAwesome imports if no longer used
+// import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+// import { faProjectDiagram, faBell, faPlus, faArrowRight, faTimes, faTrashAlt, faEdit, faSave } from '@fortawesome/free-solid-svg-icons';
 
-type Project = typeof initialProjects[0];
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+
+  // Use useEffect to set initial state on client-side to avoid hydration mismatch
+  useEffect(() => {
+    setProjects(initialProjects);
+  }, []);
+
 
   const handleViewDetails = (project: Project) => {
     setSelectedProject(project);
@@ -98,8 +59,18 @@ export default function ProjectsPage() {
       setProjects(prevProjects => prevProjects.filter(p => p.id !== projectToDelete.id));
       handleCloseDeleteDialog();
       // Add toast notification for success here if needed
+      // toast({ title: "Projet supprimé", description: `Le projet "${projectToDelete.name}" a été supprimé.` });
+       console.log(`Project "${projectToDelete.name}" deleted.`);
     }
   };
+
+   const getAvatarFallback = (name: string) => {
+      const parts = name.split(' ');
+      if (parts.length >= 2) {
+          return parts[0][0] + parts[parts.length - 1][0];
+      }
+      return name.substring(0, 2).toUpperCase();
+   };
 
   const getStatusBadgeVariant = (status: string): "default" | "secondary" | "outline" | "destructive" => {
     switch (status.toLowerCase()) {
@@ -117,32 +88,42 @@ export default function ProjectsPage() {
 
   return (
     <div className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
-       {/* Header simulation - In a real app, this would be part of a layout */}
-       <header className="bg-card text-card-foreground border-b mb-8">
+      {/* Header simulation - In a real app, this would be part of a layout */}
+      <header className="bg-card text-card-foreground border-b mb-8">
          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
            <Link href="/" className="text-2xl font-bold text-primary flex items-center">
-             <Icons.file className="mr-2 h-6 w-6" /> Dépense Partagée
+             {/* Use Lucide icon */}
+              <Icons.file className="mr-2 h-6 w-6"/>
+              Dépense Partagée
            </Link>
            <div className="flex items-center space-x-4">
-             {/* Add notification icon/button here if needed */}
+             {/* Notification Icon */}
+             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
+                <Icons.mail className="h-5 w-5"/> {/* Changed to Mail icon */}
+                <span className="sr-only">Notifications</span>
+             </Button>
+             {/* User Menu */}
              <div className="flex items-center space-x-2">
                <span className="text-sm font-medium hidden sm:inline">Admin User</span>
-               <img src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff"
-                    alt="User Avatar" className="w-8 h-8 rounded-full" data-ai-hint="user avatar placeholder"/>
+               <Avatar className="w-8 h-8">
+                    <AvatarImage src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff" alt="User Avatar" data-ai-hint="user avatar"/>
+                    <AvatarFallback>AU</AvatarFallback>
+               </Avatar>
              </div>
               <Button variant="outline" size="sm" onClick={() => router.push('/')}>
-                <Icons.home className="mr-2 h-4 w-4" /> Retour
+                <Icons.home className="mr-2 h-4 w-4" /> Accueil
               </Button>
            </div>
          </div>
        </header>
 
+
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-        <div>
-          <h2 className="text-2xl font-bold">Gestion des Projets</h2>
-          <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs</p>
-        </div>
+          <div>
+              <h2 className="text-2xl font-bold text-foreground">Gestion des Projets</h2>
+              <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs</p>
+          </div>
         <Button onClick={() => router.push('/projects/create')} className="mt-4 md:mt-0">
           <Icons.plus className="mr-2 h-4 w-4" /> Nouveau Projet
         </Button>
@@ -177,43 +158,54 @@ export default function ProjectsPage() {
                   <span>€{project.budget.toFixed(2)}</span>
                 </div>
                 <Progress value={calculateProgress(project.totalExpenses, project.budget)} className="h-2" />
+                 <p className="text-right text-xs font-medium mt-1">{calculateProgress(project.totalExpenses, project.budget).toFixed(0)}% utilisé</p>
               </div>
 
-              <div className="flex items-center justify-between mt-4">
+               {/* Tags */}
+                <div className="mb-4 flex flex-wrap gap-1">
+                   {project.tags.map(tag => (
+                       <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                   ))}
+               </div>
+
+              <div className="flex items-center justify-between mt-auto pt-4 border-t border-border/50">
                 <div className="flex -space-x-2 overflow-hidden">
                   {project.members.slice(0, 3).map((member, index) => (
-                    <img
-                      key={index}
-                      src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`}
-                      alt={`Avatar ${member}`}
-                      title={member}
-                      className="inline-block h-8 w-8 rounded-full ring-2 ring-card"
-                      data-ai-hint="member avatar placeholder"
-                    />
+                     <Avatar key={index} className="h-8 w-8 border-2 border-card" title={member}>
+                       <AvatarImage
+                         src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`}
+                         alt={`Avatar ${member}`}
+                         data-ai-hint="member avatar placeholder"
+                       />
+                       <AvatarFallback>{getAvatarFallback(member)}</AvatarFallback>
+                     </Avatar>
                   ))}
                   {project.members.length > 3 && (
-                    <span className="flex items-center justify-center h-8 w-8 rounded-full bg-muted text-muted-foreground ring-2 ring-card text-xs font-medium">
-                      +{project.members.length - 3}
-                    </span>
+                      <Avatar className="h-8 w-8 border-2 border-card bg-muted text-muted-foreground">
+                         <AvatarFallback className="text-xs font-medium">+{project.members.length - 3}</AvatarFallback>
+                     </Avatar>
                   )}
                 </div>
-                <Button variant="link" onClick={() => handleViewDetails(project)} className="text-primary">
+                <Button variant="link" onClick={() => handleViewDetails(project)} className="text-primary px-0">
                   Voir détails <Icons.arrowRight className="ml-1 h-4 w-4" />
                 </Button>
               </div>
             </CardContent>
-            {/* Optional Footer
-            <CardFooter className="flex justify-end">
-               Add actions like Edit/Delete icons here if needed outside modal
-            </CardFooter>
-            */}
+
           </Card>
         ))}
+         {projects.length === 0 && (
+            <Card className="md:col-span-2 lg:col-span-3">
+                <CardContent className="pt-6">
+                    <p className="text-center text-muted-foreground">Aucun projet à afficher pour le moment.</p>
+                </CardContent>
+            </Card>
+        )}
       </div>
 
       {/* Project Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
-        <DialogContent className="sm:max-w-[600px] md:max-w-[800px] lg:max-w-[1000px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[600px] md:max-w-[800px] lg:max-w-[1000px] max-h-[90vh] flex flex-col">
           {selectedProject && (
             <>
               <DialogHeader>
@@ -221,7 +213,7 @@ export default function ProjectsPage() {
                 <DialogDescription>{selectedProject.description}</DialogDescription>
               </DialogHeader>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6"> {/* Added padding and negative margin for scrollbar */}
                 {/* Left Column (Recent Expenses & Notes) */}
                 <div className="lg:col-span-2 space-y-4">
                    <Card>
@@ -229,7 +221,7 @@ export default function ProjectsPage() {
                            <CardTitle className="text-lg">Dépenses récentes</CardTitle>
                        </CardHeader>
                        <CardContent>
-                           <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                           <div className="space-y-3 max-h-60 overflow-y-auto pr-2"> {/* Scroll within card content */}
                                {selectedProject.recentExpenses.length > 0 ? selectedProject.recentExpenses.map((expense, index) => (
                                    <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                                        <div>
@@ -256,7 +248,7 @@ export default function ProjectsPage() {
                            <CardTitle className="text-lg">Notes du projet</CardTitle>
                        </CardHeader>
                        <CardContent>
-                           <p className="text-sm text-muted-foreground">
+                           <p className="text-sm text-muted-foreground whitespace-pre-wrap"> {/* Use whitespace-pre-wrap */}
                                {selectedProject.notes || "Aucune note pour ce projet."}
                            </p>
                        </CardContent>
@@ -297,11 +289,13 @@ export default function ProjectsPage() {
                               <CardTitle className="text-lg">Membres ({selectedProject.members.length})</CardTitle>
                           </CardHeader>
                           <CardContent>
-                              <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                              <div className="space-y-3 max-h-48 overflow-y-auto pr-2"> {/* Scroll within card content */}
                                   {selectedProject.members.map((member, index) => (
                                       <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
-                                          <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`}
-                                               alt={`Avatar ${member}`} className="w-8 h-8 rounded-full" data-ai-hint="member avatar placeholder"/>
+                                           <Avatar className="w-8 h-8">
+                                              <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`} alt={`Avatar ${member}`} data-ai-hint="member avatar placeholder"/>
+                                               <AvatarFallback>{getAvatarFallback(member)}</AvatarFallback>
+                                           </Avatar>
                                           <div>
                                               <p className="font-medium text-sm">{member}</p>
                                               {/* Optional: Add member-specific stats if available */}
@@ -315,10 +309,25 @@ export default function ProjectsPage() {
                               </Button>
                           </CardContent>
                       </Card>
+
+                       {/* Tags Section in Modal */}
+                       <Card>
+                          <CardHeader>
+                              <CardTitle className="text-lg">Tags</CardTitle>
+                          </CardHeader>
+                           <CardContent className="flex flex-wrap gap-2">
+                               {selectedProject.tags.map(tag => (
+                                   <Badge key={tag} variant="secondary">{tag}</Badge>
+                               ))}
+                               {selectedProject.tags.length === 0 && (
+                                   <p className="text-sm text-muted-foreground">Aucun tag.</p>
+                               )}
+                           </CardContent>
+                       </Card>
                  </div>
               </div>
 
-              <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-4 pt-4 border-t">
+              <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-auto pt-4 border-t"> {/* Ensure footer is at bottom */}
                  <Button variant="destructive" onClick={() => handleOpenDeleteDialog(selectedProject)}>
                     <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
                  </Button>
