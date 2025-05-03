@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -23,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Icons } from '@/components/icons';
 import { Skeleton } from '@/components/ui/skeleton';
+
 
 // Dynamically import the chart component with SSR disabled
 const BalanceChart = dynamic(() => import('@/components/dashboard/balance-chart'), {
@@ -151,4 +151,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
