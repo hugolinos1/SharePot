@@ -1,6 +1,8 @@
+
 "use client";
 
 import React from 'react';
+import dynamic from 'next/dynamic';
 import {
   Card,
   CardContent,
@@ -16,12 +18,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button'; // Import Button
-import Link from 'next/link'; // Import Link
-import { Icons } from '@/components/icons'; // Import Icons
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { Icons } from '@/components/icons';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Dynamically import the chart component with SSR disabled
+const BalanceChart = dynamic(() => import('@/components/dashboard/balance-chart'), {
+  ssr: false,
+  loading: () => (
+      <div className="h-[300px] w-full flex items-center justify-center">
+        <Skeleton className="h-full w-full" />
+      </div>
+  ),
+});
 
 interface Transaction {
   id: number;
@@ -30,6 +41,7 @@ interface Transaction {
   amount: number;
 }
 
+// Mock data - keep transaction data here or fetch it
 const latestTransactions: Transaction[] = [
   { id: 1, date: '2023-10-26', description: 'Grocery Shopping', amount: -50 },
   { id: 2, date: '2023-10-25', description: 'Salary', amount: 2000 },
@@ -38,40 +50,22 @@ const latestTransactions: Transaction[] = [
   { id: 5, date: '2023-10-23', description: 'Bonus', amount: 500 },
 ];
 
-const chartData = [
-  { month: 'Jan', balance: 1000 },
-  { month: 'Feb', balance: 1200 },
-  { month: 'Mar', balance: 1500 },
-  { month: 'Apr', balance: 1400 },
-  { month: 'May', balance: 1600 },
-  { month: 'Jun', balance: 1800 },
-  { month: 'Jul', balance: 2000 },
-  { month: 'Aug', balance: 1900 },
-  { month: 'Sep', balance: 2200 },
-  { month: 'Oct', balance: 2500 },
-];
-
-const chartConfig = {
-  balance: {
-    label: "Balance",
-    color: "hsl(var(--chart-1))",
-  },
-} satisfies import('@/components/ui/chart').ChartConfig;
-
+// Example balance data (can be passed to BalanceChart or fetched within it)
+const currentBalance = 2500.00; // Example value
 
 export default function DashboardPage() {
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold mb-1">Dashboard</h1>
+            <h1 className="text-3xl font-bold mb-1">Tableau de Bord</h1>
             <h2 className="text-xl text-muted-foreground">
-              Welcome back! Here's your financial overview.
+              Bienvenue ! Voici votre aperçu financier.
             </h2>
           </div>
            <Link href="/" passHref>
               <Button variant="outline">
-                  <Icons.home className="mr-2 h-4 w-4" /> Go Home
+                  <Icons.home className="mr-2 h-4 w-4" /> Accueil
               </Button>
            </Link>
       </div>
@@ -79,29 +73,32 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <Card>
             <CardHeader>
-                <CardTitle>Current Balance</CardTitle>
+                <CardTitle>Solde Actuel</CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-3xl font-bold">€{chartData[chartData.length - 1].balance.toFixed(2)}</p>
-                <p className="text-sm text-green-500">+5% from last month</p> {/* Example change */}
+                <p className="text-3xl font-bold">€{currentBalance.toFixed(2)}</p>
+                {/* You might want to calculate or fetch this percentage */}
+                <p className="text-sm text-green-500">+5% depuis le mois dernier</p>
             </CardContent>
         </Card>
          <Card>
             <CardHeader>
-                <CardTitle>Total Income</CardTitle>
-                 <CardDescription>This Month</CardDescription>
+                <CardTitle>Revenus Totals</CardTitle>
+                 <CardDescription>Ce Mois</CardDescription>
             </CardHeader>
             <CardContent>
-                <p className="text-3xl font-bold">€2500.00</p> {/* Example data */}
+                {/* Replace with actual fetched data */}
+                <p className="text-3xl font-bold">€2500.00</p>
             </CardContent>
         </Card>
          <Card>
             <CardHeader>
-                <CardTitle>Total Expenses</CardTitle>
-                 <CardDescription>This Month</CardDescription>
+                <CardTitle>Dépenses Totales</CardTitle>
+                 <CardDescription>Ce Mois</CardDescription>
             </CardHeader>
             <CardContent>
-                <p className="text-3xl font-bold">€-245.00</p> {/* Example data */}
+                 {/* Replace with actual fetched data */}
+                <p className="text-3xl font-bold">€-245.00</p>
             </CardContent>
         </Card>
       </div>
@@ -109,59 +106,36 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <Card className="lg:col-span-3">
           <CardHeader>
-            <CardTitle>Balance Evolution</CardTitle>
+            <CardTitle>Évolution du Solde</CardTitle>
             <CardDescription>
-              Your balance evolution over the last 10 months.
+              Votre évolution de solde sur les 10 derniers mois.
             </CardDescription>
           </CardHeader>
           <CardContent className="pl-2">
-             <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                <LineChart data={chartData} margin={{ left: 12, right: 12, top: 5, bottom: 5 }}>
-                   <CartesianGrid vertical={false} />
-                   <XAxis
-                     dataKey="month"
-                     tickLine={false}
-                     axisLine={false}
-                     tickMargin={8}
-                     fontSize={12} // Adjusted font size for better fit
-                   />
-                   <ChartTooltip
-                     cursor={false}
-                     content={<ChartTooltipContent hideLabel />}
-                   />
-                   <Line
-                     dataKey="balance"
-                     type="monotone"
-                     stroke="var(--color-balance)"
-                     strokeWidth={2}
-                     dot={false}
-                   />
-                 </LineChart>
-             </ChartContainer>
+             {/* Render the dynamically imported chart */}
+             <BalanceChart />
           </CardContent>
         </Card>
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Latest Transactions</CardTitle>
+            <CardTitle>Dernières Transactions</CardTitle>
             <CardDescription>
-              A summary of your most recent transactions.
+              Un résumé de vos transactions les plus récentes.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0"> {/* Remove padding for full width scroll area */}
-            <ScrollArea className="h-[300px] border-t"> {/* Add border top */}
+          <CardContent className="p-0">
+            <ScrollArea className="h-[300px] border-t">
             <Table>
               <TableHeader>
                 <TableRow>
-                  {/* <TableHead>Date</TableHead> */}
                   <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Montant</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {latestTransactions.map((transaction) => (
                   <TableRow key={transaction.id}>
-                    {/* <TableCell className="font-medium">{transaction.date}</TableCell> */}
                     <TableCell>{transaction.description}</TableCell>
                     <TableCell className={`text-right font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {transaction.amount >= 0 ? '+' : ''}€{Math.abs(transaction.amount).toFixed(2)}
@@ -177,3 +151,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
