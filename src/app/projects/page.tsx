@@ -13,19 +13,29 @@ import { Icons } from "@/components/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { initialProjects, Project } from '@/data/mock-data';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
-
+import { Input } from "@/components/ui/input"; // Added Input import
+import { useToast } from "@/hooks/use-toast"; // Added useToast import
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const { toast } = useToast(); // Initialize toast
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [editingBudgetValue, setEditingBudgetValue] = useState<string>("");
+
 
   useEffect(() => {
     setProjects(initialProjects);
   }, []);
+
+  useEffect(() => {
+    if (selectedProject && isDetailsModalOpen) {
+      setEditingBudgetValue(selectedProject.budget.toString());
+    }
+  }, [selectedProject, isDetailsModalOpen]);
 
 
   const handleViewDetails = (project: Project) => {
@@ -41,7 +51,7 @@ export default function ProjectsPage() {
   const handleOpenDeleteDialog = (project: Project) => {
     setProjectToDelete(project);
     setIsDeleteDialogOpen(true);
-    setIsDetailsModalOpen(false);
+    setIsDetailsModalOpen(false); // Close details modal if open
   };
 
   const handleCloseDeleteDialog = () => {
@@ -52,15 +62,49 @@ export default function ProjectsPage() {
   const handleDeleteProject = () => {
     if (projectToDelete) {
       setProjects(prevProjects => prevProjects.filter(p => p.id !== projectToDelete.id));
+      toast({
+        title: "Projet supprimé",
+        description: `Le projet "${projectToDelete.name}" a été supprimé avec succès.`,
+      });
       handleCloseDeleteDialog();
-       console.log(`Project "${projectToDelete.name}" deleted.`);
     }
   };
+
+  const handleBudgetInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditingBudgetValue(e.target.value);
+  };
+
+  const handleBudgetUpdate = () => {
+    if (selectedProject) {
+      const newBudget = parseFloat(editingBudgetValue);
+      if (!isNaN(newBudget) && newBudget >= 0) {
+        if (newBudget !== selectedProject.budget) {
+          const updatedProjects = projects.map(p =>
+            p.id === selectedProject.id ? { ...p, budget: newBudget } : p
+          );
+          setProjects(updatedProjects);
+          setSelectedProject(prev => prev ? { ...prev, budget: newBudget } : null);
+          toast({
+            title: "Budget mis à jour",
+            description: `Le budget pour "${selectedProject.name}" est maintenant de €${newBudget.toFixed(2)}.`,
+          });
+        }
+      } else {
+        setEditingBudgetValue(selectedProject.budget.toString()); // Revert to original if invalid
+        toast({
+          title: "Erreur de saisie",
+          description: "Veuillez entrer un montant de budget valide.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
 
    const getAvatarFallback = (name: string) => {
       const parts = name.split(' ');
       if (parts.length >= 2) {
-          return parts[0][0] + parts[parts.length - 1][0];
+          return parts[0][0] + (parts[parts.length - 1][0] || '');
       }
       return name.substring(0, 2).toUpperCase();
    };
@@ -84,12 +128,12 @@ export default function ProjectsPage() {
       <header className="bg-card text-card-foreground border-b mb-8">
          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
            <Link href="/" className="text-2xl font-bold text-primary flex items-center">
-              <Icons.file className="mr-2 h-6 w-6"/>
+              <Icons.dollarSign className="mr-2 h-7 w-7"/>
               <span>Dépense Partagée</span>
            </Link>
            <div className="flex items-center space-x-4">
              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-                <Icons.mail className="h-5 w-5"/>
+                <Icons.bell className="h-5 w-5"/>
                 <span className="sr-only">Notifications</span>
              </Button>
              <div className="flex items-center space-x-2">
@@ -242,15 +286,27 @@ export default function ProjectsPage() {
                          <CardContent className="space-y-4">
                               <div>
                                   <p className="text-sm text-muted-foreground">Budget total</p>
-                                  <p className="font-semibold">€{selectedProject.budget.toFixed(2)}</p>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-lg">€</span>
+                                    <Input
+                                      type="number"
+                                      value={editingBudgetValue}
+                                      onChange={handleBudgetInputChange}
+                                      onBlur={handleBudgetUpdate}
+                                      className="font-semibold h-9 text-lg w-32 p-2 border-input bg-transparent focus:ring-primary focus:border-primary"
+                                      min="0"
+                                      step="0.01"
+                                      aria-label="Budget total du projet"
+                                    />
+                                  </div>
                               </div>
                               <div>
                                   <p className="text-sm text-muted-foreground">Dépenses totales</p>
-                                  <p className="font-semibold">€{selectedProject.totalExpenses.toFixed(2)}</p>
+                                  <p className="font-semibold text-lg">€{selectedProject.totalExpenses.toFixed(2)}</p>
                               </div>
                               <div>
                                   <p className="text-sm text-muted-foreground">Budget restant</p>
-                                  <p className={`font-semibold ${selectedProject.budget - selectedProject.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  <p className={`font-semibold text-lg ${selectedProject.budget - selectedProject.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     €{(selectedProject.budget - selectedProject.totalExpenses).toFixed(2)}
                                   </p>
                               </div>
@@ -354,3 +410,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+
