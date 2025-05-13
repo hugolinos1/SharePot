@@ -39,7 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Label } from "@/components/ui/label"; // Added Label import
+import { Label } from "@/components/ui/label";
 import type { ChartConfig } from '@/components/ui/chart';
 import { initialProjects, Project } from '@/data/mock-data'; 
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
@@ -125,20 +125,20 @@ export default function DashboardPage() {
       return {
         totalSpent: `${totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
         expenseCount: expenseCount.toString(),
-        activeProjectsCount: "1", // Active projects count here would just be 1 as one is selected
+        participantsCount: selectedProject.members.length.toString(),
         averagePerPerson: `${averagePerPerson.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
       };
     } else { 
       const totalSpentAll = initialProjects.reduce((sum, p) => sum + p.totalExpenses, 0);
       const totalExpenseCountAll = initialProjects.reduce((sum, p) => sum + p.recentExpenses.length, 0); 
-      const allMembers = new Set<string>();
-      initialProjects.forEach(p => p.members.forEach(m => allMembers.add(m)));
-      const averagePerPersonAll = allMembers.size > 0 ? totalSpentAll / allMembers.size : 0;
+      const allParticipantsAllProjects = new Set<string>();
+      initialProjects.forEach(p => p.members.forEach(m => allParticipantsAllProjects.add(m)));
+      const averagePerPersonAll = allParticipantsAllProjects.size > 0 ? totalSpentAll / allParticipantsAllProjects.size : 0;
 
       return {
         totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
         expenseCount: totalExpenseCountAll.toString(),
-        activeProjectsCount: initialProjects.filter(p => p.status === 'Actif').length.toString(),
+        participantsCount: allParticipantsAllProjects.size.toString(),
         averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
       };
     }
@@ -210,7 +210,7 @@ export default function DashboardPage() {
         </SidebarContent>
         <SidebarFooter className="p-4">
           <Button variant="outline" asChild>
-            <Link href="/"><Icons.home /> Accueil (Portail)</Link>
+            <Link href="/login"><Icons.home /> Accueil (Portail)</Link>
           </Button>
         </SidebarFooter>
       </Sidebar>
@@ -244,10 +244,10 @@ export default function DashboardPage() {
                 {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue. Voici un aperçu global."}
               </p>
             </div>
-            <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5">
-             <Label htmlFor="project-filter-select" className="text-sm font-medium">Filtrer par projet</Label>
+            <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5 bg-card p-4 rounded-lg shadow">
+             <Label htmlFor="project-filter-select" className="text-sm font-medium text-card-foreground/80">Filtrer par projet</Label>
               <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-                <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base">
+                <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base bg-background">
                   <SelectValue placeholder="Sélectionner un projet" />
                 </SelectTrigger>
                 <SelectContent>
@@ -266,7 +266,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <SummaryCard title="Total dépensé" value={summaryData.totalSpent} icon={<Icons.euro className="h-5 w-5 text-muted-foreground" />} />
             <SummaryCard title="Dépenses enregistrées" value={summaryData.expenseCount} icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} />
-            <SummaryCard title="Projets actifs" value={summaryData.activeProjectsCount} icon={<Icons.folders className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Participants" value={summaryData.participantsCount} icon={<Icons.users className="h-5 w-5 text-muted-foreground" />} description={selectedProject ? "Dans ce projet" : "Total unique"}/>
             <SummaryCard title="Moyenne / pers." value={summaryData.averagePerPerson} icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
           </div>
 
