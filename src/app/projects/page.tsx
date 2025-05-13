@@ -95,7 +95,7 @@ export default function ProjectsPage() {
              <div className="flex items-center space-x-2">
                <span className="text-sm font-medium hidden sm:inline">Admin User</span>
                <Avatar className="w-8 h-8">
-                    <AvatarImage src="https://ui-avatars.com/api/?name=Admin+User&background=4f46e5&color=fff" alt="User Avatar" data-ai-hint="user avatar"/>
+                    <AvatarImage src="https://ui-avatars.com/api/?name=Admin+User&background=random&color=fff" alt="User Avatar" data-ai-hint="user avatar"/>
                     <AvatarFallback>AU</AvatarFallback>
                </Avatar>
              </div>
@@ -198,6 +198,11 @@ export default function ProjectsPage() {
               </DialogHeader>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6">
+                {/* Settlement (Full width at top) */}
+                <div className="lg:col-span-3">
+                    <ProjectExpenseSettlement project={selectedProject} />
+                </div>
+
                 {/* Left Column */}
                 <div className="lg:col-span-2 space-y-4">
                    <Card>
@@ -256,8 +261,6 @@ export default function ProjectsPage() {
                              </div>
                          </CardContent>
                      </Card>
-
-                    <ProjectExpenseSettlement project={selectedProject} />
 
                      <Card>
                           <CardHeader>
@@ -351,4 +354,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
