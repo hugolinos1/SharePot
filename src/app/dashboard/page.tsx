@@ -1,6 +1,7 @@
+tsx
 "use client";
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
@@ -31,7 +32,15 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Icons } from '@/components/icons';
 import { Separator } from '@/components/ui/separator';
-import type { ChartConfig } from '@/components/ui/chart'; // Ensure ChartConfig is exported from ui/chart
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ChartConfig } from '@/components/ui/chart';
+import { initialProjects, Project } from '@/data/mock-data'; // Import projects data
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -58,28 +67,27 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
   </Card>
 );
 
-interface RecentExpense {
+interface RecentExpenseItem { // Renamed from RecentExpense to avoid conflict with Project's recentExpenses
   id: string;
   icon: React.ElementType;
   title: string;
-  project: string;
+  project: string; // Project name
   date: string;
   amount: string;
   tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
 }
 
-const mockRecentExpenses: RecentExpense[] = [
-  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Prague', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
-  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Prague', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
-  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Prague', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
-  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Colocation Juin', date: '13 mai 2025', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
-  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Colocation Juin', date: '13 mai 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
+const mockRecentExpenseItems: RecentExpenseItem[] = [ // Renamed from mockRecentExpenses
+  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
+  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Paris', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
+  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Paris', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
+  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Déménagement Bureau', date: '13 mai 2025', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
+  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Déménagement Bureau', date: '13 mai 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
+  { id: '6', icon: Icons.fileText, title: 'Billets d\'avion', project: 'Événement Startup', date: '10 mai 2025', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
+  { id: '7', icon: Icons.fileText, title: 'Frais de stand', project: 'Événement Startup', date: '11 mai 2025', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
+
 ];
 
-const mockActiveProjects = [
-    { id: 'proj1', name: 'Voyage à Paris', icon: Icons.folderKanban },
-    { id: 'proj2', name: 'Événement Startup', icon: Icons.folderKanban },
-];
 
 interface SidebarGroupContentProps {
   children: React.ReactNode;
@@ -90,6 +98,8 @@ const SidebarGroupContent: React.FC<SidebarGroupContentProps> = ({ children }) =
 };
 
 export default function DashboardPage() {
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+
   const chartConfig = {
     Dépenses: {
       label: "Dépenses (€)",
@@ -101,12 +111,60 @@ export default function DashboardPage() {
     MarieP: { label: "Marie P.", color: "hsl(var(--chart-4))" },
   } satisfies ChartConfig;
 
+  const selectedProject = useMemo(() => {
+    if (selectedProjectId === 'all') return null;
+    return initialProjects.find(p => p.id === selectedProjectId);
+  }, [selectedProjectId]);
+
+  const summaryData = useMemo(() => {
+    if (selectedProject) {
+      const totalExpenses = selectedProject.totalExpenses;
+      const expenseCount = selectedProject.recentExpenses.length; // Or a more accurate count if available
+      const averagePerPerson = selectedProject.members.length > 0 ? totalExpenses / selectedProject.members.length : 0;
+      return {
+        totalSpent: `${totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+        expenseCount: expenseCount.toString(),
+        activeProjectsCount: "1",
+        averagePerPerson: `${averagePerPerson.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+      };
+    } else { // All projects
+      const totalSpentAll = initialProjects.reduce((sum, p) => sum + p.totalExpenses, 0);
+      const totalExpenseCountAll = initialProjects.reduce((sum, p) => sum + p.recentExpenses.length, 0); // Example, sum of mock recent expenses lengths
+      const allMembers = new Set<string>();
+      initialProjects.forEach(p => p.members.forEach(m => allMembers.add(m)));
+      const averagePerPersonAll = allMembers.size > 0 ? totalSpentAll / allMembers.size : 0;
+
+      return {
+        totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+        expenseCount: totalExpenseCountAll.toString(),
+        activeProjectsCount: initialProjects.filter(p => p.status === 'Actif').length.toString(),
+        averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+      };
+    }
+  }, [selectedProject]);
+
+  const filteredRecentExpenses = useMemo(() => {
+    if (selectedProject) {
+      return mockRecentExpenseItems.filter(expense => expense.project === selectedProject.name);
+    }
+    return mockRecentExpenseItems;
+  }, [selectedProject]);
+
+  const filteredActiveProjects = useMemo(() => {
+    const active = initialProjects.filter(p => p.status === 'Actif');
+    if (selectedProject) {
+      return active.filter(p => p.id === selectedProject.id);
+    }
+    return active;
+  }, [selectedProject]);
+
+
   return (
     <SidebarProvider defaultOpen>
       <Sidebar className="border-r" collapsible="icon">
         <SidebarHeader className="p-4">
           <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold text-primary">
-            <Icons.dollarSign className="h-7 w-7" /> {/* Using existing DollarSign as placeholder */}
+            <Icons.dollarSign className="h-7 w-7" />
             <span>DépensePartagée</span>
           </Link>
         </SidebarHeader>
@@ -159,7 +217,7 @@ export default function DashboardPage() {
         </SidebarContent>
         <SidebarFooter className="p-4">
           <Button variant="outline" asChild>
-            <Link href="/"><Icons.home /> Accueil (Login)</Link>
+            <Link href="/"><Icons.home /> Accueil (Portail)</Link>
           </Button>
         </SidebarFooter>
       </Sidebar>
@@ -186,17 +244,36 @@ export default function DashboardPage() {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">Tableau de bord</h1>
-            <p className="text-muted-foreground">Bienvenue, Admin. Voici un aperçu de vos dépenses récentes.</p>
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-bold">Tableau de bord</h1>
+              <p className="text-muted-foreground">
+                {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue, Admin. Voici un aperçu global."}
+              </p>
+            </div>
+            <div className="w-full sm:w-auto sm:min-w-[200px] md:min-w-[250px]">
+              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Sélectionner un projet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les projets</SelectItem>
+                  {initialProjects.map(project => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard title="Total dépensé" value="666,90 €" icon={<Icons.euro className="h-5 w-5 text-muted-foreground" />} />
-            <SummaryCard title="Dépenses" value="5" icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} />
-            <SummaryCard title="Projets actifs" value="2" icon={<Icons.folders className="h-5 w-5 text-muted-foreground" />} />
-            <SummaryCard title="Moyenne / pers." value="333,45 €" icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Total dépensé" value={summaryData.totalSpent} icon={<Icons.euro className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Dépenses enregistrées" value={summaryData.expenseCount} icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Projets actifs" value={summaryData.activeProjectsCount} icon={<Icons.folders className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Moyenne / pers." value={summaryData.averagePerPerson} icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
           </div>
 
           {/* Charts and Recent Expenses */}
@@ -205,7 +282,9 @@ export default function DashboardPage() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Analyse des dépenses</CardTitle>
-                <CardDescription>Vue d'ensemble des dépenses au sein de vos projets</CardDescription>
+                <CardDescription>
+                  {selectedProject ? `Dépenses pour ${selectedProject.name}` : "Vue d'ensemble des dépenses au sein de vos projets"}
+                </CardDescription>
               </CardHeader>
               <CardContent className="pl-2">
                 <Tabs defaultValue="user">
@@ -214,7 +293,7 @@ export default function DashboardPage() {
                     <TabsTrigger value="category">Par catégorie</TabsTrigger>
                   </TabsList>
                   <TabsContent value="user">
-                    <ExpenseAnalysisChart />
+                    <ExpenseAnalysisChart /> {/* Note: Chart data is currently mock and not filtered by project */}
                   </TabsContent>
                   <TabsContent value="category">
                     <p className="text-muted-foreground text-center py-8">Analyse par catégorie bientôt disponible.</p>
@@ -227,28 +306,34 @@ export default function DashboardPage() {
             <Card className="lg:col-span-1">
               <CardHeader>
                 <CardTitle>Dépenses récentes</CardTitle>
-                <CardDescription>Vos dernières transactions</CardDescription>
+                <CardDescription>
+                  {selectedProject ? `Transactions pour ${selectedProject.name}` : "Vos dernières transactions"}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {mockRecentExpenses.map(expense => (
-                  <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
-                    <div className="p-2 bg-primary/10 rounded-md">
-                         <expense.icon className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-center">
-                        <p className="font-medium">{expense.title}</p>
-                        <p className="font-semibold text-sm">{expense.amount}</p>
+                {filteredRecentExpenses.length > 0 ? (
+                  filteredRecentExpenses.map(expense => (
+                    <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
+                      <div className="p-2 bg-primary/10 rounded-md">
+                           <expense.icon className="h-5 w-5 text-primary" />
                       </div>
-                      <p className="text-xs text-muted-foreground">{expense.project} • {expense.date}</p>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {expense.tags.map(tag => (
-                          <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
-                        ))}
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <p className="font-medium">{expense.title}</p>
+                          <p className="font-semibold text-sm">{expense.amount}</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{expense.project} • {expense.date}</p>
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {expense.tags.map(tag => (
+                            <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-muted-foreground text-center py-4">Aucune dépense récente à afficher.</p>
+                )}
                  <Button variant="link" className="w-full mt-2 text-primary">Voir toutes les dépenses</Button>
               </CardContent>
             </Card>
@@ -257,23 +342,35 @@ export default function DashboardPage() {
           {/* Active Projects */}
            <Card>
                 <CardHeader>
-                    <CardTitle>Vos projets actifs</CardTitle>
-                    <CardDescription>Projets auxquels vous participez</CardDescription>
+                    <CardTitle>
+                      {selectedProject ? `Projet actif: ${selectedProject.name}` : "Vos projets actifs"}
+                    </CardTitle>
+                    <CardDescription>
+                      {selectedProject ? `Détails du projet sélectionné` : "Projets auxquels vous participez"}
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {mockActiveProjects.map((project) => (
-                            <Card key={project.id} className="hover:shadow-md transition-shadow">
+                        {filteredActiveProjects.map((project) => (
+                            <Card key={project.id} className={`hover:shadow-md transition-shadow ${selectedProjectId === project.id ? 'ring-2 ring-primary' : ''}`}>
                                 <CardContent className="p-4 flex flex-col items-center text-center">
                                     <div className="p-3 bg-primary/10 rounded-lg mb-2">
-                                        <project.icon className="h-8 w-8 text-primary" />
+                                        <Icons.folderKanban className="h-8 w-8 text-primary" />
                                     </div>
                                     <p className="font-medium text-sm">{project.name}</p>
+                                     <Badge variant={project.status === 'Actif' ? 'default' : 'secondary'} className="mt-1 text-xs">{project.status}</Badge>
                                 </CardContent>
                             </Card>
                         ))}
-                         {mockActiveProjects.length === 0 && <p className="text-muted-foreground col-span-full text-center py-4">Aucun projet actif.</p>}
+                         {filteredActiveProjects.length === 0 && <p className="text-muted-foreground col-span-full text-center py-4">
+                           {selectedProject ? "Ce projet n'est pas actif ou ne correspond pas aux filtres." : "Aucun projet actif."}
+                           </p>}
                     </div>
+                     {selectedProjectId !== 'all' && filteredActiveProjects.length > 0 && (
+                        <Button variant="outline" onClick={() => setSelectedProjectId('all')} className="mt-4 w-full">
+                            Voir tous les projets actifs
+                        </Button>
+                    )}
                 </CardContent>
             </Card>
         </main>
