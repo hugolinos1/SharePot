@@ -22,6 +22,7 @@ interface ExpenseItem {
   id: string;
   title: string; // Description of expense
   project: string; // Name of the project
+  paidBy: string; // Name of the person who paid
   date: string;
   amount: string; // Display string for amount, e.g., "120,50 €"
   tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
@@ -29,18 +30,18 @@ interface ExpenseItem {
 
 // Comprehensive list of expenses for this page
 const allExpensesData: ExpenseItem[] = [
-  { id: 'exp1', title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
-  { id: 'exp2', title: 'Tickets de métro', project: 'Voyage à Paris', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
-  { id: 'exp3', title: 'Visite du musée', project: 'Voyage à Paris', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
-  { id: 'exp4', title: 'Loyer agence', project: 'Déménagement Bureau', date: '1 juin 2025', amount: '1350,75 €', tags: [{label: 'logement', variant: 'secondary'}, {label: 'fixe', variant: 'secondary'}] },
-  { id: 'exp5', title: 'Courses alimentaires equipe', project: 'Déménagement Bureau', date: '3 juin 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'équipe', variant: 'secondary'}] },
-  { id: 'exp6', title: 'Billets d\'avion conférence', project: 'Événement Startup', date: '10 mai 2025', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
-  { id: 'exp7', title: 'Frais de stand salon', project: 'Événement Startup', date: '11 mai 2025', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
-  { id: 'exp8', title: 'Logiciel de design (Abonnement)', project: 'Développement Application Mobile', date: '15 juin 2025', amount: '150,00 €', tags: [{label: 'logiciel', variant: 'secondary'}, {label: 'design', variant: 'secondary'}]},
-  { id: 'exp9', title: 'Hébergement serveur (Mensuel)', project: 'Développement Application Mobile', date: '20 juin 2025', amount: '75,00 €', tags: [{label: 'infra', variant: 'secondary'}, {label: 'cloud', variant: 'secondary'}]},
-  { id: 'exp10', title: 'Fournitures de bureau diverses', project: 'Déménagement Bureau', date: '1 mai 2025', amount: '95,00 €', tags: [{label: 'bureau', variant: 'secondary'}, {label: 'fournitures', variant: 'secondary'}]},
-  { id: 'exp11', title: 'Déjeuner client Alpha', project: 'Voyage à Paris', date: '14 mai 2025', amount: '70,00 €', tags: [{label: 'client', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}]},
-  { id: 'exp12', title: 'Publicité en ligne', project: 'Événement Startup', date: '5 mai 2025', amount: '300,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'pub', variant: 'secondary'}]},
+  { id: 'exp1', title: 'Restaurant Chez Michel', project: 'Voyage à Paris', paidBy: 'Jean Dupont', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
+  { id: 'exp2', title: 'Tickets de métro', project: 'Voyage à Paris', paidBy: 'Marie Martin', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
+  { id: 'exp3', title: 'Visite du musée', project: 'Voyage à Paris', paidBy: 'Paul Durand', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
+  { id: 'exp4', title: 'Loyer agence', project: 'Déménagement Bureau', paidBy: 'Admin User', date: '1 juin 2025', amount: '1350,75 €', tags: [{label: 'logement', variant: 'secondary'}, {label: 'fixe', variant: 'secondary'}] },
+  { id: 'exp5', title: 'Courses alimentaires equipe', project: 'Déménagement Bureau', paidBy: 'Lucie Petit', date: '3 juin 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'équipe', variant: 'secondary'}] },
+  { id: 'exp6', title: 'Billets d\'avion conférence', project: 'Événement Startup', paidBy: 'Admin User', date: '10 mai 2025', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
+  { id: 'exp7', title: 'Frais de stand salon', project: 'Événement Startup', paidBy: 'Sarah Leroy', date: '11 mai 2025', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
+  { id: 'exp8', title: 'Logiciel de design (Abonnement)', project: 'Développement Application Mobile', paidBy: 'Jean Dupont', date: '15 juin 2025', amount: '150,00 €', tags: [{label: 'logiciel', variant: 'secondary'}, {label: 'design', variant: 'secondary'}]},
+  { id: 'exp9', title: 'Hébergement serveur (Mensuel)', project: 'Développement Application Mobile', paidBy: 'Alice Dubois', date: '20 juin 2025', amount: '75,00 €', tags: [{label: 'infra', variant: 'secondary'}, {label: 'cloud', variant: 'secondary'}]},
+  { id: 'exp10', title: 'Fournitures de bureau diverses', project: 'Déménagement Bureau', paidBy: 'Marc Blanc', date: '1 mai 2025', amount: '95,00 €', tags: [{label: 'bureau', variant: 'secondary'}, {label: 'fournitures', variant: 'secondary'}]},
+  { id: 'exp11', title: 'Déjeuner client Alpha', project: 'Voyage à Paris', paidBy: 'Jean Dupont', date: '14 mai 2025', amount: '70,00 €', tags: [{label: 'client', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}]},
+  { id: 'exp12', title: 'Publicité en ligne', project: 'Événement Startup', paidBy: 'Admin User', date: '5 mai 2025', amount: '300,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'pub', variant: 'secondary'}]},
 ];
 
 
@@ -65,6 +66,7 @@ export default function ExpensesPage() {
       expenses = expenses.filter(expense =>
         expense.title.toLowerCase().includes(lowerCaseSearch) ||
         expense.project.toLowerCase().includes(lowerCaseSearch) ||
+        expense.paidBy.toLowerCase().includes(lowerCaseSearch) ||
         expense.tags.some(tag => tag.label.toLowerCase().includes(lowerCaseSearch))
       );
     }
@@ -86,6 +88,9 @@ export default function ExpensesPage() {
               <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Tableau de bord
             </Button>
           </Link>
+           <Link href="/projects/create" passHref>
+              <Button><Icons.plus className="mr-2 h-4 w-4" /> Nouvelle Dépense</Button>
+            </Link>
         </div>
       </div>
 
@@ -132,6 +137,7 @@ export default function ExpensesPage() {
                 <TableRow>
                   <TableHead>Description</TableHead>
                   <TableHead>Projet</TableHead>
+                  <TableHead>Payé par</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
@@ -143,6 +149,7 @@ export default function ExpensesPage() {
                   <TableRow key={expense.id}>
                     <TableCell className="font-medium">{expense.title}</TableCell>
                     <TableCell className="text-muted-foreground">{expense.project}</TableCell>
+                    <TableCell className="text-muted-foreground">{expense.paidBy}</TableCell>
                     <TableCell className="text-muted-foreground">{expense.date}</TableCell>
                     <TableCell className="text-right font-semibold">{expense.amount}</TableCell>
                     <TableCell>
@@ -166,7 +173,7 @@ export default function ExpensesPage() {
                 ))}
                 {filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
                       Aucune dépense trouvée pour les filtres actuels.
                     </TableCell>
                   </TableRow>
