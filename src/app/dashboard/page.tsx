@@ -150,14 +150,6 @@ export default function DashboardPage() {
     return mockRecentExpenseItems;
   }, [selectedProject]);
 
-  const filteredActiveProjects = useMemo(() => {
-    const active = initialProjects.filter(p => p.status === 'Actif');
-    if (selectedProject) {
-      return active.filter(p => p.id === selectedProject.id);
-    }
-    return active;
-  }, [selectedProject]);
-
 
   return (
     <SidebarProvider defaultOpen>
@@ -342,40 +334,6 @@ export default function DashboardPage() {
             </Card>
           </div>
           
-          {/* Active Projects */}
-           <Card>
-                <CardHeader>
-                    <CardTitle>
-                      {selectedProject ? `Projet actif: ${selectedProject.name}` : "Vos projets actifs"}
-                    </CardTitle>
-                    <CardDescription>
-                      {selectedProject ? `Détails du projet sélectionné` : "Projets auxquels vous participez"}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {filteredActiveProjects.map((project) => (
-                            <Card key={project.id} className={`hover:shadow-md transition-shadow ${selectedProjectId === project.id ? 'ring-2 ring-primary' : ''}`}>
-                                <CardContent className="p-4 flex flex-col items-center text-center">
-                                    <div className="p-3 bg-primary/10 rounded-lg mb-2">
-                                        <Icons.folderKanban className="h-8 w-8 text-primary" />
-                                    </div>
-                                    <p className="font-medium text-sm">{project.name}</p>
-                                     <Badge variant={project.status === 'Actif' ? 'default' : 'secondary'} className="mt-1 text-xs">{project.status}</Badge>
-                                </CardContent>
-                            </Card>
-                        ))}
-                         {filteredActiveProjects.length === 0 && <p className="text-muted-foreground col-span-full text-center py-4">
-                           {selectedProject ? "Ce projet n'est pas actif ou ne correspond pas aux filtres." : "Aucun projet actif."}
-                           </p>}
-                    </div>
-                     {selectedProjectId !== 'all' && filteredActiveProjects.length > 0 && (
-                        <Button variant="outline" onClick={() => setSelectedProjectId('all')} className="mt-4 w-full">
-                            Voir tous les projets actifs
-                        </Button>
-                    )}
-                </CardContent>
-            </Card>
         </main>
       </SidebarInset>
     </SidebarProvider>
