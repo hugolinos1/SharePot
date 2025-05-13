@@ -39,9 +39,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label"; // Added Label import
 import type { ChartConfig } from '@/components/ui/chart';
 import { initialProjects, Project } from '@/data/mock-data'; 
-import { BalanceSummary } from '@/components/dashboard/balance-summary'; // Import BalanceSummary
+import { BalanceSummary } from '@/components/dashboard/balance-summary';
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -243,9 +244,10 @@ export default function DashboardPage() {
                 {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue. Voici un aperçu global."}
               </p>
             </div>
-            <div className="w-full sm:w-auto sm:min-w-[200px] md:min-w-[250px]">
+            <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5">
+             <Label htmlFor="project-filter-select" className="text-sm font-medium">Filtrer par projet</Label>
               <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base">
                   <SelectValue placeholder="Sélectionner un projet" />
                 </SelectTrigger>
                 <SelectContent>
@@ -300,14 +302,14 @@ export default function DashboardPage() {
             {/* Recent Expenses List */}
             <Card className="lg:col-span-1">
               <CardHeader>
-                <CardTitle>Dépenses récentes (global)</CardTitle> {/* Title changed to reflect it shows mock global recent items */}
+                <CardTitle>Dépenses récentes (global)</CardTitle> 
                 <CardDescription>
                   {selectedProject ? `Dernières transactions globales (non filtré par projet ${selectedProject.name})` : "Vos dernières transactions globales"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {filteredRecentExpenses.length > 0 ? (
-                  filteredRecentExpenses.slice(0, 5).map(expense => ( // Show only first 5 mock items
+                  filteredRecentExpenses.slice(0, 5).map(expense => ( 
                     <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
                       <div className="p-2 bg-primary/10 rounded-md">
                            <expense.icon className="h-5 w-5 text-primary" />
