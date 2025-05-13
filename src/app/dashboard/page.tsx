@@ -175,7 +175,7 @@ export default function DashboardPage() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <Link href="#"><Icons.receipt /> Dépenses</Link>
+                <Link href="/expenses"><Icons.receipt /> Dépenses</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
