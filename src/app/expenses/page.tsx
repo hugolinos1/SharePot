@@ -88,7 +88,7 @@ export default function ExpensesPage() {
               <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Tableau de bord
             </Button>
           </Link>
-           <Link href="/projects/create" passHref>
+           <Link href="/expenses/new" passHref>
               <Button><Icons.plus className="mr-2 h-4 w-4" /> Nouvelle Dépense</Button>
             </Link>
         </div>

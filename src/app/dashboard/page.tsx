@@ -180,7 +180,7 @@ export default function DashboardPage() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <Link href="#"><Icons.plusSquare /> Nouvelle dépense</Link>
+                <Link href="/expenses/new"><Icons.plusSquare /> Nouvelle dépense</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
