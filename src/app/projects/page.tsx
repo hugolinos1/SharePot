@@ -13,18 +13,20 @@ import { Icons } from "@/components/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { initialProjects, Project } from '@/data/mock-data';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
-import { Input } from "@/components/ui/input"; // Added Input import
-import { useToast } from "@/hooks/use-toast"; // Added useToast import
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea"; // Added Textarea import
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { toast } = useToast(); // Initialize toast
+  const { toast } = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [editingBudgetValue, setEditingBudgetValue] = useState<string>("");
+  const [editingNotesValue, setEditingNotesValue] = useState<string>("");
 
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (selectedProject && isDetailsModalOpen) {
       setEditingBudgetValue(selectedProject.budget.toString());
+      setEditingNotesValue(selectedProject.notes || "");
     }
   }, [selectedProject, isDetailsModalOpen]);
 
@@ -51,7 +54,7 @@ export default function ProjectsPage() {
   const handleOpenDeleteDialog = (project: Project) => {
     setProjectToDelete(project);
     setIsDeleteDialogOpen(true);
-    setIsDetailsModalOpen(false); // Close details modal if open
+    setIsDetailsModalOpen(false); 
   };
 
   const handleCloseDeleteDialog = () => {
@@ -90,11 +93,31 @@ export default function ProjectsPage() {
           });
         }
       } else {
-        setEditingBudgetValue(selectedProject.budget.toString()); // Revert to original if invalid
+        setEditingBudgetValue(selectedProject.budget.toString()); 
         toast({
           title: "Erreur de saisie",
           description: "Veuillez entrer un montant de budget valide.",
           variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const handleNotesInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditingNotesValue(e.target.value);
+  };
+
+  const handleNotesUpdate = () => {
+    if (selectedProject) {
+      if (editingNotesValue !== (selectedProject.notes || "")) {
+        const updatedProjects = projects.map(p =>
+          p.id === selectedProject.id ? { ...p, notes: editingNotesValue } : p
+        );
+        setProjects(updatedProjects);
+        setSelectedProject(prev => prev ? { ...prev, notes: editingNotesValue } : null);
+        toast({
+          title: "Notes mises à jour",
+          description: `Les notes pour "${selectedProject.name}" ont été sauvegardées.`,
         });
       }
     }
@@ -242,12 +265,12 @@ export default function ProjectsPage() {
               </DialogHeader>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6">
-                {/* Settlement (Full width at top) */}
+                
                 <div className="lg:col-span-3">
                     <ProjectExpenseSettlement project={selectedProject} />
                 </div>
 
-                {/* Left Column */}
+                
                 <div className="lg:col-span-2 space-y-4">
                    <Card>
                        <CardHeader>
@@ -277,7 +300,7 @@ export default function ProjectsPage() {
                    </Card>
                  </div>
 
-                 {/* Right Column */}
+                 
                  <div className="space-y-4">
                      <Card>
                          <CardHeader>
@@ -357,16 +380,21 @@ export default function ProjectsPage() {
                        </Card>
                  </div>
                  
-                {/* Notes Card - Moved to be a full-width item at the bottom of the grid */}
+                
                 <div className="lg:col-span-3">
                   <Card>
                       <CardHeader>
                           <CardTitle className="text-lg">Notes du projet</CardTitle>
                       </CardHeader>
                       <CardContent>
-                          <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                              {selectedProject.notes || "Aucune note pour ce projet."}
-                          </p>
+                          <Textarea
+                            value={editingNotesValue}
+                            onChange={handleNotesInputChange}
+                            onBlur={handleNotesUpdate}
+                            placeholder="Ajoutez des notes pour ce projet..."
+                            className="min-h-[100px] text-sm"
+                            aria-label="Notes du projet"
+                          />
                       </CardContent>
                   </Card>
                 </div>
@@ -378,7 +406,7 @@ export default function ProjectsPage() {
                  </Button>
                  <div className="flex space-x-2 mt-2 sm:mt-0">
                     <DialogClose asChild>
-                       <Button variant="outline">Fermer</Button>
+                       <Button variant="outline" onClick={handleCloseDetails}>Fermer</Button>
                     </DialogClose>
                     <Button>
                       <Icons.edit className="mr-2 h-4 w-4" /> Modifier
@@ -410,4 +438,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
