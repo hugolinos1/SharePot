@@ -175,6 +175,11 @@ export default function DashboardPage() {
                 <Link href="/dashboard"><Icons.layoutDashboard /> Tableau de bord</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="/projects"><Icons.folders /> Projets</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <Link href="#"><Icons.receipt /> Dépenses</Link>
@@ -183,11 +188,6 @@ export default function DashboardPage() {
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <Link href="#"><Icons.plusSquare /> Nouvelle dépense</Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <Link href="/projects"><Icons.folders /> Projets</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
