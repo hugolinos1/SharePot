@@ -11,12 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Icons } from "@/components/icons";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Import Avatar components
-import { initialProjects, Project } from '@/data/mock-data'; // Import data from central location
-
-// Remove FontAwesome imports if no longer used
-// import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-// import { faProjectDiagram, faBell, faPlus, faArrowRight, faTimes, faTrashAlt, faEdit, faSave } from '@fortawesome/free-solid-svg-icons';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { initialProjects, Project } from '@/data/mock-data';
+import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
 
 
 export default function ProjectsPage() {
@@ -27,7 +24,6 @@ export default function ProjectsPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
-  // Use useEffect to set initial state on client-side to avoid hydration mismatch
   useEffect(() => {
     setProjects(initialProjects);
   }, []);
@@ -46,7 +42,6 @@ export default function ProjectsPage() {
   const handleOpenDeleteDialog = (project: Project) => {
     setProjectToDelete(project);
     setIsDeleteDialogOpen(true);
-    // Close details modal if open
     setIsDetailsModalOpen(false);
   };
 
@@ -59,8 +54,6 @@ export default function ProjectsPage() {
     if (projectToDelete) {
       setProjects(prevProjects => prevProjects.filter(p => p.id !== projectToDelete.id));
       handleCloseDeleteDialog();
-      // Add toast notification for success here if needed
-      // toast({ title: "Projet supprimé", description: `Le projet "${projectToDelete.name}" a été supprimé.` });
        console.log(`Project "${projectToDelete.name}" deleted.`);
     }
   };
@@ -75,9 +68,9 @@ export default function ProjectsPage() {
 
   const getStatusBadgeVariant = (status: string): "default" | "secondary" | "outline" | "destructive" => {
     switch (status.toLowerCase()) {
-      case 'actif': return 'default'; // Using primary color
-      case 'en attente': return 'secondary'; // Using yellowish color might require theme adjustment
-      case 'terminé': return 'outline'; // Using outline style
+      case 'actif': return 'default';
+      case 'en attente': return 'secondary';
+      case 'terminé': return 'outline';
       default: return 'secondary';
     }
   };
@@ -89,7 +82,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      {/* Header simulation - In a real app, this would be part of a layout */}
       <header className="bg-card text-card-foreground border-b mb-8">
          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
            <Link href="/" className="text-2xl font-bold text-primary flex items-center">
@@ -97,12 +89,10 @@ export default function ProjectsPage() {
               <span>Dépense Partagée</span>
            </Link>
            <div className="flex items-center space-x-4">
-             {/* Notification Icon */}
              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-                <Icons.mail className="h-5 w-5"/> {/* Changed to Mail icon */}
+                <Icons.mail className="h-5 w-5"/>
                 <span className="sr-only">Notifications</span>
              </Button>
-             {/* User Menu */}
              <div className="flex items-center space-x-2">
                <span className="text-sm font-medium hidden sm:inline">Admin User</span>
                <Avatar className="w-8 h-8">
@@ -117,8 +107,6 @@ export default function ProjectsPage() {
          </div>
        </header>
 
-
-      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
               <h2 className="text-2xl font-bold text-foreground">Gestion des Projets</h2>
@@ -129,7 +117,6 @@ export default function ProjectsPage() {
         </Button>
       </div>
 
-      {/* Projects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
           <Card key={project.id} className="shadow-md hover:shadow-lg transition-shadow duration-300 flex flex-col">
@@ -161,7 +148,6 @@ export default function ProjectsPage() {
                  <p className="text-right text-xs font-medium mt-1">{calculateProgress(project.totalExpenses, project.budget).toFixed(0)}% utilisé</p>
               </div>
 
-               {/* Tags */}
                 <div className="mb-4 flex flex-wrap gap-1">
                    {project.tags.map(tag => (
                        <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
@@ -203,7 +189,6 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Project Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
         <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-6xl max-h-[90vh] flex flex-col">
           {selectedProject && (
@@ -213,15 +198,14 @@ export default function ProjectsPage() {
                 <DialogDescription>{selectedProject.description}</DialogDescription>
               </DialogHeader>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6"> {/* Added padding and negative margin for scrollbar */}
-                {/* Left Column (Recent Expenses & Notes) */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6">
                 <div className="lg:col-span-2 space-y-4">
                    <Card>
                        <CardHeader>
                            <CardTitle className="text-lg">Dépenses récentes</CardTitle>
                        </CardHeader>
                        <CardContent>
-                           <div className="space-y-3 max-h-60 overflow-y-auto pr-2"> {/* Scroll within card content */}
+                           <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
                                {selectedProject.recentExpenses.length > 0 ? selectedProject.recentExpenses.map((expense, index) => (
                                    <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                                        <div>
@@ -248,14 +232,13 @@ export default function ProjectsPage() {
                            <CardTitle className="text-lg">Notes du projet</CardTitle>
                        </CardHeader>
                        <CardContent>
-                           <p className="text-sm text-muted-foreground whitespace-pre-wrap"> {/* Use whitespace-pre-wrap */}
+                           <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                                {selectedProject.notes || "Aucune note pour ce projet."}
                            </p>
                        </CardContent>
                    </Card>
                  </div>
 
-                 {/* Right Column (Stats & Members) */}
                  <div className="space-y-4">
                      <Card>
                          <CardHeader>
@@ -284,12 +267,14 @@ export default function ProjectsPage() {
                          </CardContent>
                      </Card>
 
+                    <ProjectExpenseSettlement project={selectedProject} />
+
                      <Card>
                           <CardHeader>
                               <CardTitle className="text-lg">Membres ({selectedProject.members.length})</CardTitle>
                           </CardHeader>
                           <CardContent>
-                              <div className="space-y-3 max-h-48 overflow-y-auto pr-2"> {/* Scroll within card content */}
+                              <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
                                   {selectedProject.members.map((member, index) => (
                                       <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                                            <Avatar className="w-8 h-8">
@@ -298,8 +283,6 @@ export default function ProjectsPage() {
                                            </Avatar>
                                           <div>
                                               <p className="font-medium text-sm">{member}</p>
-                                              {/* Optional: Add member-specific stats if available */}
-                                              {/* <p className="text-xs text-muted-foreground">€X.XX dépensés</p> */}
                                           </div>
                                       </div>
                                   ))}
@@ -310,7 +293,6 @@ export default function ProjectsPage() {
                           </CardContent>
                       </Card>
 
-                       {/* Tags Section in Modal */}
                        <Card>
                           <CardHeader>
                               <CardTitle className="text-lg">Tags</CardTitle>
@@ -327,7 +309,7 @@ export default function ProjectsPage() {
                  </div>
               </div>
 
-              <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-auto pt-4 border-t"> {/* Ensure footer is at bottom */}
+              <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-auto pt-4 border-t">
                  <Button variant="destructive" onClick={() => handleOpenDeleteDialog(selectedProject)}>
                     <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
                  </Button>
@@ -335,7 +317,6 @@ export default function ProjectsPage() {
                     <DialogClose asChild>
                        <Button variant="outline">Fermer</Button>
                     </DialogClose>
-                    {/* Add Edit button functionality later */}
                     <Button>
                       <Icons.edit className="mr-2 h-4 w-4" /> Modifier
                     </Button>
@@ -346,7 +327,6 @@ export default function ProjectsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
