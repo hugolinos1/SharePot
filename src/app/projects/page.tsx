@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -92,9 +93,8 @@ export default function ProjectsPage() {
       <header className="bg-card text-card-foreground border-b mb-8">
          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
            <Link href="/" className="text-2xl font-bold text-primary flex items-center">
-             {/* Use Lucide icon */}
               <Icons.file className="mr-2 h-6 w-6"/>
-              Dépense Partagée
+              <span>Dépense Partagée</span>
            </Link>
            <div className="flex items-center space-x-4">
              {/* Notification Icon */}
@@ -205,7 +205,7 @@ export default function ProjectsPage() {
 
       {/* Project Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
-        <DialogContent className="sm:max-w-[600px] md:max-w-[800px] lg:max-w-[1000px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-6xl max-h-[90vh] flex flex-col">
           {selectedProject && (
             <>
               <DialogHeader>
@@ -367,3 +367,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+
