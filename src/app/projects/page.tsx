@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -199,6 +198,7 @@ export default function ProjectsPage() {
               </DialogHeader>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6">
+                {/* Left Column */}
                 <div className="lg:col-span-2 space-y-4">
                    <Card>
                        <CardHeader>
@@ -226,19 +226,9 @@ export default function ProjectsPage() {
                            )}
                        </CardContent>
                    </Card>
-
-                   <Card>
-                       <CardHeader>
-                           <CardTitle className="text-lg">Notes du projet</CardTitle>
-                       </CardHeader>
-                       <CardContent>
-                           <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                               {selectedProject.notes || "Aucune note pour ce projet."}
-                           </p>
-                       </CardContent>
-                   </Card>
                  </div>
 
+                 {/* Right Column */}
                  <div className="space-y-4">
                      <Card>
                          <CardHeader>
@@ -307,6 +297,20 @@ export default function ProjectsPage() {
                            </CardContent>
                        </Card>
                  </div>
+                 
+                {/* Notes Card - Moved to be a full-width item at the bottom of the grid */}
+                <div className="lg:col-span-3">
+                  <Card>
+                      <CardHeader>
+                          <CardTitle className="text-lg">Notes du projet</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                              {selectedProject.notes || "Aucune note pour ce projet."}
+                          </p>
+                      </CardContent>
+                  </Card>
+                </div>
               </div>
 
               <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-auto pt-4 border-t">
