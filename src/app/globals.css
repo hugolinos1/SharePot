@@ -1,18 +1,13 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
-}
-
 @layer base {
   :root {
-    --background: 0 0% 100%; /* Light background (white) */
+    --background: 240 5% 96%; /* Light grey background */
     --foreground: 240 10% 3.9%; /* Dark gray for text */
 
-    --card: 0 0% 100%;
+    --card: 0 0% 100%; /* White cards */
     --card-foreground: 240 10% 3.9%;
 
     --popover: 0 0% 100%;
@@ -21,11 +16,11 @@ body {
     --primary: 250 65% 55%; /* Vibrant purple for primary elements */
     --primary-foreground: 0 0% 100%; /* White text on primary elements */
 
-    --secondary: 240 4.8% 95.9%; /* Light gray for secondary elements */
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 240 4.8% 92.9%; /* Lighter gray for secondary elements */
+    --secondary-foreground: 240 5.9% 10%; /* Darker text for secondary */
 
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted: 240 4.8% 95.9%; /* Kept light for subtle backgrounds */
+    --muted-foreground: 240 4% 46%; /* Adjusted for better readability */
 
     --accent: 250 65% 55%; /* Using primary purple as accent */
     --accent-foreground: 0 0% 100%; /* White text on accent */
@@ -34,20 +29,27 @@ body {
     --destructive-foreground: 0 0% 98%;
 
     --border: 240 5.9% 90%; /* Light gray border */
-    --input: 250 60% 97%; /* Very light purple for input background */
+    --input: 0 0% 100%; /* White input background */
     --ring: 250 65% 55%; /* Primary purple for focus ring */
 
     --radius: 0.5rem;
 
-    /* Sidebar specific colors - can be adjusted if sidebar is redesigned */
-    --sidebar-background: 240 5.9% 10%; /* Dark sidebar */
-    --sidebar-foreground: 0 0% 98%; /* Light text on dark sidebar */
+    /* Sidebar specific colors - for a white sidebar as in screenshot */
+    --sidebar-background: 0 0% 100%; /* White sidebar */
+    --sidebar-foreground: 240 10% 20%; /* Darker text for sidebar items for clarity */
     --sidebar-primary: 250 65% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 240 5% 95%; /* Very light gray for hover/active items on white sidebar */
+    --sidebar-accent-foreground: 250 65% 55%; /* Purple text on hover/active */
+    --sidebar-border: 240 5.9% 90%; /* Light border for sidebar elements if needed */
     --sidebar-ring: 250 65% 55%;
+
+    /* Chart colors */
+    --chart-1: 250 65% 55%; /* Primary purple for charts */
+    --chart-2: 250 55% 65%; /* Lighter purple */
+    --chart-3: 220 70% 50%; /* A contrasting blue if needed */
+    --chart-4: 280 65% 60%; /* Another purple shade */
+    --chart-5: 340 75% 55%; /* A pinkish shade if needed */
   }
 
   .dark {
@@ -76,23 +78,25 @@ body {
     --destructive-foreground: 0 0% 98%;
 
     --border: 240 3.7% 15.9%;
-    --input: 250 30% 20%; /* Darker light purple for input in dark mode */
+    --input: 240 3.7% 15.9%; /* Darker input for dark mode */
     --ring: 250 60% 65%;
 
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 0 0% 98%;
+    /* Sidebar specific colors for dark mode */
+    --sidebar-background: 240 8% 12%; /* Dark sidebar background */
+    --sidebar-foreground: 0 0% 98%;  /* Light text on dark sidebar */
     --sidebar-primary: 250 60% 65%;
     --sidebar-primary-foreground: 240 5.9% 10%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 240 5% 20%; /* Dark accent for hover/active on dark sidebar */
+    --sidebar-accent-foreground: 250 60% 65%; /* Lighter purple text on hover/active */
+    --sidebar-border: 240 3.7% 20%;
     --sidebar-ring: 250 60% 65%;
+
+    /* Chart colors for dark mode - can be same as light or adjusted */
+    --chart-1: 250 60% 65%;
+    --chart-2: 250 50% 75%;
+    --chart-3: 220 70% 60%;
+    --chart-4: 280 60% 70%;
+    --chart-5: 340 70% 65%;
   }
 }
 
@@ -104,7 +108,11 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
 /* Add subtle box shadows to cards and other elements */
 .card, .button, .input, .textarea {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0,0,0,0.03);
+}
+.card {
+ @apply rounded-xl; /* More rounded cards like screenshot */
 }

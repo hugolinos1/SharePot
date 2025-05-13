@@ -2,6 +2,24 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarHeader,
+  SidebarContent,
+  SidebarFooter,
+  SidebarTrigger,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupLabel,
+} from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Card,
   CardContent,
@@ -9,145 +27,257 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Icons } from '@/components/icons';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import type { ChartConfig } from '@/components/ui/chart'; // Ensure ChartConfig is exported from ui/chart
 
-
-// Dynamically import the chart component with SSR disabled
-const BalanceChart = dynamic(() => import('@/components/dashboard/balance-chart'), {
+const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
-  loading: () => (
-      <div className="h-[300px] w-full flex items-center justify-center">
-        <Skeleton className="h-full w-full" />
-      </div>
-  ),
+  loading: () => <div className="h-[350px] w-full bg-muted rounded-lg animate-pulse" />,
 });
 
-interface Transaction {
-  id: number;
-  date: string;
-  description: string;
-  amount: number;
+interface SummaryCardProps {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  description?: string;
 }
 
-// Mock data - keep transaction data here or fetch it
-const latestTransactions: Transaction[] = [
-  { id: 1, date: '2023-10-26', description: 'Grocery Shopping', amount: -50 },
-  { id: 2, date: '2023-10-25', description: 'Salary', amount: 2000 },
-  { id: 3, date: '2023-10-24', description: 'Restaurant', amount: -75 },
-  { id: 4, date: '2023-10-24', description: 'Online Purchase', amount: -120 },
-  { id: 5, date: '2023-10-23', description: 'Bonus', amount: 500 },
+const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, description }) => (
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      {icon}
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{value}</div>
+      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+    </CardContent>
+  </Card>
+);
+
+interface RecentExpense {
+  id: string;
+  icon: React.ElementType;
+  title: string;
+  project: string;
+  date: string;
+  amount: string;
+  tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
+}
+
+const mockRecentExpenses: RecentExpense[] = [
+  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Prague', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
+  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Prague', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
+  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Prague', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
+  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Colocation Juin', date: '13 mai 2025', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
+  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Colocation Juin', date: '13 mai 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
 ];
 
-// Example balance data (can be passed to BalanceChart or fetched within it)
-const currentBalance = 2500.00; // Example value
+const mockActiveProjects = [
+    { id: 'proj1', name: 'Voyage à Paris', icon: Icons.folderKanban },
+    { id: 'proj2', name: 'Événement Startup', icon: Icons.folderKanban },
+];
+
+interface SidebarGroupContentProps {
+  children: React.ReactNode;
+}
+
+const SidebarGroupContent: React.FC<SidebarGroupContentProps> = ({ children }) => {
+  return <div className="space-y-2">{children}</div>;
+};
 
 export default function DashboardPage() {
+  const chartConfig = {
+    Dépenses: {
+      label: "Dépenses (€)",
+      color: "hsl(var(--primary))",
+    },
+    JeanD: { label: "Jean D.", color: "hsl(var(--chart-1))" },
+    SophieL: { label: "Sophie L.", color: "hsl(var(--chart-2))" },
+    LucM: { label: "Luc M.", color: "hsl(var(--chart-3))" },
+    MarieP: { label: "Marie P.", color: "hsl(var(--chart-4))" },
+  } satisfies ChartConfig;
+
   return (
-    <div className="container mx-auto py-10">
-      <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold mb-1">Tableau de Bord</h1>
-            <h2 className="text-xl text-muted-foreground">
-              Bienvenue ! Voici votre aperçu financier.
-            </h2>
+    <SidebarProvider defaultOpen>
+      <Sidebar className="border-r" collapsible="icon">
+        <SidebarHeader className="p-4">
+          <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold text-primary">
+            <Icons.dollarSign className="h-7 w-7" /> {/* Using existing DollarSign as placeholder */}
+            <span>DépensePartagée</span>
+          </Link>
+        </SidebarHeader>
+        <SidebarContent className="p-2">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive>
+                <Link href="/dashboard"><Icons.layoutDashboard /> Tableau de bord</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="#"><Icons.receipt /> Dépenses</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="#"><Icons.plusSquare /> Nouvelle dépense</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="/projects"><Icons.folders /> Projets</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="#"><Icons.barChartBig /> Rapports</Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          <Separator className="my-4" />
+           <SidebarGroup>
+            <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <Link href="/admin"><Icons.users /> Utilisateurs</Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <Link href="#"><Icons.settings /> Paramètres</Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter className="p-4">
+          <Button variant="outline" asChild>
+            <Link href="/"><Icons.home /> Accueil (Login)</Link>
+          </Button>
+        </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset className="flex flex-col">
+        {/* Header */}
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6 shadow-sm">
+          <SidebarTrigger><Icons.chevronsLeft /></SidebarTrigger>
+          <div className="relative flex-1">
+            <Icons.search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input placeholder="Rechercher..." className="pl-10 w-full md:w-1/3 lg:w-1/4" />
           </div>
-           <Link href="/" passHref>
-              <Button variant="outline">
-                  <Icons.home className="mr-2 h-4 w-4" /> Accueil
-              </Button>
-           </Link>
-      </div>
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <Icons.bell className="h-5 w-5" />
+              <span className="sr-only">Notifications</span>
+            </Button>
+            <Avatar className="h-9 w-9">
+              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar" />
+              <AvatarFallback>AD</AvatarFallback>
+            </Avatar>
+          </div>
+        </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <Card>
-            <CardHeader>
-                <CardTitle>Solde Actuel</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p className="text-3xl font-bold">€{currentBalance.toFixed(2)}</p>
-                {/* You might want to calculate or fetch this percentage */}
-                <p className="text-sm text-green-500">+5% depuis le mois dernier</p>
-            </CardContent>
-        </Card>
-         <Card>
-            <CardHeader>
-                <CardTitle>Revenus Totals</CardTitle>
-                 <CardDescription>Ce Mois</CardDescription>
-            </CardHeader>
-            <CardContent>
-                {/* Replace with actual fetched data */}
-                <p className="text-3xl font-bold">€2500.00</p>
-            </CardContent>
-        </Card>
-         <Card>
-            <CardHeader>
-                <CardTitle>Dépenses Totales</CardTitle>
-                 <CardDescription>Ce Mois</CardDescription>
-            </CardHeader>
-            <CardContent>
-                 {/* Replace with actual fetched data */}
-                <p className="text-3xl font-bold">€-245.00</p>
-            </CardContent>
-        </Card>
-      </div>
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <h1 className="text-3xl font-bold">Tableau de bord</h1>
+            <p className="text-muted-foreground">Bienvenue, Admin. Voici un aperçu de vos dépenses récentes.</p>
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <Card className="lg:col-span-3">
-          <CardHeader>
-            <CardTitle>Évolution du Solde</CardTitle>
-            <CardDescription>
-              Votre évolution de solde sur les 10 derniers mois.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pl-2">
-             {/* Render the dynamically imported chart */}
-             <BalanceChart />
-          </CardContent>
-        </Card>
+          {/* Summary Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <SummaryCard title="Total dépensé" value="666,90 €" icon={<Icons.euro className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Dépenses" value="5" icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Projets actifs" value="2" icon={<Icons.folders className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Moyenne / pers." value="333,45 €" icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
+          </div>
 
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Dernières Transactions</CardTitle>
-            <CardDescription>
-              Un résumé de vos transactions les plus récentes.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[300px] border-t">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Montant</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {latestTransactions.map((transaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell>{transaction.description}</TableCell>
-                    <TableCell className={`text-right font-medium ${transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {transaction.amount >= 0 ? '+' : ''}€{Math.abs(transaction.amount).toFixed(2)}
-                    </TableCell>
-                  </TableRow>
+          {/* Charts and Recent Expenses */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Expense Analysis Chart */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Analyse des dépenses</CardTitle>
+                <CardDescription>Vue d'ensemble des dépenses au sein de vos projets</CardDescription>
+              </CardHeader>
+              <CardContent className="pl-2">
+                <Tabs defaultValue="user">
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="user">Par utilisateur</TabsTrigger>
+                    <TabsTrigger value="category">Par catégorie</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="user">
+                    <ExpenseAnalysisChart />
+                  </TabsContent>
+                  <TabsContent value="category">
+                    <p className="text-muted-foreground text-center py-8">Analyse par catégorie bientôt disponible.</p>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {/* Recent Expenses List */}
+            <Card className="lg:col-span-1">
+              <CardHeader>
+                <CardTitle>Dépenses récentes</CardTitle>
+                <CardDescription>Vos dernières transactions</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {mockRecentExpenses.map(expense => (
+                  <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
+                    <div className="p-2 bg-primary/10 rounded-md">
+                         <expense.icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center">
+                        <p className="font-medium">{expense.title}</p>
+                        <p className="font-semibold text-sm">{expense.amount}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{expense.project} • {expense.date}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {expense.tags.map(tag => (
+                          <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+                 <Button variant="link" className="w-full mt-2 text-primary">Voir toutes les dépenses</Button>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Active Projects */}
+           <Card>
+                <CardHeader>
+                    <CardTitle>Vos projets actifs</CardTitle>
+                    <CardDescription>Projets auxquels vous participez</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {mockActiveProjects.map((project) => (
+                            <Card key={project.id} className="hover:shadow-md transition-shadow">
+                                <CardContent className="p-4 flex flex-col items-center text-center">
+                                    <div className="p-3 bg-primary/10 rounded-lg mb-2">
+                                        <project.icon className="h-8 w-8 text-primary" />
+                                    </div>
+                                    <p className="font-medium text-sm">{project.name}</p>
+                                </CardContent>
+                            </Card>
+                        ))}
+                         {mockActiveProjects.length === 0 && <p className="text-muted-foreground col-span-full text-center py-4">Aucun projet actif.</p>}
+                    </div>
+                </CardContent>
+            </Card>
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

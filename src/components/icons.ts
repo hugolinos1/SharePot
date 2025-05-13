@@ -1,5 +1,4 @@
-
-import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign } from 'lucide-react';
+import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle, FolderKanban, BarChartBig } from 'lucide-react';
 
 const Icons = {
   arrowRight: ArrowRight,
@@ -36,6 +35,19 @@ const Icons = {
   users: Users,
   eye: Eye,
   dollarSign: DollarSign,
+  layoutDashboard: LayoutDashboard,
+  receipt: Receipt,
+  plusSquare: PlusSquare,
+  folders: Folders,
+  barChart3: BarChart3,
+  chevronsLeft: ChevronsLeft,
+  euro: Euro,
+  fileText: FileText,
+  lineChart: LineChart,
+  bell: Bell,
+  userCircle: UserCircle,
+  folderKanban: FolderKanban, // for Projets
+  barChartBig: BarChartBig, // for Rapports
 };
 
 export {Icons};
