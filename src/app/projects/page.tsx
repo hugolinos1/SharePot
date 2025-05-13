@@ -110,10 +110,10 @@ export default function ProjectsPage() {
   
   const handleSaveBudget = () => {
     if (selectedProject && typeof currentBudget === 'number') {
-      setSelectedProject({ ...selectedProject, budget: currentBudget });
-      // Here you would also update the main projects list or call an API
+      const updatedProject = { ...selectedProject, budget: currentBudget };
+      setSelectedProject(updatedProject);
       const updatedProjects = projects.map(p => 
-        p.id === selectedProject.id ? { ...p, budget: currentBudget } : p
+        p.id === selectedProject.id ? updatedProject : p
       );
       setProjects(updatedProjects);
     }
@@ -122,9 +122,10 @@ export default function ProjectsPage() {
 
   const handleSaveNotes = () => {
     if (selectedProject) {
-      setSelectedProject({ ...selectedProject, notes: currentNotes });
+      const updatedProject = { ...selectedProject, notes: currentNotes };
+      setSelectedProject(updatedProject);
        const updatedProjects = projects.map(p => 
-        p.id === selectedProject.id ? { ...p, notes: currentNotes } : p
+        p.id === selectedProject.id ? updatedProject : p
       );
       setProjects(updatedProjects);
     }
@@ -159,7 +160,7 @@ export default function ProjectsPage() {
       {/* Header */}
       <header className="bg-card shadow-sm border-b">
         <div className="container mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <Link href="/dashboard" className="text-2xl font-bold text-primary">
+          <Link href="/dashboard" className="text-2xl font-bold text-primary flex items-center">
              <Icons.dollarSign className="mr-2 h-7 w-7 inline-block"/>
             DépensePartagée
           </Link>
@@ -271,7 +272,7 @@ export default function ProjectsPage() {
       {/* Project Details Modal */}
       {selectedProject && (
         <Dialog open={!!selectedProject} onOpenChange={(isOpen) => !isOpen && handleCloseProjectDetails()}>
-          <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl max-h-[95vh] flex flex-col">
+          <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-7xl max-h-[95vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="text-2xl">{selectedProject.name}</DialogTitle>
               <DialogDescription>{selectedProject.description}</DialogDescription>
@@ -444,9 +445,6 @@ export default function ProjectsPage() {
               <DialogClose asChild>
                  <Button variant="outline">Fermer</Button>
               </DialogClose>
-              <Button onClick={() => { /* Logic to open edit project modal */ alert('Edit project functionality not implemented yet.'); }}>
-                <Icons.edit className="mr-2 h-4 w-4" /> Modifier
-              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
