@@ -40,7 +40,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ChartConfig } from '@/components/ui/chart';
-import { initialProjects, Project } from '@/data/mock-data'; // Import projects data
+import { initialProjects, Project } from '@/data/mock-data'; 
+import { BalanceSummary } from '@/components/dashboard/balance-summary'; // Import BalanceSummary
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -67,17 +68,17 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
   </Card>
 );
 
-interface RecentExpenseItem { // Renamed from RecentExpense to avoid conflict with Project's recentExpenses
+interface RecentExpenseItem { 
   id: string;
   icon: React.ElementType;
   title: string;
-  project: string; // Project name
+  project: string; 
   date: string;
   amount: string;
   tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
 }
 
-const mockRecentExpenseItems: RecentExpenseItem[] = [ // Renamed from mockRecentExpenses
+const mockRecentExpenseItems: RecentExpenseItem[] = [ 
   { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
   { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Paris', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
   { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Paris', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
@@ -85,7 +86,6 @@ const mockRecentExpenseItems: RecentExpenseItem[] = [ // Renamed from mockRecent
   { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Déménagement Bureau', date: '13 mai 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
   { id: '6', icon: Icons.fileText, title: 'Billets d\'avion', project: 'Événement Startup', date: '10 mai 2025', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
   { id: '7', icon: Icons.fileText, title: 'Frais de stand', project: 'Événement Startup', date: '11 mai 2025', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
-
 ];
 
 
@@ -119,17 +119,17 @@ export default function DashboardPage() {
   const summaryData = useMemo(() => {
     if (selectedProject) {
       const totalExpenses = selectedProject.totalExpenses;
-      const expenseCount = selectedProject.recentExpenses.length; // Or a more accurate count if available
+      const expenseCount = selectedProject.recentExpenses.length; 
       const averagePerPerson = selectedProject.members.length > 0 ? totalExpenses / selectedProject.members.length : 0;
       return {
         totalSpent: `${totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
         expenseCount: expenseCount.toString(),
-        activeProjectsCount: "1",
+        activeProjectsCount: "1", // Active projects count here would just be 1 as one is selected
         averagePerPerson: `${averagePerPerson.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
       };
-    } else { // All projects
+    } else { 
       const totalSpentAll = initialProjects.reduce((sum, p) => sum + p.totalExpenses, 0);
-      const totalExpenseCountAll = initialProjects.reduce((sum, p) => sum + p.recentExpenses.length, 0); // Example, sum of mock recent expenses lengths
+      const totalExpenseCountAll = initialProjects.reduce((sum, p) => sum + p.recentExpenses.length, 0); 
       const allMembers = new Set<string>();
       initialProjects.forEach(p => p.members.forEach(m => allMembers.add(m)));
       const averagePerPersonAll = allMembers.size > 0 ? totalSpentAll / allMembers.size : 0;
@@ -248,7 +248,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-3xl font-bold">Tableau de bord</h1>
               <p className="text-muted-foreground">
-                {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue, Admin. Voici un aperçu global."}
+                {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue. Voici un aperçu global."}
               </p>
             </div>
             <div className="w-full sm:w-auto sm:min-w-[200px] md:min-w-[250px]">
@@ -276,6 +276,9 @@ export default function DashboardPage() {
             <SummaryCard title="Moyenne / pers." value={summaryData.averagePerPerson} icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
           </div>
 
+          {/* Balance Summary */}
+          <BalanceSummary project={selectedProject} />
+
           {/* Charts and Recent Expenses */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Expense Analysis Chart */}
@@ -283,7 +286,7 @@ export default function DashboardPage() {
               <CardHeader>
                 <CardTitle>Analyse des dépenses</CardTitle>
                 <CardDescription>
-                  {selectedProject ? `Dépenses pour ${selectedProject.name}` : "Vue d'ensemble des dépenses au sein de vos projets"}
+                  {selectedProject ? `Dépenses pour ${selectedProject.name} (basées sur données graphiques)` : "Vue d'ensemble des dépenses (basées sur données graphiques)"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="pl-2">
@@ -293,7 +296,7 @@ export default function DashboardPage() {
                     <TabsTrigger value="category">Par catégorie</TabsTrigger>
                   </TabsList>
                   <TabsContent value="user">
-                    <ExpenseAnalysisChart /> {/* Note: Chart data is currently mock and not filtered by project */}
+                    <ExpenseAnalysisChart /> 
                   </TabsContent>
                   <TabsContent value="category">
                     <p className="text-muted-foreground text-center py-8">Analyse par catégorie bientôt disponible.</p>
@@ -305,14 +308,14 @@ export default function DashboardPage() {
             {/* Recent Expenses List */}
             <Card className="lg:col-span-1">
               <CardHeader>
-                <CardTitle>Dépenses récentes</CardTitle>
+                <CardTitle>Dépenses récentes (global)</CardTitle> {/* Title changed to reflect it shows mock global recent items */}
                 <CardDescription>
-                  {selectedProject ? `Transactions pour ${selectedProject.name}` : "Vos dernières transactions"}
+                  {selectedProject ? `Dernières transactions globales (non filtré par projet ${selectedProject.name})` : "Vos dernières transactions globales"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {filteredRecentExpenses.length > 0 ? (
-                  filteredRecentExpenses.map(expense => (
+                  filteredRecentExpenses.slice(0, 5).map(expense => ( // Show only first 5 mock items
                     <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
                       <div className="p-2 bg-primary/10 rounded-md">
                            <expense.icon className="h-5 w-5 text-primary" />

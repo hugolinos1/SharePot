@@ -1,8 +1,9 @@
-import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle, FolderKanban, BarChartBig } from 'lucide-react';
+import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle, FolderKanban, BarChartBig, CheckCircle } from 'lucide-react';
 
 const Icons = {
   arrowRight: ArrowRight,
   check: Check,
+  checkCircle: CheckCircle,
   chevronDown: ChevronsUpDown,
   circle: Circle,
   workflow: Workflow,
