@@ -1,440 +1,542 @@
+
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Icons } from "@/components/icons";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { initialProjects, Project } from '@/data/mock-data';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Progress } from '@/components/ui/progress';
+import { Icons } from '@/components/icons';
+import { initialProjects, Project as ProjectType, User } from '@/data/mock-data'; // Assuming User type is also in mock-data
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+  DialogClose,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
-import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
-import { Textarea } from "@/components/ui/textarea"; // Added Textarea import
+
+// Helper function to get avatar fallback
+const getAvatarFallback = (name: string) => {
+  const parts = name.split(' ');
+  if (parts.length > 0 && parts[0].length > 0) {
+    if (parts.length > 1 && parts[parts.length -1].length > 0) {
+        return parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase();
+    }
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return '??';
+};
+
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { toast } = useToast();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
-  const [editingBudgetValue, setEditingBudgetValue] = useState<string>("");
-  const [editingNotesValue, setEditingNotesValue] = useState<string>("");
+  const [projects, setProjects] = useState<ProjectType[]>(initialProjects);
+  const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
+
+  // Form state for new/edit project
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [projectBudget, setProjectBudget] = useState<number | ''>('');
+  const [projectNotes, setProjectNotes] = useState('');
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [currentBudget, setCurrentBudget] = useState<number | string>('');
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [currentNotes, setCurrentNotes] = useState('');
 
 
-  useEffect(() => {
-    setProjects(initialProjects);
-  }, []);
-
-  useEffect(() => {
-    if (selectedProject && isDetailsModalOpen) {
-      setEditingBudgetValue(selectedProject.budget.toString());
-      setEditingNotesValue(selectedProject.notes || "");
-    }
-  }, [selectedProject, isDetailsModalOpen]);
-
-
-  const handleViewDetails = (project: Project) => {
+  const handleViewProjectDetails = (project: ProjectType) => {
     setSelectedProject(project);
-    setIsDetailsModalOpen(true);
+    setCurrentBudget(project.budget);
+    setCurrentNotes(project.notes || '');
   };
 
-  const handleCloseDetails = () => {
-    setIsDetailsModalOpen(false);
+  const handleCloseProjectDetails = () => {
     setSelectedProject(null);
+    setEditingBudget(false);
+    setEditingNotes(false);
   };
 
-  const handleOpenDeleteDialog = (project: Project) => {
-    setProjectToDelete(project);
-    setIsDeleteDialogOpen(true);
-    setIsDetailsModalOpen(false); 
+  const handleCreateNewProject = () => {
+    // Reset form fields
+    setProjectName('');
+    setProjectDescription('');
+    setProjectBudget('');
+    // In a real app, you'd also handle members and tags here
+    setIsNewProjectModalOpen(true);
   };
 
-  const handleCloseDeleteDialog = () => {
-    setIsDeleteDialogOpen(false);
-    setProjectToDelete(null);
+  const handleSaveNewProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Basic validation
+    if (!projectName) {
+      alert('Project name is required.');
+      return;
+    }
+    const newProject: ProjectType = {
+      id: (projects.length + 1).toString(),
+      name: projectName,
+      description: projectDescription,
+      status: 'Actif', // Default status
+      totalExpenses: 0,
+      lastActivity: new Date().toLocaleDateString('fr-FR'),
+      budget: Number(projectBudget) || 0,
+      members: ['Admin User'], // Default member
+      recentExpenses: [],
+      notes: '',
+      tags: [],
+    };
+    setProjects([...projects, newProject]);
+    setIsNewProjectModalOpen(false);
   };
+  
+  const handleSaveBudget = () => {
+    if (selectedProject && typeof currentBudget === 'number') {
+      setSelectedProject({ ...selectedProject, budget: currentBudget });
+      // Here you would also update the main projects list or call an API
+      const updatedProjects = projects.map(p => 
+        p.id === selectedProject.id ? { ...p, budget: currentBudget } : p
+      );
+      setProjects(updatedProjects);
+    }
+    setEditingBudget(false);
+  };
+
+  const handleSaveNotes = () => {
+    if (selectedProject) {
+      setSelectedProject({ ...selectedProject, notes: currentNotes });
+       const updatedProjects = projects.map(p => 
+        p.id === selectedProject.id ? { ...p, notes: currentNotes } : p
+      );
+      setProjects(updatedProjects);
+    }
+    setEditingNotes(false);
+  };
+
 
   const handleDeleteProject = () => {
-    if (projectToDelete) {
-      setProjects(prevProjects => prevProjects.filter(p => p.id !== projectToDelete.id));
-      toast({
-        title: "Projet supprimé",
-        description: `Le projet "${projectToDelete.name}" a été supprimé avec succès.`,
-      });
-      handleCloseDeleteDialog();
-    }
-  };
-
-  const handleBudgetInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEditingBudgetValue(e.target.value);
-  };
-
-  const handleBudgetUpdate = () => {
     if (selectedProject) {
-      const newBudget = parseFloat(editingBudgetValue);
-      if (!isNaN(newBudget) && newBudget >= 0) {
-        if (newBudget !== selectedProject.budget) {
-          const updatedProjects = projects.map(p =>
-            p.id === selectedProject.id ? { ...p, budget: newBudget } : p
-          );
-          setProjects(updatedProjects);
-          setSelectedProject(prev => prev ? { ...prev, budget: newBudget } : null);
-          toast({
-            title: "Budget mis à jour",
-            description: `Le budget pour "${selectedProject.name}" est maintenant de €${newBudget.toFixed(2)}.`,
-          });
-        }
-      } else {
-        setEditingBudgetValue(selectedProject.budget.toString()); 
-        toast({
-          title: "Erreur de saisie",
-          description: "Veuillez entrer un montant de budget valide.",
-          variant: "destructive",
-        });
-      }
+      setProjects(projects.filter(p => p.id !== selectedProject.id));
+      setSelectedProject(null);
+      setIsDeleteConfirmModalOpen(false);
     }
   };
 
-  const handleNotesInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setEditingNotesValue(e.target.value);
-  };
-
-  const handleNotesUpdate = () => {
-    if (selectedProject) {
-      if (editingNotesValue !== (selectedProject.notes || "")) {
-        const updatedProjects = projects.map(p =>
-          p.id === selectedProject.id ? { ...p, notes: editingNotesValue } : p
-        );
-        setProjects(updatedProjects);
-        setSelectedProject(prev => prev ? { ...prev, notes: editingNotesValue } : null);
-        toast({
-          title: "Notes mises à jour",
-          description: `Les notes pour "${selectedProject.name}" ont été sauvegardées.`,
-        });
-      }
-    }
-  };
-
-
-   const getAvatarFallback = (name: string) => {
-      const parts = name.split(' ');
-      if (parts.length >= 2) {
-          return parts[0][0] + (parts[parts.length - 1][0] || '');
-      }
-      return name.substring(0, 2).toUpperCase();
-   };
-
-  const getStatusBadgeVariant = (status: string): "default" | "secondary" | "outline" | "destructive" => {
+  const getStatusBadgeVariant = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'actif': return 'default';
-      case 'en attente': return 'secondary';
-      case 'terminé': return 'outline';
-      default: return 'secondary';
+      case 'actif':
+        return 'default'; // Greenish or primary
+      case 'en attente':
+        return 'secondary'; // Yellowish or secondary
+      case 'terminé':
+        return 'outline'; // Greyish or outline
+      default:
+        return 'secondary';
     }
   };
-
-  const calculateProgress = (totalExpenses: number, budget: number): number => {
-    if (budget <= 0) return 0;
-    return Math.min((totalExpenses / budget) * 100, 100);
-  };
+  
 
   return (
-    <div className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      <header className="bg-card text-card-foreground border-b mb-8">
-         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-           <Link href="/" className="text-2xl font-bold text-primary flex items-center">
-              <Icons.dollarSign className="mr-2 h-7 w-7"/>
-              <span>Dépense Partagée</span>
-           </Link>
-           <div className="flex items-center space-x-4">
-             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-                <Icons.bell className="h-5 w-5"/>
-                <span className="sr-only">Notifications</span>
-             </Button>
-             <div className="flex items-center space-x-2">
-               <span className="text-sm font-medium hidden sm:inline">Admin User</span>
-               <Avatar className="w-8 h-8">
-                    <AvatarImage src="https://ui-avatars.com/api/?name=Admin+User&background=random&color=fff" alt="User Avatar" data-ai-hint="user avatar"/>
-                    <AvatarFallback>AU</AvatarFallback>
-               </Avatar>
-             </div>
-              <Button variant="outline" size="sm" onClick={() => router.push('/')}>
-                <Icons.home className="mr-2 h-4 w-4" /> Accueil
-              </Button>
-           </div>
-         </div>
-       </header>
-
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-          <div>
-              <h2 className="text-2xl font-bold text-foreground">Gestion des Projets</h2>
-              <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs</p>
+    <div className="bg-background min-h-screen">
+      {/* Header */}
+      <header className="bg-card shadow-sm border-b">
+        <div className="container mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <Link href="/dashboard" className="text-2xl font-bold text-primary">
+             <Icons.dollarSign className="mr-2 h-7 w-7 inline-block"/>
+            DépensePartagée
+          </Link>
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
+              <Icons.bell className="h-5 w-5" />
+              <span className="sr-only">Notifications</span>
+            </Button>
+            <Avatar className="h-9 w-9">
+              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar" />
+              <AvatarFallback>AU</AvatarFallback>
+            </Avatar>
           </div>
-        <Button onClick={() => router.push('/projects/create')} className="mt-4 md:mt-0">
-          <Icons.plus className="mr-2 h-4 w-4" /> Nouveau Projet
-        </Button>
-      </div>
+        </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((project) => (
-          <Card key={project.id} className="shadow-md hover:shadow-lg transition-shadow duration-300 flex flex-col">
-            <CardHeader>
-              <div className="flex justify-between items-start mb-2">
-                <CardTitle className="text-lg">{project.name}</CardTitle>
-                <Badge variant={getStatusBadgeVariant(project.status)}>{project.status}</Badge>
-              </div>
-              <CardDescription>{project.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-grow">
-              <div className="flex items-center justify-between mb-4 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Dépenses totales</p>
-                  <p className="font-semibold">€{project.totalExpenses.toFixed(2)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Dernière activité</p>
-                  <p>{project.lastActivity}</p>
-                </div>
-              </div>
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+          <div>
+            <h2 className="text-3xl font-bold">Gestion des Projets</h2>
+            <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs.</p>
+          </div>
+          <div className="flex items-center gap-4 mt-4 md:mt-0">
+            <Button onClick={handleCreateNewProject}>
+              <Icons.plus className="mr-2 h-4 w-4" /> Nouveau Projet
+            </Button>
+            <Link href="/dashboard" passHref>
+              <Button variant="outline">
+                <Icons.home className="mr-2 h-4 w-4" /> Tableau de Bord
+              </Button>
+            </Link>
+          </div>
+        </div>
 
-              <div className="mb-4">
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Budget</span>
-                  <span>€{project.budget.toFixed(2)}</span>
-                </div>
-                <Progress value={calculateProgress(project.totalExpenses, project.budget)} className="h-2" />
-                 <p className="text-right text-xs font-medium mt-1">{calculateProgress(project.totalExpenses, project.budget).toFixed(0)}% utilisé</p>
-              </div>
-
-                <div className="mb-4 flex flex-wrap gap-1">
-                   {project.tags.map(tag => (
-                       <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                   ))}
-               </div>
-
-              <div className="flex items-center justify-between mt-auto pt-4 border-t border-border/50">
-                <div className="flex -space-x-2 overflow-hidden">
-                  {project.members.slice(0, 3).map((member, index) => (
-                     <Avatar key={index} className="h-8 w-8 border-2 border-card" title={member}>
-                       <AvatarImage
-                         src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`}
-                         alt={`Avatar ${member}`}
-                         data-ai-hint="member avatar placeholder"
-                       />
-                       <AvatarFallback>{getAvatarFallback(member)}</AvatarFallback>
-                     </Avatar>
-                  ))}
-                  {project.members.length > 3 && (
-                      <Avatar className="h-8 w-8 border-2 border-card bg-muted text-muted-foreground">
-                         <AvatarFallback className="text-xs font-medium">+{project.members.length - 3}</AvatarFallback>
-                     </Avatar>
+        {/* Projects Grid */}
+        {projects.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((project) => (
+              <Card key={project.id} className="hover:shadow-lg transition-shadow duration-300 flex flex-col">
+                <CardHeader>
+                  <div className="flex justify-between items-start mb-2">
+                    <CardTitle className="text-xl">{project.name}</CardTitle>
+                    <Badge variant={getStatusBadgeVariant(project.status)}>{project.status}</Badge>
+                  </div>
+                  <CardDescription className="h-10 overflow-hidden text-ellipsis">{project.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                  <div className="flex items-center justify-between mb-3 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dépenses totales</p>
+                      <p className="font-semibold">{project.totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dernière activité</p>
+                      <p>{project.lastActivity}</p>
+                    </div>
+                  </div>
+                  
+                  {project.budget > 0 && (
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Budget</span>
+                        <span>{project.budget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
+                      </div>
+                      <Progress value={(project.totalExpenses / project.budget) * 100} className="h-2" />
+                    </div>
                   )}
-                </div>
-                <Button variant="link" onClick={() => handleViewDetails(project)} className="text-primary px-0">
-                  Voir détails <Icons.arrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              </div>
-            </CardContent>
-
-          </Card>
-        ))}
-         {projects.length === 0 && (
-            <Card className="md:col-span-2 lg:col-span-3">
-                <CardContent className="pt-6">
-                    <p className="text-center text-muted-foreground">Aucun projet à afficher pour le moment.</p>
                 </CardContent>
-            </Card>
+                <DialogFooter className="p-4 pt-0 border-t mt-auto">
+                     <div className="flex items-center justify-between w-full">
+                        <div className="flex -space-x-2 overflow-hidden">
+                            {project.members.slice(0, 3).map((memberName, index) => (
+                            <Avatar key={index} className="h-8 w-8 border-2 border-background">
+                                <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberName)}&background=random&color=fff&size=32`} alt={memberName} data-ai-hint="member avatar"/>
+                                <AvatarFallback className="text-xs">{getAvatarFallback(memberName)}</AvatarFallback>
+                            </Avatar>
+                            ))}
+                            {project.members.length > 3 && (
+                            <Avatar className="h-8 w-8 border-2 border-background bg-muted text-muted-foreground">
+                                <AvatarFallback className="text-xs">+{project.members.length - 3}</AvatarFallback>
+                            </Avatar>
+                            )}
+                        </div>
+                        <Button variant="link" onClick={() => handleViewProjectDetails(project)} className="text-primary">
+                            Voir détails <Icons.arrowRight className="ml-1 h-4 w-4" />
+                        </Button>
+                    </div>
+                </DialogFooter>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="col-span-full">
+            <CardContent className="py-10 text-center">
+              <Icons.folderKanban className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-4 text-lg font-medium">Aucun projet trouvé</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Commencez par créer un nouveau projet pour organiser vos dépenses.
+              </p>
+              <Button onClick={handleCreateNewProject} className="mt-6">
+                <Icons.plus className="mr-2 h-4 w-4" /> Créer un projet
+              </Button>
+            </CardContent>
+          </Card>
         )}
-      </div>
+      </main>
 
-      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
-        <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-6xl max-h-[90vh] flex flex-col">
-          {selectedProject && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-2xl">{selectedProject.name}</DialogTitle>
-                <DialogDescription>{selectedProject.description}</DialogDescription>
-              </DialogHeader>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 flex-grow overflow-y-auto pr-6 pl-6 -mr-6 -ml-6">
+      {/* Project Details Modal */}
+      {selectedProject && (
+        <Dialog open={!!selectedProject} onOpenChange={(isOpen) => !isOpen && handleCloseProjectDetails()}>
+          <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl max-h-[95vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="text-2xl">{selectedProject.name}</DialogTitle>
+              <DialogDescription>{selectedProject.description}</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
+              {/* Left Column / Main content */}
+              <div className="lg:col-span-2 space-y-6">
+                <ProjectExpenseSettlement project={selectedProject} />
                 
-                <div className="lg:col-span-3">
-                    <ProjectExpenseSettlement project={selectedProject} />
-                </div>
-
-                
-                <div className="lg:col-span-2 space-y-4">
-                   <Card>
-                       <CardHeader>
-                           <CardTitle className="text-lg">Dépenses récentes</CardTitle>
-                       </CardHeader>
-                       <CardContent>
-                           <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-                               {selectedProject.recentExpenses.length > 0 ? selectedProject.recentExpenses.map((expense, index) => (
-                                   <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                                       <div>
-                                           <p className="font-medium">{expense.name}</p>
-                                           <p className="text-sm text-muted-foreground">{expense.date}</p>
-                                       </div>
-                                       <div className="text-right">
-                                           <p className="font-semibold">€{expense.amount.toFixed(2)}</p>
-                                           <p className="text-xs text-muted-foreground">{expense.payer}</p>
-                                       </div>
-                                   </div>
-                               )) : <p className="text-sm text-muted-foreground">Aucune dépense récente.</p>}
-                           </div>
-                           {selectedProject.recentExpenses.length > 0 && (
-                               <Button variant="link" className="mt-4 w-full justify-center text-primary">
-                                   Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
-                               </Button>
-                           )}
-                       </CardContent>
-                   </Card>
-                 </div>
-
-                 
-                 <div className="space-y-4">
-                     <Card>
-                         <CardHeader>
-                             <CardTitle className="text-lg">Statistiques</CardTitle>
-                         </CardHeader>
-                         <CardContent className="space-y-4">
-                              <div>
-                                  <p className="text-sm text-muted-foreground">Budget total</p>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-lg">€</span>
-                                    <Input
-                                      type="number"
-                                      value={editingBudgetValue}
-                                      onChange={handleBudgetInputChange}
-                                      onBlur={handleBudgetUpdate}
-                                      className="font-semibold h-9 text-lg w-32 p-2 border-input bg-transparent focus:ring-primary focus:border-primary"
-                                      min="0"
-                                      step="0.01"
-                                      aria-label="Budget total du projet"
-                                    />
-                                  </div>
-                              </div>
-                              <div>
-                                  <p className="text-sm text-muted-foreground">Dépenses totales</p>
-                                  <p className="font-semibold text-lg">€{selectedProject.totalExpenses.toFixed(2)}</p>
-                              </div>
-                              <div>
-                                  <p className="text-sm text-muted-foreground">Budget restant</p>
-                                  <p className={`font-semibold text-lg ${selectedProject.budget - selectedProject.totalExpenses >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    €{(selectedProject.budget - selectedProject.totalExpenses).toFixed(2)}
-                                  </p>
-                              </div>
-                              <div>
-                                 <p className="text-sm text-muted-foreground">Pourcentage utilisé</p>
-                                 <Progress value={calculateProgress(selectedProject.totalExpenses, selectedProject.budget)} className="h-2.5 mt-1" />
-                                 <p className="text-right text-sm font-medium mt-1">{calculateProgress(selectedProject.totalExpenses, selectedProject.budget).toFixed(0)}%</p>
-                             </div>
-                         </CardContent>
-                     </Card>
-
-                     <Card>
-                          <CardHeader>
-                              <CardTitle className="text-lg">Membres ({selectedProject.members.length})</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                              <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
-                                  {selectedProject.members.map((member, index) => (
-                                      <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
-                                           <Avatar className="w-8 h-8">
-                                              <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff`} alt={`Avatar ${member}`} data-ai-hint="member avatar placeholder"/>
-                                               <AvatarFallback>{getAvatarFallback(member)}</AvatarFallback>
-                                           </Avatar>
-                                          <div>
-                                              <p className="font-medium text-sm">{member}</p>
-                                          </div>
-                                      </div>
-                                  ))}
-                              </div>
-                              <Button variant="link" className="mt-3 w-full justify-center text-primary">
-                                  <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
-                              </Button>
-                          </CardContent>
-                      </Card>
-
-                       <Card>
-                          <CardHeader>
-                              <CardTitle className="text-lg">Tags</CardTitle>
-                          </CardHeader>
-                           <CardContent className="flex flex-wrap gap-2">
-                               {selectedProject.tags.map(tag => (
-                                   <Badge key={tag} variant="secondary">{tag}</Badge>
-                               ))}
-                               {selectedProject.tags.length === 0 && (
-                                   <p className="text-sm text-muted-foreground">Aucun tag.</p>
-                               )}
-                           </CardContent>
-                       </Card>
-                 </div>
-                 
-                
-                <div className="lg:col-span-3">
-                  <Card>
-                      <CardHeader>
-                          <CardTitle className="text-lg">Notes du projet</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                          <Textarea
-                            value={editingNotesValue}
-                            onChange={handleNotesInputChange}
-                            onBlur={handleNotesUpdate}
-                            placeholder="Ajoutez des notes pour ce projet..."
-                            className="min-h-[100px] text-sm"
-                            aria-label="Notes du projet"
-                          />
-                      </CardContent>
-                  </Card>
-                </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Dépenses Récentes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedProject.recentExpenses.length > 0 ? (
+                      <ul className="space-y-3">
+                        {selectedProject.recentExpenses.slice(0,3).map((expense, index) => (
+                          <li key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                            <div>
+                              <p className="font-medium">{expense.name}</p>
+                              <p className="text-sm text-muted-foreground">{expense.date}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold">{expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                              {expense.payer && <p className="text-xs text-muted-foreground">Payé par: {expense.payer}</p>}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">Aucune dépense récente pour ce projet.</p>
+                    )}
+                    {selectedProject.recentExpenses.length > 3 && (
+                         <Button variant="link" className="mt-4 w-full text-primary">
+                           Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
+                         </Button>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
 
-              <DialogFooter className="flex-col sm:flex-row sm:justify-between items-center mt-auto pt-4 border-t">
-                 <Button variant="destructive" onClick={() => handleOpenDeleteDialog(selectedProject)}>
-                    <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
-                 </Button>
-                 <div className="flex space-x-2 mt-2 sm:mt-0">
-                    <DialogClose asChild>
-                       <Button variant="outline" onClick={handleCloseDetails}>Fermer</Button>
-                    </DialogClose>
-                    <Button>
-                      <Icons.edit className="mr-2 h-4 w-4" /> Modifier
-                    </Button>
-                 </div>
-              </DialogFooter>
-            </>
-          )}
+              {/* Right Column / Sidebar */}
+              <div className="lg:col-span-1 space-y-6">
+                 <Card>
+                  <CardHeader>
+                    <CardTitle>Statistiques</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Budget total</Label>
+                      {editingBudget ? (
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input 
+                            type="number" 
+                            value={currentBudget}
+                            onChange={(e) => setCurrentBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                            className="h-8"
+                            data-ai-hint="budget input"
+                          />
+                          <Button size="sm" onClick={handleSaveBudget}><Icons.check className="h-4 w-4"/></Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget);}}><Icons.x className="h-4 w-4"/></Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between mt-1">
+                          <p className="font-semibold text-lg">
+                            {(typeof currentBudget === 'number' ? currentBudget : selectedProject.budget).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          </p>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)}>
+                            <Icons.edit className="h-4 w-4"/>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Dépenses totales</p>
+                      <p className="font-semibold text-lg">{selectedProject.totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                    </div>
+                    {selectedProject.budget > 0 && (
+                      <>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Budget restant</p>
+                          <p className={`font-semibold text-lg ${selectedProject.budget - selectedProject.totalExpenses < 0 ? 'text-destructive' : 'text-green-600'}`}>
+                            {(selectedProject.budget - selectedProject.totalExpenses).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Pourcentage utilisé</p>
+                          <Progress value={(selectedProject.totalExpenses / selectedProject.budget) * 100} className="mt-1 h-2.5" />
+                           <p className="text-right text-sm font-medium mt-1">{((selectedProject.totalExpenses / selectedProject.budget) * 100).toFixed(0)}%</p>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Membres ({selectedProject.members.length})</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 max-h-48 overflow-y-auto">
+                    {selectedProject.members.map((member, index) => (
+                      <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar small"/>
+                          <AvatarFallback className="text-xs">{getAvatarFallback(member)}</AvatarFallback>
+                        </Avatar>
+                        <p className="font-medium text-sm">{member}</p>
+                      </div>
+                    ))}
+                     <Button variant="link" className="mt-2 w-full text-primary text-sm">
+                        <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
+                     </Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Tags</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-wrap gap-2">
+                    {selectedProject.tags.length > 0 ? selectedProject.tags.map((tag, index) => (
+                      <Badge key={index} variant="secondary">{tag}</Badge>
+                    )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
+                     <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none">
+                        <Icons.plus className="mr-1 h-3 w-3" /> Ajouter
+                     </Button>
+                  </CardContent>
+                </Card>
+              </div>
+                 {/* Notes section moved to the bottom of the modal content */}
+                 <div className="lg:col-span-3">
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                            <CardTitle>Notes du projet</CardTitle>
+                             {!editingNotes && (
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)}>
+                                    <Icons.edit className="h-4 w-4"/>
+                                </Button>
+                            )}
+                        </CardHeader>
+                        <CardContent>
+                            {editingNotes ? (
+                                <div className="space-y-2">
+                                    <Textarea 
+                                        value={currentNotes}
+                                        onChange={(e) => setCurrentNotes(e.target.value)}
+                                        rows={5}
+                                        className="text-sm"
+                                        placeholder="Ajoutez des notes pour ce projet..."
+                                        data-ai-hint="project notes input"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}}>Annuler</Button>
+                                        <Button size="sm" onClick={handleSaveNotes}>Enregistrer Notes</Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="prose max-w-none text-sm text-muted-foreground min-h-[50px]">
+                                    {currentNotes || "Aucune note pour ce projet."}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+            <DialogFooter className="border-t pt-4">
+              <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true); /* Keep details modal open until delete confirmed */}}>
+                <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
+              </Button>
+              <DialogClose asChild>
+                 <Button variant="outline">Fermer</Button>
+              </DialogClose>
+              <Button onClick={() => { /* Logic to open edit project modal */ alert('Edit project functionality not implemented yet.'); }}>
+                <Icons.edit className="mr-2 h-4 w-4" /> Modifier
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* New Project Modal */}
+      <Dialog open={isNewProjectModalOpen} onOpenChange={setIsNewProjectModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Nouveau Projet</DialogTitle>
+            <DialogDescription>
+              Remplissez les informations ci-dessous pour créer un nouveau projet.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveNewProject}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="project-name" className="text-right">
+                  Nom*
+                </Label>
+                <Input
+                  id="project-name"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="col-span-3"
+                  placeholder="Ex: Voyage d'entreprise"
+                  required
+                  data-ai-hint="project name input"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="project-description" className="text-right">
+                  Description
+                </Label>
+                <Textarea
+                  id="project-description"
+                  value={projectDescription}
+                  onChange={(e) => setProjectDescription(e.target.value)}
+                  className="col-span-3"
+                  placeholder="Décrivez le projet..."
+                  data-ai-hint="project description input"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="project-budget" className="text-right">
+                  Budget (€)
+                </Label>
+                <Input
+                  id="project-budget"
+                  type="number"
+                  value={projectBudget}
+                  onChange={(e) => setProjectBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  className="col-span-3"
+                  placeholder="0.00"
+                  data-ai-hint="project budget input"
+                />
+              </div>
+              {/* Add member and tag selection here in a real app */}
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Annuler</Button>
+              </DialogClose>
+              <Button type="submit">
+                <Icons.check className="mr-2 h-4 w-4" /> Enregistrer
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
-            <AlertDialogDescription>
-              Êtes-vous sûr de vouloir supprimer le projet "{projectToDelete?.name}"? Cette action est irréversible et toutes les données associées seront perdues.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCloseDeleteDialog}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Supprimer
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+       {/* Delete Confirmation Modal */}
+        <Dialog open={isDeleteConfirmModalOpen} onOpenChange={setIsDeleteConfirmModalOpen}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Confirmer la suppression</DialogTitle>
+                    <DialogDescription>
+                        Êtes-vous sûr de vouloir supprimer le projet "{selectedProject?.name}"? Cette action est irréversible.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)}>Annuler</Button>
+                    <Button variant="destructive" onClick={handleDeleteProject}>
+                        <Icons.trash className="mr-2 h-4 w-4"/>Supprimer
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
     </div>
   );
 }
+
