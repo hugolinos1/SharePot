@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { User, Project } from '@/data/mock-data';
+import type { User } from '@/data/mock-data'; // Project type is not directly used here anymore for getProjectsForUser
 import {
   Table,
   TableBody,
@@ -20,15 +20,31 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where, type DocumentData } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
+
+// Simplified Project type for this page's needs
+interface UserProject {
+  id: string;
+  name: string;
+  members: string[]; // Assuming members are stored by name for now
+}
 
 export default function UsersPage() {
     const router = useRouter();
@@ -37,10 +53,13 @@ export default function UsersPage() {
 
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [projects, setProjects] = useState<Project[]>([]);
+    const [projects, setProjects] = useState<UserProject[]>([]);
     
     const [isLoadingUsers, setIsLoadingUsers] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true); 
+
+    const [selectedUserForModal, setSelectedUserForModal] = useState<User | null>(null);
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
     useEffect(() => {
         if (!authLoading && !currentUser) {
@@ -79,22 +98,27 @@ export default function UsersPage() {
       }
     }, [isAdmin, toast]);
 
-    const fetchProjects = useCallback(async () => {
+    const fetchProjectsForUsers = useCallback(async () => {
+      // Fetches all projects - admin context. Filtering per user is done client-side.
       if (!isAdmin) return;
       setIsLoadingProjects(true);
       try {
-        const projectsCollection = collection(db, "projects");
-        const projectSnapshot = await getDocs(projectsCollection);
-        const projectsList = projectSnapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        } as Project));
+        const projectsCollectionRef = collection(db, "projects");
+        const projectSnapshot = await getDocs(projectsCollectionRef);
+        const projectsList = projectSnapshot.docs.map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: data.name || "Projet sans nom",
+            members: data.members || [], // Ensure members array exists
+          } as UserProject;
+        });
         setProjects(projectsList);
       } catch (error) {
         console.error("Erreur lors de la récupération des projets: ", error);
         toast({
           title: "Erreur de chargement",
-          description: "Impossible de charger les projets.",
+          description: "Impossible de charger les projets pour les utilisateurs.",
           variant: "destructive",
         });
       } finally {
@@ -105,9 +129,9 @@ export default function UsersPage() {
     useEffect(() => {
       if (isAdmin) {
         fetchAllUsers();
-        fetchProjects(); 
+        fetchProjectsForUsers(); 
       }
-    }, [isAdmin, fetchAllUsers, fetchProjects]);
+    }, [isAdmin, fetchAllUsers, fetchProjectsForUsers]);
 
     const filteredUsers = useMemo(() => {
         if (!isAdmin || isLoadingUsers) return [];
@@ -119,12 +143,13 @@ export default function UsersPage() {
         );
     }, [isAdmin, allUsers, searchTerm, isLoadingUsers]);
 
-    const getProjectsForUser = (userName: string): Project[] => {
-        if (isLoadingProjects) return [];
+    const getProjectsForSpecificUser = useCallback((userName: string): UserProject[] => {
+        if (isLoadingProjects || !projects) return [];
         return projects.filter(project => project.members.includes(userName));
-    };
+    }, [projects, isLoadingProjects]);
 
-    const getAvatarFallback = (name: string) => {
+    const getAvatarFallback = (name: string | undefined) => {
+        if (!name) return '??';
         const parts = name.split(' ');
         if (parts.length >= 2) {
             return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
@@ -136,8 +161,12 @@ export default function UsersPage() {
         toast({
             title: "Fonctionnalité en cours de développement",
             description: `L'action de "${actionType}" pour l'utilisateur ${userId} n'est pas encore connectée à Firestore.`,
-            variant: "default",
         });
+    };
+
+    const handleOpenProfileModal = (user: User) => {
+        setSelectedUserForModal(user);
+        setIsProfileModalOpen(true);
     };
 
     if (authLoading) {
@@ -192,7 +221,7 @@ export default function UsersPage() {
                 <CardHeader>
                     <CardTitle>Liste des Utilisateurs ({isLoadingUsers ? '...' : filteredUsers.length})</CardTitle>
                     <CardDescription>
-                    Vue complète de tous les utilisateurs enregistrés.
+                    Vue complète de tous les utilisateurs enregistrés. Cliquez sur un nom pour voir les détails.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -217,17 +246,20 @@ export default function UsersPage() {
                             </TableRow>
                             )}
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.map((user) => {
-                            const userProjectsList = getProjectsForUser(user.name);
+                            const userProjectsList = getProjectsForSpecificUser(user.name);
                             return (
                                 <TableRow key={user.id}>
                                 <TableCell>
-                                    <div className="flex items-center gap-3">
-                                    <Avatar>
-                                        <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
-                                        <AvatarFallback>{getAvatarFallback(user.name)}</AvatarFallback>
-                                    </Avatar>
-                                    <span className="font-medium">{user.name}</span>
-                                    </div>
+                                    <button 
+                                        onClick={() => handleOpenProfileModal(user)}
+                                        className="flex items-center gap-3 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-primary rounded-md p-1 -m-1"
+                                    >
+                                        <Avatar>
+                                            <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
+                                            <AvatarFallback>{getAvatarFallback(user.name)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className="font-medium">{user.name}</span>
+                                    </button>
                                 </TableCell>
                                 <TableCell>{user.email}</TableCell>
                                 <TableCell>
@@ -269,6 +301,51 @@ export default function UsersPage() {
                     </div>
                 </CardContent>
             </Card>
+
+            {selectedUserForModal && (
+                <Dialog open={isProfileModalOpen} onOpenChange={setIsProfileModalOpen}>
+                    <DialogContent className="sm:max-w-lg">
+                        <DialogHeader className="items-center text-center pt-4">
+                            <Avatar className="h-24 w-24 mb-3 ring-2 ring-primary ring-offset-2 ring-offset-background">
+                                <AvatarImage src={selectedUserForModal.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUserForModal.name)}&background=random&color=fff&size=128`} alt={selectedUserForModal.name} data-ai-hint="user avatar large"/>
+                                <AvatarFallback className="text-3xl">{getAvatarFallback(selectedUserForModal.name)}</AvatarFallback>
+                            </Avatar>
+                            <DialogTitle className="text-2xl">{selectedUserForModal.name}</DialogTitle>
+                            <DialogDescription>{selectedUserForModal.email}</DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4 px-6 space-y-4">
+                             <div>
+                                <h4 className="text-sm font-medium text-muted-foreground mb-1">Rôle</h4>
+                                <Badge variant={selectedUserForModal.isAdmin ? 'default' : 'secondary'}>
+                                    {selectedUserForModal.isAdmin ? 'Administrateur' : 'Membre'}
+                                </Badge>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-medium text-muted-foreground mb-2">Projets Participés</h4>
+                                {isLoadingProjects ? (
+                                     <p className="text-sm text-muted-foreground">Chargement des projets...</p>
+                                ) : (
+                                    getProjectsForSpecificUser(selectedUserForModal.name).length > 0 ? (
+                                        <ul className="list-disc list-inside space-y-1 text-sm text-foreground max-h-32 overflow-y-auto">
+                                            {getProjectsForSpecificUser(selectedUserForModal.name).map(proj => (
+                                                <li key={proj.id}>{proj.name}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">Aucun projet pour cet utilisateur.</p>
+                                    )
+                                )}
+                            </div>
+                        </div>
+                        <DialogFooter className="px-6 pb-4">
+                            <DialogClose asChild>
+                                <Button variant="outline">Fermer</Button>
+                            </DialogClose>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
     );
-}
+
+    
