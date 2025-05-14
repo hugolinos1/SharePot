@@ -57,7 +57,8 @@ import { collection, getDocs, Timestamp, query, where, orderBy, limit } from 'fi
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import type { ExpenseItem } from '@/app/expenses/page'; // Import ExpenseItem
+import type { ExpenseItem } from '@/app/expenses/page';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -84,12 +85,9 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
   </Card>
 );
 
-
-// Interface for display purposes, matching ExpenseItem structure but might have different icon logic
 interface DisplayExpenseItem extends ExpenseItem {
-  displayIcon: React.ElementType; // Separate icon for display on dashboard
+  displayIcon: React.ElementType;
 }
-
 
 const SidebarGroupContent: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <div className="space-y-2">{children}</div>;
@@ -108,20 +106,45 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
   return 'Date invalide';
 };
 
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
+    }
+    return name.substring(0, 2).toUpperCase();
+  }
+  if (email) {
+    return email.substring(0, 2).toUpperCase();
+  }
+  return '??';
+};
+
 
 export default function DashboardPage() {
+  const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [recentGlobalExpenses, setRecentGlobalExpenses] = useState<DisplayExpenseItem[]>([]);
   const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const { toast } = useToast();
-  const router = useRouter();
+
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
 
   const fetchProjects = useCallback(async () => {
+    if (!currentUser) return;
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
+      // TODO: Implement fetching projects based on user membership if not admin
+      // For now, admins see all, others might see projects they are members of.
+      // This might require querying where 'members' array-contains currentUser.uid or ownerId === currentUser.uid
       const projectSnapshot = await getDocs(projectsCollection);
       const projectsList = projectSnapshot.docs.map(doc => ({
         id: doc.id,
@@ -138,19 +161,19 @@ export default function DashboardPage() {
     } finally {
       setIsLoadingProjects(false);
     }
-  }, [toast]);
+  }, [currentUser, toast]);
 
   const fetchRecentGlobalExpenses = useCallback(async () => {
+    if (!currentUser) return;
     setIsLoadingRecentExpenses(true);
     try {
         const expensesRef = collection(db, "expenses");
-        // Fetch latest 5 expenses globally for the "Recent Expenses" card
         const q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
         const querySnapshot = await getDocs(q);
         const fetchedExpenses = querySnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            displayIcon: Icons.fileText, // Default icon for now
+            displayIcon: Icons.fileText,
         } as DisplayExpenseItem));
         setRecentGlobalExpenses(fetchedExpenses);
     } catch (error) {
@@ -163,20 +186,28 @@ export default function DashboardPage() {
     } finally {
         setIsLoadingRecentExpenses(false);
     }
-  }, [toast]);
-
+  }, [currentUser, toast]);
 
   useEffect(() => {
-    fetchProjects();
-    fetchRecentGlobalExpenses();
-  }, [fetchProjects, fetchRecentGlobalExpenses]);
+    if (currentUser) {
+      fetchProjects();
+      fetchRecentGlobalExpenses();
+    }
+  }, [currentUser, fetchProjects, fetchRecentGlobalExpenses]);
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+      toast({ title: "Déconnexion réussie" });
+    } catch (error) {
+      console.error("Erreur de déconnexion:", error);
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
 
   const chartConfig = {
-    Dépenses: {
-      label: "Dépenses (€)",
-      color: "hsl(var(--primary))",
-    },
+    Dépenses: { label: "Dépenses (€)", color: "hsl(var(--primary))" },
     JeanD: { label: "Jean D.", color: "hsl(var(--chart-1))" },
     SophieL: { label: "Sophie L.", color: "hsl(var(--chart-2))" },
     LucM: { label: "Luc M.", color: "hsl(var(--chart-3))" },
@@ -192,23 +223,15 @@ export default function DashboardPage() {
     if (isLoadingProjects && projects.length === 0) { 
         return { totalSpent: "Chargement...", expenseCount: "...", participantsCount: "...", averagePerPerson: "..." };
     }
-
     const projectsToConsider = selectedProject ? [selectedProject] : projects;
-    
     if (projectsToConsider.length === 0 && !selectedProject) { 
         return { totalSpent: "0,00 €", expenseCount: "0", participantsCount: "0", averagePerPerson: "0,00 €" };
     }
-
     const totalSpentAll = projectsToConsider.reduce((sum, p) => sum + (p.totalExpenses || 0), 0);
-    // expenseCount should ideally sum up actual expenses from "expenses" collection if more accurate count needed
-    // For now, using project.recentExpenses.length (which is a summary and might not be the full count)
     const totalExpenseCountAll = projectsToConsider.reduce((sum, p) => sum + (p.recentExpenses?.length || 0), 0); 
-    
     const allParticipants = new Set<string>();
     projectsToConsider.forEach(p => p.members?.forEach(m => allParticipants.add(m)));
-    
     const averagePerPersonAll = allParticipants.size > 0 ? totalSpentAll / allParticipants.size : 0;
-
     return {
       totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
       expenseCount: totalExpenseCountAll.toString(),
@@ -217,11 +240,15 @@ export default function DashboardPage() {
     };
   }, [selectedProject, projects, isLoadingProjects]);
 
-  // The filteredRecentExpenses for the card now uses fetched global expenses, not filtered by project on this card.
-  const displayRecentExpenses = useMemo(() => {
-    return recentGlobalExpenses;
-  }, [recentGlobalExpenses]);
+  const displayRecentExpenses = useMemo(() => recentGlobalExpenses, [recentGlobalExpenses]);
 
+  if (authLoading || !currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Icons.loader className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider defaultOpen>
@@ -260,35 +287,32 @@ export default function DashboardPage() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          <Separator className="my-4" />
-           <SidebarGroup>
-            <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <Link href="/users"><Icons.users /> Utilisateurs</Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                   <SidebarMenuButton asChild>
-                     <Link href="/admin"><Icons.settings /> Gestion Projets (Admin)</Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <Link href="#"><Icons.settings /> Paramètres</Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {isAdmin && (
+            <>
+              <Separator className="my-4" />
+              <SidebarGroup>
+                <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link href="/users"><Icons.users /> Utilisateurs</Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link href="/admin"><Icons.settings /> Gestion Projets (Admin)</Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </>
+          )}
         </SidebarContent>
         <SidebarFooter className="p-4">
-           <Button variant="outline" asChild>
-            <Link href="/login">
+           <Button variant="outline" onClick={handleLogout}>
                 <Icons.logOut className="mr-2 h-4 w-4" /> Déconnexion
-            </Link>
           </Button>
         </SidebarFooter>
       </Sidebar>
@@ -308,12 +332,12 @@ export default function DashboardPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
-                  <AvatarImage src="https://placehold.co/40x40.png" alt="User" data-ai-hint="user avatar"/>
-                  <AvatarFallback>AD</AvatarFallback>
+                  <AvatarImage src={userProfile?.avatarUrl || `https://placehold.co/40x40.png`} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
+                  <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Mon Compte</DropdownMenuLabel>
+                <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/profile">
@@ -328,11 +352,9 @@ export default function DashboardPage() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/login">
-                    <Icons.logOut className="mr-2 h-4 w-4" />
-                    Déconnexion
-                  </Link>
+                <DropdownMenuItem onClick={handleLogout}>
+                  <Icons.logOut className="mr-2 h-4 w-4" />
+                  Déconnexion
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -344,7 +366,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-3xl font-bold">Tableau de bord</h1>
               <p className="text-muted-foreground">
-                {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : "Bienvenue. Voici un aperçu global."}
+                {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : `Bienvenue, ${userProfile?.name || currentUser?.email || 'Utilisateur'}.`}
               </p>
             </div>
             <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5 bg-card p-4 rounded-lg shadow">
@@ -444,4 +466,3 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
-

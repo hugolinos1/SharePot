@@ -26,61 +26,43 @@ import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
-
-// TODO: Remplacer par une véritable authentification Firebase Auth
-// Cet ID est utilisé pour récupérer le profil de l'utilisateur qui est supposé être l'administrateur.
-// Assurez-vous qu'un document avec cet ID existe dans votre collection 'users'
-// et qu'il a un champ `isAdmin: true`.
-const EXPECTED_ADMIN_DOCUMENT_ID = 'adminPrincipal'; 
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function UsersPage() {
     const router = useRouter();
     const { toast } = useToast();
-    const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
+    const { currentUser, isAdmin, loading: authLoading } = useAuth();
+
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
     
     const [isLoadingUsers, setIsLoadingUsers] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true); 
-    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
 
-    const fetchCurrentUserProfile = useCallback(async () => {
-      setIsLoadingCurrentUser(true);
-      try {
-        // Dans une vraie application, l'ID viendrait de auth.currentUser.uid après une connexion réussie.
-        const userDocRef = doc(db, "users", EXPECTED_ADMIN_DOCUMENT_ID);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          setCurrentUserProfile({ id: userDocSnap.id, ...userDocSnap.data() } as User);
-        } else {
-          console.error(`Profil administrateur (document ID: ${EXPECTED_ADMIN_DOCUMENT_ID}) non trouvé dans Firestore.`);
-          toast({
-            title: "Erreur de configuration Admin",
-            description: `Profil administrateur (${EXPECTED_ADMIN_DOCUMENT_ID}) introuvable. Vérifiez votre base de données.`,
-            variant: "destructive",
-          });
+    useEffect(() => {
+        if (!authLoading && !currentUser) {
+            router.replace('/login');
+        } else if (!authLoading && currentUser && !isAdmin) {
+            router.replace('/dashboard');
+             toast({
+                title: "Accès non autorisé",
+                description: "Vous n'avez pas les droits pour accéder à cette page.",
+                variant: "destructive"
+            });
         }
-      } catch (error) {
-        console.error("Erreur lors de la récupération du profil utilisateur admin: ", error);
-        toast({
-          title: "Erreur de chargement",
-          description: "Impossible de charger le profil utilisateur admin.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoadingCurrentUser(false);
-      }
-    }, [toast]);
+    }, [authLoading, currentUser, isAdmin, router, toast]);
+
 
     const fetchAllUsers = useCallback(async () => {
+      if (!isAdmin) return;
       setIsLoadingUsers(true);
       try {
         const usersCollection = collection(db, "users");
         const usersSnapshot = await getDocs(usersCollection);
-        const usersList = usersSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap pour éviter conflit
+        const usersList = usersSnapshot.docs.map(docSnap => ({
           id: docSnap.id,
           ...docSnap.data(),
         } as User));
@@ -95,14 +77,15 @@ export default function UsersPage() {
       } finally {
         setIsLoadingUsers(false);
       }
-    }, [toast]);
+    }, [isAdmin, toast]);
 
     const fetchProjects = useCallback(async () => {
+      if (!isAdmin) return;
       setIsLoadingProjects(true);
       try {
         const projectsCollection = collection(db, "projects");
         const projectSnapshot = await getDocs(projectsCollection);
-        const projectsList = projectSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap
+        const projectsList = projectSnapshot.docs.map(docSnap => ({
           id: docSnap.id,
           ...docSnap.data(),
         } as Project));
@@ -111,56 +94,30 @@ export default function UsersPage() {
         console.error("Erreur lors de la récupération des projets: ", error);
         toast({
           title: "Erreur de chargement",
-          description: "Impossible de charger les projets (pour le décompte par utilisateur).",
+          description: "Impossible de charger les projets.",
           variant: "destructive",
         });
       } finally {
         setIsLoadingProjects(false);
       }
-    }, [toast]);
+    }, [isAdmin, toast]);
   
     useEffect(() => {
-      fetchCurrentUserProfile();
-      fetchAllUsers();
-      fetchProjects(); 
-    }, [fetchCurrentUserProfile, fetchAllUsers, fetchProjects]);
-
-
-    const isAdmin = useMemo(() => currentUserProfile?.isAdmin ?? false, [currentUserProfile]);
-
-    const currentUserProjects = useMemo(() => {
-        if (!currentUserProfile || isLoadingProjects) return [];
-        // Un admin voit tous les projets, donc pas besoin de filtrer ici pour ses propres projets
-        if (isAdmin) return projects; 
-        return projects.filter(project => project.members.includes(currentUserProfile.name));
-    }, [currentUserProfile, projects, isLoadingProjects, isAdmin]);
-
-    const visibleUsers = useMemo(() => {
-        if (isLoadingUsers) return [];
-        if (isAdmin) {
-            return allUsers;
-        }
-        // Pour un non-admin, la logique actuelle de `currentUserProjects` et `relatedUserNames` s'applique.
-        // Elle pourrait être ajustée si un non-admin ne doit pas voir la page des utilisateurs.
-        // Actuellement, elle est bloquée par le check `isAdmin` plus bas.
-        if (!currentUserProfile) return [];
-
-        const relatedUserNames = new Set<string>();
-        currentUserProjects.forEach(project => {
-            project.members.forEach(memberName => relatedUserNames.add(memberName));
-        });
-
-        return allUsers.filter(user => relatedUserNames.has(user.name));
-    }, [isAdmin, currentUserProfile, currentUserProjects, allUsers, isLoadingUsers]);
+      if (isAdmin) {
+        fetchAllUsers();
+        fetchProjects(); 
+      }
+    }, [isAdmin, fetchAllUsers, fetchProjects]);
 
     const filteredUsers = useMemo(() => {
-        if (!searchTerm) return visibleUsers;
+        if (!isAdmin || isLoadingUsers) return [];
+        if (!searchTerm) return allUsers;
         const lowerCaseSearch = searchTerm.toLowerCase();
-        return visibleUsers.filter(user =>
+        return allUsers.filter(user =>
             user.name.toLowerCase().includes(lowerCaseSearch) ||
             user.email.toLowerCase().includes(lowerCaseSearch)
         );
-    }, [visibleUsers, searchTerm]);
+    }, [isAdmin, allUsers, searchTerm, isLoadingUsers]);
 
     const getProjectsForUser = (userName: string): Project[] => {
         if (isLoadingProjects) return [];
@@ -183,21 +140,20 @@ export default function UsersPage() {
         });
     };
 
-    if (isLoadingCurrentUser) {
+    if (authLoading) {
         return (
           <div className="container mx-auto py-10 text-center">
             <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
-            <p className="mt-4">Chargement du profil utilisateur...</p>
+            <p className="mt-4">Vérification des droits d'accès...</p>
           </div>
         );
     }
     
-    // Si après chargement, on ne détermine pas que l'utilisateur est admin, on bloque l'accès.
     if (!isAdmin) { 
          return (
             <div className="container mx-auto py-10 text-center">
                  <p className="text-2xl font-semibold mb-4">Accès non autorisé</p>
-                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page. Vérifiez que votre compte est configuré comme administrateur dans la base de données (document ID: {EXPECTED_ADMIN_DOCUMENT_ID}).</p>
+                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page.</p>
                  <Button onClick={() => router.push('/dashboard')}>
                      <Icons.home className="mr-2 h-4 w-4" />
                      Retour au tableau de bord
@@ -205,12 +161,6 @@ export default function UsersPage() {
             </div>
         );
     }
-    
-    // Ce cas est couvert par le !isAdmin ci-dessus si currentUserProfile est null ou n'a pas isAdmin:true
-    // if (!currentUserProfile) {
-    //      return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
-    // }
-
 
     return (
         <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
@@ -242,7 +192,7 @@ export default function UsersPage() {
                 <CardHeader>
                     <CardTitle>Liste des Utilisateurs ({isLoadingUsers ? '...' : filteredUsers.length})</CardTitle>
                     <CardDescription>
-                    {isAdmin ? "Vue complète de tous les utilisateurs enregistrés." : "Utilisateurs participant aux mêmes projets que vous."}
+                    Vue complète de tous les utilisateurs enregistrés.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -254,13 +204,13 @@ export default function UsersPage() {
                             <TableHead>Email</TableHead>
                             <TableHead>Rôle</TableHead>
                             <TableHead>Projets</TableHead>
-                            {isAdmin && <TableHead className="text-right">Actions</TableHead>}
+                            <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {(isLoadingUsers || isLoadingProjects) && (
                             <TableRow>
-                                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-10">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground py-10">
                                     <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                                     Chargement des données...
                                 </TableCell>
@@ -273,7 +223,7 @@ export default function UsersPage() {
                                 <TableCell>
                                     <div className="flex items-center gap-3">
                                     <Avatar>
-                                        <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
+                                        <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
                                         <AvatarFallback>{getAvatarFallback(user.name)}</AvatarFallback>
                                     </Avatar>
                                     <span className="font-medium">{user.name}</span>
@@ -294,24 +244,22 @@ export default function UsersPage() {
                                         <span className="text-muted-foreground text-sm">Aucun</span>
                                     )}
                                 </TableCell>
-                                {isAdmin && (
-                                    <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleUserAction('edit', user.id)}>
-                                        <Icons.edit className="h-4 w-4" />
-                                        <span className="sr-only">Modifier</span>
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleUserAction('delete', user.id)}>
-                                        <Icons.trash className="h-4 w-4" />
-                                        <span className="sr-only">Supprimer</span>
-                                    </Button>
-                                    </TableCell>
-                                )}
+                                <TableCell className="text-right">
+                                <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleUserAction('edit', user.id)}>
+                                    <Icons.edit className="h-4 w-4" />
+                                    <span className="sr-only">Modifier</span>
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleUserAction('delete', user.id)}>
+                                    <Icons.trash className="h-4 w-4" />
+                                    <span className="sr-only">Supprimer</span>
+                                </Button>
+                                </TableCell>
                                 </TableRow>
                             );
                             })}
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-4">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
                                 Aucun utilisateur trouvé.
                                 </TableCell>
                             </TableRow>

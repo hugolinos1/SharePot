@@ -23,14 +23,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import type { User } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-
-// TODO: Remplacer par une véritable authentification Firebase Auth.
-// Pour l'instant, cette page affiche le profil de l'utilisateur admin par défaut.
-// Dans une application réelle, l'ID viendrait de auth.currentUser.uid.
-const USER_TO_DISPLAY_ID = 'adminPrincipal'; 
+import { doc, updateDoc } from 'firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
 
 const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Le nom doit comporter au moins 2 caractères." }).max(50, { message: "Le nom ne doit pas dépasser 50 caractères." }),
@@ -41,53 +36,28 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 export default function ProfilePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [userProfile, setUserProfile] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { currentUser, userProfile, loading: authLoading, setUserProfile: setContextUserProfile } = useAuth(); // Use from AuthContext
+  const [isLoading, setIsLoading] = useState(false); // For form submission, authLoading handles initial load
   const [isEditingName, setIsEditingName] = useState(false);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: '',
+      name: userProfile?.name || '',
     },
   });
 
-  const fetchUserProfile = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const userDocRef = doc(db, "users", USER_TO_DISPLAY_ID);
-      const userDocSnap = await getDoc(userDocRef);
-      if (userDocSnap.exists()) {
-        const userData = { id: userDocSnap.id, ...userDocSnap.data() } as User;
-        setUserProfile(userData);
-        form.reset({ name: userData.name }); 
-      } else {
-        console.error(`Profil utilisateur (ID: ${USER_TO_DISPLAY_ID}) non trouvé.`);
-        toast({
-          title: "Erreur",
-          description: `Profil utilisateur (ID: ${USER_TO_DISPLAY_ID}) introuvable.`,
-          variant: "destructive",
-        });
-        // Optionnel: rediriger si le profil admin par défaut n'est pas trouvé
-        // router.push('/dashboard'); 
-      }
-    } catch (error) {
-      console.error("Erreur lors de la récupération du profil: ", error);
-      toast({
-        title: "Erreur de chargement",
-        description: "Impossible de charger le profil utilisateur.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast, form]); // router retiré des dépendances si non utilisé en cas d'erreur
-
   useEffect(() => {
-    fetchUserProfile();
-  }, [fetchUserProfile]);
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+    if (userProfile) {
+      form.reset({ name: userProfile.name });
+    }
+  }, [authLoading, currentUser, userProfile, router, form]);
 
-  const getAvatarFallback = (name: string | undefined) => {
+
+  const getAvatarFallback = (name: string | undefined | null) => {
     if (!name) return '??';
     const parts = name.split(' ');
     if (parts.length >= 2) {
@@ -97,18 +67,19 @@ export default function ProfilePage() {
   };
 
   const handleSaveName = async (values: ProfileFormValues) => {
-    if (!userProfile) return;
-    // Ne pas remettre setIsLoading à true ici, car il est géré par le FormField et le bouton de soumission.
-    // Si le bouton est déjà en mode "isLoading", cela peut causer des conflits.
-    // Le formulaire gère déjà son propre état de soumission.
+    if (!currentUser || !userProfile) return;
+    setIsLoading(true); // For form submission
 
     try {
-      const userDocRef = doc(db, "users", userProfile.id);
+      const userDocRef = doc(db, "users", currentUser.uid);
       await updateDoc(userDocRef, {
         name: values.name,
-        // updatedAt: serverTimestamp(), // Envisagez d'ajouter un champ updatedAt pour les utilisateurs aussi
       });
-      setUserProfile(prev => prev ? { ...prev, name: values.name } : null);
+      // Update local context state
+      if(setContextUserProfile) { // Check if setUserProfile exists
+        setContextUserProfile(prev => prev ? { ...prev, name: values.name } : null);
+      }
+
       toast({
         title: "Profil mis à jour",
         description: "Votre nom a été modifié avec succès.",
@@ -121,11 +92,12 @@ export default function ProfilePage() {
         description: "Impossible de mettre à jour le nom.",
         variant: "destructive",
       });
-    } 
-    // setIsLoading(false) n'est pas nécessaire ici si le bouton de formulaire gère son propre état de chargement
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  if (isLoading && !userProfile) { // Modifié pour afficher le loader seulement si userProfile n'est pas encore là
+  if (authLoading || !currentUser || !userProfile) {
     return (
       <div className="container mx-auto py-10 text-center">
         <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
@@ -133,22 +105,6 @@ export default function ProfilePage() {
       </div>
     );
   }
-
-  if (!userProfile) { // Si après chargement, userProfile est toujours null
-     return (
-      <div className="container mx-auto py-10 text-center">
-        <p className="text-xl text-destructive">Profil utilisateur non trouvé.</p>
-        <p className="text-muted-foreground mb-6">Impossible de charger les informations du profil (ID: {USER_TO_DISPLAY_ID}). Veuillez vérifier votre base de données ou la configuration.</p>
-        <Link href="/dashboard" passHref>
-          <Button variant="outline">
-            <Icons.arrowLeft className="mr-2 h-4 w-4" />
-            Retour au tableau de bord
-          </Button>
-        </Link>
-      </div>
-    );
-  }
-
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
@@ -165,7 +121,7 @@ export default function ProfilePage() {
       <Card className="max-w-2xl mx-auto shadow-lg">
         <CardHeader className="items-center text-center">
           <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background">
-            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&background=random&color=fff&size=128`} alt={userProfile.name} data-ai-hint="user avatar large"/>
+            <AvatarImage src={userProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&background=random&color=fff&size=128`} alt={userProfile.name} data-ai-hint="user avatar large"/>
             <AvatarFallback className="text-3xl">{getAvatarFallback(userProfile.name)}</AvatarFallback>
           </Avatar>
           {!isEditingName ? (
@@ -190,10 +146,10 @@ export default function ProfilePage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" size="icon" className="h-8 w-8" disabled={form.formState.isSubmitting}>
-                  {form.formState.isSubmitting ? <Icons.loader className="h-4 w-4 animate-spin"/> : <Icons.save className="h-4 w-4" />}
+                <Button type="submit" size="icon" className="h-8 w-8" disabled={isLoading || form.formState.isSubmitting}>
+                  {(isLoading || form.formState.isSubmitting) ? <Icons.loader className="h-4 w-4 animate-spin"/> : <Icons.save className="h-4 w-4" />}
                 </Button>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsEditingName(false)} disabled={form.formState.isSubmitting}>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsEditingName(false)} disabled={isLoading || form.formState.isSubmitting}>
                   <Icons.close className="h-4 w-4" />
                 </Button>
               </form>

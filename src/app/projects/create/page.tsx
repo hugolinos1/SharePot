@@ -19,8 +19,9 @@ import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
-import React from "react";
+import React, { useEffect } from "react";
 import { Icons } from "@/components/icons";
+import { useAuth } from '@/contexts/AuthContext';
 
 const formSchema = z.object({
   name: z.string().min(2, {
@@ -31,6 +32,11 @@ const formSchema = z.object({
 });
 
 export default function ProjectCreatePage() {
+  const { currentUser, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = React.useState(false);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -40,24 +46,36 @@ export default function ProjectCreatePage() {
     },
   });
 
-  const router = useRouter();
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = React.useState(false);
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
+
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!currentUser) {
+      toast({
+        title: "Erreur d'authentification",
+        description: "Vous devez être connecté pour créer un projet.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsLoading(true);
     try {
       const newProjectData = {
         name: values.name,
         description: values.description || "",
         budget: values.budget || 0,
-        status: 'Actif', // Default status
+        status: 'Actif', 
         totalExpenses: 0,
-        lastActivity: new Date().toLocaleDateString('fr-FR'), // Or serverTimestamp()
-        members: ['Admin User'], // Default member, ideally make this selectable
+        // lastActivity: serverTimestamp(), // Use serverTimestamp for consistency
+        members: [currentUser.displayName || currentUser.email || "Utilisateur connecté"], 
+        ownerId: currentUser.uid, // Store owner ID
         recentExpenses: [],
         notes: '',
-        tags: [], // Default tags, ideally make this selectable
+        tags: [], 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -77,6 +95,14 @@ export default function ProjectCreatePage() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (authLoading || !currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Icons.loader className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (

@@ -39,9 +39,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import type { Project, User } from '@/data/mock-data';
+import type { Project } from '@/data/mock-data'; // User is now part of AuthContext or fetched
 import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
+import { useAuth } from '@/contexts/AuthContext';
+import type { User as AppUserType } from '@/data/mock-data';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -64,16 +66,26 @@ type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 export default function NewExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { currentUser, userProfile, loading: authLoading } = useAuth();
+
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<AppUserType[]>([]); // Changed from User to AppUserType
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
 
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
+
   const fetchProjects = useCallback(async () => {
+    if (!currentUser) return;
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
+      // TODO: Potentially filter projects to those the user is a member of
       const projectSnapshot = await getDocs(projectsCollection);
       const projectsList = projectSnapshot.docs.map(doc => ({
         id: doc.id,
@@ -90,17 +102,19 @@ export default function NewExpensePage() {
     } finally {
       setIsLoadingProjects(false);
     }
-  }, [toast]);
+  }, [currentUser, toast]);
 
   const fetchUsers = useCallback(async () => {
+    if (!currentUser) return;
     setIsLoadingUsers(true);
     try {
       const usersCollection = collection(db, "users");
+      // TODO: Potentially filter users to those in the selected project
       const usersSnapshot = await getDocs(usersCollection);
       const usersList = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-      } as User));
+      } as AppUserType)); // Ensure correct type casting
       setUsers(usersList);
     } catch (error) {
       console.error("Erreur lors de la récupération des utilisateurs: ", error);
@@ -112,12 +126,14 @@ export default function NewExpensePage() {
     } finally {
       setIsLoadingUsers(false);
     }
-  }, [toast]);
+  }, [currentUser, toast]);
 
   useEffect(() => {
-    fetchProjects();
-    fetchUsers();
-  }, [fetchProjects, fetchUsers]);
+    if(currentUser){
+      fetchProjects();
+      fetchUsers();
+    }
+  }, [currentUser, fetchProjects, fetchUsers]);
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
@@ -126,24 +142,38 @@ export default function NewExpensePage() {
       amount: undefined,
       currency: 'EUR',
       projectId: '',
-      paidById: '',
+      paidById: currentUser?.uid || '', // Pre-fill with current user if available
       expenseDate: new Date(),
       tags: '',
     },
   });
+  
+  // Reset form paidById if currentUser changes
+  useEffect(() => {
+    if (currentUser) {
+      form.reset({ ...form.getValues(), paidById: currentUser.uid });
+    }
+  }, [currentUser, form]);
+
 
   async function onSubmit(values: ExpenseFormValues) {
+    if (!currentUser || !userProfile) {
+        toast({ title: "Utilisateur non connecté", description: "Veuillez vous connecter.", variant: "destructive" });
+        setIsLoading(false);
+        return;
+    }
     setIsLoading(true);
     
     const selectedProject = projects.find(p => p.id === values.projectId);
-    const payer = users.find(u => u.id === values.paidById);
+    const payer = users.find(u => u.id === values.paidById); // Find from fetched users list
 
-    if (!selectedProject || !payer) {
-        toast({
-            title: "Erreur de données",
-            description: "Projet ou payeur introuvable. Veuillez vérifier les sélections.",
-            variant: "destructive",
-        });
+    if (!selectedProject) {
+        toast({ title: "Erreur de données", description: "Projet introuvable.", variant: "destructive" });
+        setIsLoading(false);
+        return;
+    }
+    if (!payer) {
+        toast({ title: "Erreur de données", description: "Payeur introuvable.", variant: "destructive" });
         setIsLoading(false);
         return;
     }
@@ -155,11 +185,12 @@ export default function NewExpensePage() {
         currency: values.currency,
         projectId: values.projectId,
         projectName: selectedProject.name, 
-        paidById: values.paidById,
-        paidByName: payer.name, 
+        paidById: payer.id, // Use the ID from the selected user
+        paidByName: payer.name, // Use the name from the selected user
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
         createdAt: serverTimestamp(),
+        createdBy: currentUser.uid, // Track who created the expense
       };
 
       const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
@@ -176,7 +207,7 @@ export default function NewExpensePage() {
         const recentExpenseSummary = {
           id: expenseDocRef.id, 
           name: values.description,
-          date: Timestamp.fromDate(values.expenseDate),
+          date: Timestamp.fromDate(values.expenseDate), // Use Timestamp for consistency
           amount: values.amount,
           payer: payer.name,
         };
@@ -193,7 +224,15 @@ export default function NewExpensePage() {
         title: "Dépense ajoutée",
         description: `La dépense "${values.description}" a été enregistrée avec succès.`,
       });
-      form.reset(); 
+      form.reset({
+         description: '',
+         amount: undefined,
+         currency: 'EUR',
+         projectId: '',
+         paidById: currentUser.uid || '',
+         expenseDate: new Date(),
+         tags: '',
+      }); 
       router.push('/expenses'); 
     } catch (error) {
         console.error("Erreur lors de l'ajout de la dépense: ", error);
@@ -206,6 +245,15 @@ export default function NewExpensePage() {
         setIsLoading(false);
     }
   }
+  
+  if (authLoading || !currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Icons.loader className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
@@ -314,7 +362,7 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payé par</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingUsers}>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingUsers}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="user select paid by">
                           <SelectValue placeholder={isLoadingUsers ? "Chargement des utilisateurs..." : "Sélectionner un utilisateur"} />
@@ -323,7 +371,7 @@ export default function NewExpensePage() {
                       <SelectContent>
                         {users.map(user => ( 
                           <SelectItem key={user.id} value={user.id}>
-                            {user.name}
+                            {user.name} {user.id === currentUser?.uid ? "(Moi)" : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -438,4 +486,3 @@ export default function NewExpensePage() {
     </div>
   );
 }
-

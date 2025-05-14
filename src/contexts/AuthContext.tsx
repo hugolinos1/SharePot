@@ -2,15 +2,16 @@
 "use client";
 
 import type { User as FirebaseUserType } from 'firebase/auth';
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, Dispatch, SetStateAction } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, DocumentData } from 'firebase/firestore';
-import type { User as AppUserType } from '@/data/mock-data'; // Assuming User type for profile
+import type { User as AppUserType } from '@/data/mock-data'; 
 
 interface AuthContextType {
   currentUser: FirebaseUserType | null;
   userProfile: AppUserType | null;
+  setUserProfile: Dispatch<SetStateAction<AppUserType | null>>; // To allow profile updates from ProfilePage
   isAdmin: boolean;
   loading: boolean;
   logout: () => Promise<void>;
@@ -28,18 +29,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Fetch user profile from Firestore
         const userDocRef = doc(db, "users", user.uid);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
-          const profileData = userDocSnap.data() as AppUserType;
+          const profileData = { id: userDocSnap.id, ...userDocSnap.data() } as AppUserType;
           setUserProfile(profileData);
           setIsAdmin(profileData.isAdmin || false);
         } else {
-          // Handle case where user exists in Auth but not in Firestore (should ideally not happen after registration)
           setUserProfile(null);
           setIsAdmin(false);
-          console.warn(`User profile not found in Firestore for UID: ${user.uid}`);
+          console.warn(`User profile not found in Firestore for UID: ${user.uid}. Attempting to create one.`);
+          // Potentially create a basic profile if it doesn't exist, e.g., after social sign-in
+          // For email/password, this should be created at registration.
         }
       } else {
         setUserProfile(null);
@@ -53,14 +54,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await auth.signOut();
-    setCurrentUser(null);
-    setUserProfile(null);
-    setIsAdmin(false);
+    // State will be updated by onAuthStateChanged listener
   };
 
   const value = {
     currentUser,
     userProfile,
+    setUserProfile, // Expose setter
     isAdmin,
     loading,
     logout,

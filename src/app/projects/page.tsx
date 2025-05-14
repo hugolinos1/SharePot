@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Icons } from '@/components/icons';
-import type { Project as ProjectType } from '@/data/mock-data'; // User type is also in mock-data
+import type { Project as ProjectType } from '@/data/mock-data';
 import {
   Dialog,
   DialogContent,
@@ -31,12 +31,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { useAuth } from '@/contexts/AuthContext';
 
-// Helper function to get avatar fallback
 const getAvatarFallback = (name: string) => {
   const parts = name.split(' ');
   if (parts.length > 0 && parts[0].length > 0) {
@@ -50,53 +50,92 @@ const getAvatarFallback = (name: string) => {
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') return timestamp; // Assume it's already formatted or an ISO string
+  if (typeof timestamp === 'string') return timestamp; 
   if (timestamp instanceof Timestamp) {
     return format(timestamp.toDate(), 'PP', { locale: fr });
   }
   return 'Date invalide';
 };
 
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
+    }
+    return name.substring(0, 2).toUpperCase();
+  }
+  if (email) {
+    return email.substring(0, 2).toUpperCase();
+  }
+  return '??';
+};
+
 
 export default function ProjectsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { currentUser, userProfile, loading: authLoading } = useAuth();
+
   const [projects, setProjects] = useState<ProjectType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // General loading for operations
+  const [isFetchingProjects, setIsFetchingProjects] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
 
-  // Form state for new/edit project
   const [editingBudget, setEditingBudget] = useState(false);
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
   const [editingNotes, setEditingNotes] = useState(false);
   const [currentNotes, setCurrentNotes] = useState('');
 
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
+
   const fetchProjects = useCallback(async () => {
-    setIsLoading(true);
+    if (!currentUser) return;
+    setIsFetchingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
-      const projectSnapshot = await getDocs(projectsCollection);
+      // Query projects where the current user is the owner OR is in the members array
+      const q = query(projectsCollection, 
+        where("members", "array-contains", currentUser.displayName || currentUser.email) // Or use currentUser.uid if members store UIDs
+      );
+      // If you also want to fetch projects owned by the user specifically (if 'ownerId' exists and is different from 'members' logic)
+      // const ownerQuery = query(projectsCollection, where("ownerId", "==", currentUser.uid));
+      // const [memberSnapshot, ownerSnapshot] = await Promise.all([getDocs(q), getDocs(ownerQuery)]);
+      // const combinedProjects = new Map();
+      // memberSnapshot.docs.forEach(doc => combinedProjects.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType));
+      // ownerSnapshot.docs.forEach(doc => combinedProjects.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType));
+      // setProjects(Array.from(combinedProjects.values()));
+      
+      const projectSnapshot = await getDocs(q);
       const projectsList = projectSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
       } as ProjectType));
       setProjects(projectsList);
+
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
       toast({
         title: "Erreur de chargement",
-        description: "Impossible de charger les projets depuis la base de données.",
+        description: "Impossible de charger les projets.",
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setIsFetchingProjects(false);
+      setIsLoading(false); // Also set general loading to false after initial fetch
     }
-  }, [toast]);
+  }, [currentUser, toast]);
 
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    if (currentUser) {
+      fetchProjects();
+    }
+  }, [currentUser, fetchProjects]);
 
   const handleViewProjectDetails = (project: ProjectType) => {
     setSelectedProject(project);
@@ -111,7 +150,12 @@ export default function ProjectsPage() {
   };
   
   const handleSaveBudget = async () => {
-    if (selectedProject && typeof currentBudget === 'number' && currentBudget >=0) {
+    if (selectedProject && typeof currentBudget === 'number' && currentBudget >=0 && currentUser) {
+      // Check if currentUser is owner or admin for edit permissions
+      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+        toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier le budget.", variant: "destructive" });
+        return;
+      }
       setIsLoading(true);
       try {
         const projectRef = doc(db, "projects", selectedProject.id);
@@ -119,13 +163,12 @@ export default function ProjectsPage() {
           budget: currentBudget,
           updatedAt: serverTimestamp(),
         });
-        // Update local state
-        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Approximate updatedAt
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() };
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
       } catch (error) {
-        console.error("Erreur lors de la mise à jour du budget: ", error);
+        console.error("Erreur maj budget: ", error);
         toast({ title: "Erreur", description: "Impossible de mettre à jour le budget.", variant: "destructive" });
       } finally {
         setIsLoading(false);
@@ -137,7 +180,11 @@ export default function ProjectsPage() {
   };
 
   const handleSaveNotes = async () => {
-    if (selectedProject) {
+    if (selectedProject && currentUser) {
+      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+        toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier les notes.", variant: "destructive" });
+        return;
+      }
       setIsLoading(true);
       try {
         const projectRef = doc(db, "projects", selectedProject.id);
@@ -145,13 +192,12 @@ export default function ProjectsPage() {
           notes: currentNotes,
           updatedAt: serverTimestamp(),
         });
-         // Update local state
-        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Approximate updatedAt
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() };
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
       } catch (error) {
-        console.error("Erreur lors de la mise à jour des notes: ", error);
+        console.error("Erreur maj notes: ", error);
         toast({ title: "Erreur", description: "Impossible de mettre à jour les notes.", variant: "destructive" });
       } finally {
         setIsLoading(false);
@@ -160,9 +206,13 @@ export default function ProjectsPage() {
     }
   };
 
-
   const handleDeleteProject = async () => {
-    if (selectedProject) {
+    if (selectedProject && currentUser) {
+      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+        toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut supprimer un projet.", variant: "destructive" });
+        setIsDeleteConfirmModalOpen(false);
+        return;
+      }
       setIsLoading(true);
       try {
         await deleteDoc(doc(db, "projects", selectedProject.id));
@@ -171,7 +221,7 @@ export default function ProjectsPage() {
         setSelectedProject(null);
         setIsDeleteConfirmModalOpen(false);
       } catch (error) {
-        console.error("Erreur lors de la suppression du projet: ", error);
+        console.error("Erreur suppression projet: ", error);
         toast({ title: "Erreur", description: "Impossible de supprimer le projet.", variant: "destructive" });
       } finally {
         setIsLoading(false);
@@ -181,26 +231,28 @@ export default function ProjectsPage() {
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status?.toLowerCase()) {
-      case 'actif':
-        return 'default';
-      case 'en attente':
-        return 'secondary';
-      case 'terminé':
-        return 'outline';
-      default:
-        return 'secondary';
+      case 'actif': return 'default';
+      case 'en attente': return 'secondary';
+      case 'terminé': return 'outline';
+      default: return 'secondary';
     }
   };
   
+  if (authLoading || !currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Icons.loader className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background min-h-screen">
-      {/* Header */}
       <header className="bg-card shadow-sm border-b">
         <div className="container mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <Link href="/dashboard" className="text-2xl font-bold text-primary flex items-center">
              <Icons.dollarSign className="mr-2 h-7 w-7 inline-block"/>
-            DépensePartagée
+            <span>DépensePartagée</span>
           </Link>
           <div className="flex items-center space-x-4">
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
@@ -208,14 +260,13 @@ export default function ProjectsPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar"/>
-              <AvatarFallback>AU</AvatarFallback>
+              <AvatarImage src={userProfile?.avatarUrl || "https://placehold.co/40x40.png"} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
+              <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser.email)}</AvatarFallback>
             </Avatar>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
@@ -234,8 +285,7 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {/* Projects Grid */}
-        {isLoading ? (
+        {isFetchingProjects ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1,2,3].map(i => (
                     <Card key={i} className="flex flex-col">
@@ -321,7 +371,6 @@ export default function ProjectsPage() {
         )}
       </main>
 
-      {/* Project Details Modal */}
       {selectedProject && (
         <Dialog open={!!selectedProject} onOpenChange={(isOpen) => !isOpen && handleCloseProjectDetails()}>
           <DialogContent className="sm:max-w-2xl md:max-w-4xl lg:max-w-7xl max-h-[95vh] flex flex-col">
@@ -330,10 +379,8 @@ export default function ProjectsPage() {
               <DialogDescription>{selectedProject.description}</DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
-              {/* Left Column / Main content */}
               <div className="lg:col-span-2 space-y-6">
                 <ProjectExpenseSettlement project={selectedProject} />
-                
                 <Card>
                   <CardHeader>
                     <CardTitle>Dépenses Récentes</CardTitle>
@@ -366,7 +413,6 @@ export default function ProjectsPage() {
                 </Card>
               </div>
 
-              {/* Right Column / Sidebar */}
               <div className="lg:col-span-1 space-y-6">
                  <Card>
                   <CardHeader>
@@ -393,9 +439,11 @@ export default function ProjectsPage() {
                           <p className="font-semibold text-lg">
                             {(typeof currentBudget === 'number' ? currentBudget : selectedProject.budget).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
-                            <Icons.edit className="h-4 w-4"/>
-                          </Button>
+                          {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
+                                <Icons.edit className="h-4 w-4"/>
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -435,9 +483,11 @@ export default function ProjectsPage() {
                         <p className="font-medium text-sm">{member}</p>
                       </div>
                     ))}
-                     <Button variant="link" className="mt-2 w-full text-primary text-sm" disabled={isLoading}>
-                        <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
-                     </Button>
+                     {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                       <Button variant="link" className="mt-2 w-full text-primary text-sm" disabled={isLoading}>
+                           <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
+                       </Button>
+                     )}
                   </CardContent>
                 </Card>
 
@@ -449,18 +499,19 @@ export default function ProjectsPage() {
                     {selectedProject.tags.length > 0 ? selectedProject.tags.map((tag, index) => (
                       <Badge key={index} variant="secondary">{tag}</Badge>
                     )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
+                    {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
                      <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none" disabled={isLoading}>
                         <Icons.plus className="mr-1 h-3 w-3" /> Ajouter
                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               </div>
-                 {/* Notes section moved to the bottom of the modal content */}
                  <div className="lg:col-span-3">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>Notes du projet</CardTitle>
-                             {!editingNotes && (
+                             {!editingNotes && (selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isLoading}>
                                     <Icons.edit className="h-4 w-4"/>
                                 </Button>
@@ -493,9 +544,11 @@ export default function ProjectsPage() {
                 </div>
             </div>
             <DialogFooter className="border-t pt-4">
-              <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
-                <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
-              </Button>
+              {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
+                  <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
+                </Button>
+              )}
               <DialogClose asChild>
                  <Button variant="outline" disabled={isLoading}>Fermer</Button>
               </DialogClose>
@@ -504,8 +557,7 @@ export default function ProjectsPage() {
         </Dialog>
       )}
 
-       {/* Delete Confirmation Modal */}
-        <Dialog open={isDeleteConfirmModalOpen} onOpenChange={setIsDeleteConfirmModalOpen}>
+       <Dialog open={isDeleteConfirmModalOpen} onOpenChange={setIsDeleteConfirmModalOpen}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Confirmer la suppression</DialogTitle>

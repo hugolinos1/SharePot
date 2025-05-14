@@ -26,58 +26,39 @@ import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
-
-// TODO: Remplacer par une véritable authentification Firebase Auth
-// Cet ID est utilisé pour récupérer le profil de l'utilisateur qui est supposé être l'administrateur.
-// Assurez-vous qu'un document avec cet ID existe dans votre collection 'users'
-// et qu'il a un champ `isAdmin: true`.
-const EXPECTED_ADMIN_DOCUMENT_ID = 'adminPrincipal'; 
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function AdminProjectsPage() {
     const router = useRouter();
     const { toast } = useToast();
-    const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
+    const { currentUser, isAdmin, loading: authLoading } = useAuth();
+    
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
-    
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
 
-    const fetchCurrentUserProfile = useCallback(async () => {
-      setIsLoadingCurrentUser(true);
-      try {
-        const userDocRef = doc(db, "users", EXPECTED_ADMIN_DOCUMENT_ID);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          setCurrentUserProfile({ id: userDocSnap.id, ...userDocSnap.data() } as User);
-        } else {
-          console.error(`Profil administrateur (document ID: ${EXPECTED_ADMIN_DOCUMENT_ID}) non trouvé dans Firestore.`);
-          toast({
-            title: "Erreur de configuration Admin",
-            description: `Profil administrateur (${EXPECTED_ADMIN_DOCUMENT_ID}) introuvable.`,
-            variant: "destructive",
-          });
+    useEffect(() => {
+        if (!authLoading && !currentUser) {
+            router.replace('/login');
+        } else if (!authLoading && currentUser && !isAdmin) {
+            router.replace('/dashboard'); // Or an access denied page
+            toast({
+                title: "Accès non autorisé",
+                description: "Vous n'avez pas les droits pour accéder à cette page.",
+                variant: "destructive"
+            });
         }
-      } catch (error) {
-        console.error("Erreur lors de la récupération du profil utilisateur admin: ", error);
-        toast({
-          title: "Erreur de chargement",
-          description: "Impossible de charger le profil utilisateur admin.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoadingCurrentUser(false);
-      }
-    }, [toast]);
+    }, [authLoading, currentUser, isAdmin, router, toast]);
 
     const fetchProjects = useCallback(async () => {
+      if (!isAdmin) return; // Only fetch if confirmed admin
       setIsLoadingProjects(true);
       try {
         const projectsCollection = collection(db, "projects");
         const projectSnapshot = await getDocs(projectsCollection);
-        const projectsList = projectSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap
+        const projectsList = projectSnapshot.docs.map(docSnap => ({
           id: docSnap.id,
           ...docSnap.data(),
         } as Project));
@@ -92,18 +73,17 @@ export default function AdminProjectsPage() {
       } finally {
         setIsLoadingProjects(false);
       }
-    }, [toast]);
+    }, [isAdmin, toast]);
   
     useEffect(() => {
-      fetchCurrentUserProfile();
-      fetchProjects();
-    }, [fetchCurrentUserProfile, fetchProjects]);
-
-    const isAdmin = useMemo(() => currentUserProfile?.isAdmin ?? false, [currentUserProfile]);
+      if (isAdmin) { // Fetch projects only if user is admin
+        fetchProjects();
+      }
+    }, [isAdmin, fetchProjects]);
 
      const filteredProjects = useMemo(() => {
          if (isLoadingProjects) return [];
-         if (!searchTerm) return projects; // Admins see all projects if no search term
+         if (!searchTerm) return projects;
          const lowerCaseSearch = searchTerm.toLowerCase();
          return projects.filter(project =>
              project.name.toLowerCase().includes(lowerCaseSearch) ||
@@ -128,12 +108,11 @@ export default function AdminProjectsPage() {
         });
     };
 
-
-    if (isLoadingCurrentUser) {
+    if (authLoading) {
         return (
           <div className="container mx-auto py-10 text-center">
             <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
-            <p className="mt-4">Chargement du profil utilisateur...</p>
+            <p className="mt-4">Vérification des droits d'accès...</p>
           </div>
         );
     }
@@ -142,7 +121,7 @@ export default function AdminProjectsPage() {
          return (
             <div className="container mx-auto py-10 text-center">
                  <p className="text-2xl font-semibold mb-4">Accès non autorisé</p>
-                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page. Vérifiez que votre compte est configuré comme administrateur dans la base de données (document ID: {EXPECTED_ADMIN_DOCUMENT_ID}).</p>
+                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page.</p>
                  <Button onClick={() => router.push('/dashboard')}>
                      <Icons.home className="mr-2 h-4 w-4" />
                      Retour au tableau de bord
@@ -150,12 +129,6 @@ export default function AdminProjectsPage() {
             </div>
         );
     }
-
-    // Ce cas est couvert par le !isAdmin ci-dessus si currentUserProfile est null ou n'a pas isAdmin:true
-    // if (!currentUserProfile) {
-    //     return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
-    // }
-
 
     return (
         <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
