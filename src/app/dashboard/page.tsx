@@ -50,7 +50,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ChartConfig } from '@/components/ui/chart';
-import type { Project } from '@/data/mock-data'; 
+import type { Project, User as AppUserType } from '@/data/mock-data';
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, Timestamp, query, where, orderBy, limit } from 'firebase/firestore';
@@ -129,6 +129,8 @@ export default function DashboardPage() {
   const [recentGlobalExpenses, setRecentGlobalExpenses] = useState<DisplayExpenseItem[]>([]);
   const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]);
+  const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -141,16 +143,28 @@ export default function DashboardPage() {
     if (!currentUser) return;
     setIsLoadingProjects(true);
     try {
-      const projectsCollection = collection(db, "projects");
-      // TODO: Implement fetching projects based on user membership if not admin
-      // For now, admins see all, others might see projects they are members of.
-      // This might require querying where 'members' array-contains currentUser.uid or ownerId === currentUser.uid
-      const projectSnapshot = await getDocs(projectsCollection);
-      const projectsList = projectSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      } as Project));
-      setProjects(projectsList);
+      const projectsCollectionRef = collection(db, "projects");
+      const memberQuery = query(projectsCollectionRef, 
+        where("members", "array-contains", currentUser.uid)
+      );
+      const ownerQuery = query(projectsCollectionRef, 
+        where("ownerId", "==", currentUser.uid)
+      );
+
+      const [memberSnapshot, ownerSnapshot] = await Promise.all([
+        getDocs(memberQuery),
+        getDocs(ownerQuery)
+      ]);
+
+      const projectsMap = new Map<string, Project>();
+      memberSnapshot.docs.forEach(doc => {
+        projectsMap.set(doc.id, { id: doc.id, ...doc.data() } as Project);
+      });
+      ownerSnapshot.docs.forEach(doc => {
+        projectsMap.set(doc.id, { id: doc.id, ...doc.data() } as Project);
+      });
+      
+      setProjects(Array.from(projectsMap.values()));
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
       toast({
@@ -188,12 +202,36 @@ export default function DashboardPage() {
     }
   }, [currentUser, toast]);
 
+  const fetchAllUserProfiles = useCallback(async () => {
+    if (!currentUser) return;
+    setIsLoadingUserProfiles(true);
+    try {
+      const usersCollectionRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const usersList = usersSnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      } as AppUserType));
+      setAllUserProfiles(usersList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des profils utilisateurs: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les profils utilisateurs pour les balances.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingUserProfiles(false);
+    }
+  }, [currentUser, toast]);
+
   useEffect(() => {
     if (currentUser) {
       fetchProjects();
       fetchRecentGlobalExpenses();
+      fetchAllUserProfiles();
     }
-  }, [currentUser, fetchProjects, fetchRecentGlobalExpenses]);
+  }, [currentUser, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]);
 
   const handleLogout = async () => {
     try {
@@ -229,13 +267,20 @@ export default function DashboardPage() {
     }
     const totalSpentAll = projectsToConsider.reduce((sum, p) => sum + (p.totalExpenses || 0), 0);
     const totalExpenseCountAll = projectsToConsider.reduce((sum, p) => sum + (p.recentExpenses?.length || 0), 0); 
-    const allParticipants = new Set<string>();
-    projectsToConsider.forEach(p => p.members?.forEach(m => allParticipants.add(m)));
-    const averagePerPersonAll = allParticipants.size > 0 ? totalSpentAll / allParticipants.size : 0;
+    
+    let participantsSet = new Set<string>();
+    if (selectedProject) {
+      selectedProject.members.forEach(memberUid => participantsSet.add(memberUid));
+    } else {
+      projects.forEach(p => p.members.forEach(memberUid => participantsSet.add(memberUid)));
+    }
+    const participantsCount = participantsSet.size;
+    
+    const averagePerPersonAll = participantsCount > 0 ? totalSpentAll / participantsCount : 0;
     return {
       totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
       expenseCount: totalExpenseCountAll.toString(),
-      participantsCount: allParticipants.size.toString(),
+      participantsCount: participantsCount.toString(),
       averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
     };
   }, [selectedProject, projects, isLoadingProjects]);
@@ -294,7 +339,7 @@ export default function DashboardPage() {
                 <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    <SidebarMenuItem>
+                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <Link href="/users"><Icons.users /> Utilisateurs</Link>
                       </SidebarMenuButton>
@@ -394,7 +439,11 @@ export default function DashboardPage() {
             <SummaryCard title="Moyenne / pers." value={summaryData.averagePerPerson} icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
           </div>
 
-          <BalanceSummary project={selectedProject} />
+          <BalanceSummary 
+            project={selectedProject} 
+            allUsersProfiles={allUserProfiles} 
+            isLoadingUserProfiles={isLoadingUserProfiles} 
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="lg:col-span-2">
@@ -466,3 +515,4 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
+

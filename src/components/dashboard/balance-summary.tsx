@@ -5,14 +5,17 @@ import type React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import type { Project } from '@/data/mock-data';
+import type { Project, User as AppUserType } from '@/data/mock-data';
 import { Icons } from '@/components/icons';
 
 interface BalanceSummaryProps {
   project: Project | null;
+  allUsersProfiles: AppUserType[];
+  isLoadingUserProfiles: boolean;
 }
 
 interface MemberBalance {
+  uid: string;
   name: string;
   balance: number; // Positive if owed by project, negative if owes to project
   amountPaid: number;
@@ -20,37 +23,51 @@ interface MemberBalance {
 }
 
 const getAvatarFallback = (name: string) => {
+  if (!name) return '??';
   const parts = name.split(' ');
-  if (parts.length >= 2) {
-    return parts[0][0] + (parts[parts.length - 1][0] || '');
+  if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+    return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
   }
   return name.substring(0, 2).toUpperCase();
 };
 
-const calculateBalances = (project: Project): MemberBalance[] => {
-  if (!project || project.members.length === 0 || project.recentExpenses.length === 0) {
+const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): MemberBalance[] => {
+  if (!project || project.members.length === 0) {
     return [];
   }
 
-  const totalPaidByMember: { [key: string]: number } = {};
-  project.members.forEach(member => {
-    totalPaidByMember[member] = 0;
+  const getUserName = (uid: string): string => {
+    const user = allUsersProfiles.find(u => u.id === uid);
+    return user?.name || uid; // Fallback to UID if name not found
+  };
+
+  // Stores total paid by each member, keyed by their *name* because expense.payer is a name
+  const totalPaidByMemberName: { [key: string]: number } = {};
+  project.members.forEach(memberUid => {
+    const memberName = getUserName(memberUid);
+    totalPaidByMemberName[memberName] = 0;
   });
 
   let currentProjectTotalExpenses = 0;
   project.recentExpenses.forEach(expense => {
-    if (expense.payer && typeof totalPaidByMember[expense.payer] === 'number') {
-      totalPaidByMember[expense.payer] += expense.amount;
+    // expense.payer is expected to be the name of the payer
+    if (expense.payer && typeof totalPaidByMemberName[expense.payer] === 'number') {
+      totalPaidByMemberName[expense.payer] += expense.amount;
+    } else if (expense.payer) {
+       // If payer name wasn't pre-initialized (e.g. member added after expenses)
+       totalPaidByMemberName[expense.payer] = expense.amount;
     }
     currentProjectTotalExpenses += expense.amount;
   });
   
   const sharePerMember = project.members.length > 0 ? currentProjectTotalExpenses / project.members.length : 0;
 
-  return project.members.map(member => {
-    const amountPaid = totalPaidByMember[member] || 0;
+  return project.members.map(memberUid => {
+    const memberName = getUserName(memberUid);
+    const amountPaid = totalPaidByMemberName[memberName] || 0;
     return {
-      name: member,
+      uid: memberUid,
+      name: memberName,
       balance: amountPaid - sharePerMember,
       amountPaid: amountPaid,
       share: sharePerMember,
@@ -60,9 +77,9 @@ const calculateBalances = (project: Project): MemberBalance[] => {
 
 const generateSettlementSuggestions = (balances: MemberBalance[]): { from: string, to: string, amount: number }[] => {
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  // Create mutable copies for processing
-  let debtors = balances.filter(m => m.balance < -0.005).map(m => ({ name: m.name, balance: -m.balance })).sort((a,b) => b.balance - a.balance); 
-  let creditors = balances.filter(m => m.balance > 0.005).map(m => ({ name: m.name, balance: m.balance })).sort((a,b) => b.balance - a.balance); 
+  // Balances array now contains objects with 'name' property
+  let debtors = balances.filter(m => m.balance < -0.005).map(m => ({ ...m, balance: -m.balance })).sort((a,b) => b.balance - a.balance); 
+  let creditors = balances.filter(m => m.balance > 0.005).map(m => ({ ...m })).sort((a,b) => b.balance - a.balance); 
 
   let i = 0; // debtors index
   let j = 0; // creditors index
@@ -74,8 +91,8 @@ const generateSettlementSuggestions = (balances: MemberBalance[]): { from: strin
 
     if (amountToTransfer > 0.005) { 
       suggestions.push({
-        from: debtor.name,
-        to: creditor.name,
+        from: debtor.name, // Use name for suggestions
+        to: creditor.name,   // Use name for suggestions
         amount: amountToTransfer,
       });
 
@@ -90,7 +107,7 @@ const generateSettlementSuggestions = (balances: MemberBalance[]): { from: strin
 }
 
 
-export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
+export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUsersProfiles, isLoadingUserProfiles }) => {
   if (!project) {
     return (
       <Card>
@@ -104,10 +121,24 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
       </Card>
     );
   }
-
-  const memberBalances = calculateBalances(project);
   
-  if (memberBalances.length === 0) {
+  if (isLoadingUserProfiles) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Répartition des Paiements - {project.name}</CardTitle>
+          <CardDescription>Chargement des informations utilisateurs...</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center py-4">
+          <Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const memberBalances = calculateBalances(project, allUsersProfiles);
+  
+  if (memberBalances.length === 0 && project.recentExpenses.length === 0) {
      return (
       <Card>
         <CardHeader>
@@ -115,16 +146,26 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
           <CardDescription>Pas de données de dépenses ou de membres pour calculer les balances pour ce projet.</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-center py-4">Aucune balance à afficher.</p>
+          <p className="text-muted-foreground text-center py-4">Aucune dépense enregistrée pour ce projet.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+   if (memberBalances.length === 0 && project.recentExpenses.length > 0) {
+     return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Répartition des Paiements - {project.name}</CardTitle>
+          <CardDescription>Impossible de calculer les balances. Vérifiez les membres du projet.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-center py-4">Aucun membre trouvé pour répartir les dépenses.</p>
         </CardContent>
       </Card>
     );
   }
   
-  // Pass a deep copy of memberBalances to generateSettlementSuggestions as it modifies the balance property
   const settlementSuggestions = generateSettlementSuggestions(memberBalances.map(mb => ({ ...mb })));
-
-
   const allBalanced = memberBalances.every(b => Math.abs(b.balance) <= 0.005);
 
   return (
@@ -137,8 +178,8 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
         <div>
           <h3 className="text-md font-semibold mb-3">Balances Individuelles</h3>
           <div className="space-y-3">
-            {memberBalances.map(({ name, balance, amountPaid, share }) => (
-              <div key={name} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+            {memberBalances.map(({ name, balance, amountPaid, share, uid }) => (
+              <div key={uid} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`} alt={name} data-ai-hint="member avatar" />
@@ -197,7 +238,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
             </div>
           </div>
         )}
-         {allBalanced && (
+         {allBalanced && project.recentExpenses.length > 0 && (
             <div className="text-center text-green-600 font-medium py-3 bg-green-500/10 rounded-md">
                 <Icons.checkCircle className="inline mr-2 h-5 w-5"/> Toutes les dépenses sont équilibrées pour ce projet !
             </div>
@@ -207,3 +248,4 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project }) => {
     </Card>
   );
 };
+
