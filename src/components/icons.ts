@@ -1,4 +1,5 @@
-import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle, FolderKanban, BarChartBig, CheckCircle, ArrowLeft, Save, CalendarIcon, LogOut } from 'lucide-react';
+
+import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle2, FolderKanban, BarChartBig, CheckCircle, ArrowLeft, Save, CalendarIcon, LogOut } from 'lucide-react';
 
 const Icons = {
   arrowRight: ArrowRight,
@@ -29,12 +30,13 @@ const Icons = {
   shield: Shield,
   spinner: Loader2,
   trash: Trash,
-  user: User,
+  user: User, // Generic user icon
+  userCircle: UserCircle2, // User icon in a circle, good for avatars
   panelLeft: PanelLeft,
   lock: Lock,
   trendingUp: TrendingUp,
   repeat: Repeat,
-  users: Users,
+  users: Users, // Group of users
   eye: Eye,
   dollarSign: DollarSign,
   layoutDashboard: LayoutDashboard,
@@ -47,7 +49,6 @@ const Icons = {
   fileText: FileText,
   lineChart: LineChart,
   bell: Bell,
-  userCircle: UserCircle,
   folderKanban: FolderKanban, 
   barChartBig: BarChartBig, 
   save: Save,

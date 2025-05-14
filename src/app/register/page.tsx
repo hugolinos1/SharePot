@@ -11,48 +11,68 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase';
+import { setDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const loginSchema = z.object({
+const ADMIN_EMAIL = "hugues.rabier@gmail.com";
+
+const registerSchema = z.object({
+  name: z.string().min(2, { message: "Le nom doit contenir au moins 2 caractères." }),
   email: z.string().email({ message: "Adresse e-mail invalide." }),
   password: z.string().min(6, { message: "Le mot de passe doit contenir au moins 6 caractères." }),
 });
 
-type LoginFormValues = z.infer<typeof loginSchema>;
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = React.useState(false);
 
-  const form = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
     defaultValues: {
+      name: "",
       email: "",
       password: "",
     },
   });
 
-  const onSubmit = async (data: LoginFormValues) => {
+  const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
-      toast({
-        title: "Connexion réussie",
-        description: "Vous allez être redirigé vers le tableau de bord.",
+      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+      const user = userCredential.user;
+
+      await updateProfile(user, { displayName: data.name });
+
+      // Create user document in Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      await setDoc(userDocRef, {
+        id: user.uid, // Storing uid as id in the document
+        name: data.name,
+        email: data.email,
+        isAdmin: data.email === ADMIN_EMAIL,
+        createdAt: serverTimestamp(),
+        avatarUrl: '', // Initialize with empty or default avatar
       });
-      router.push('/dashboard');
+
+      toast({
+        title: "Inscription réussie",
+        description: "Votre compte a été créé. Vous allez être redirigé.",
+      });
+      router.push('/dashboard'); 
     } catch (error: any) {
-      console.error("Erreur de connexion:", error);
-      let errorMessage = "Une erreur est survenue lors de la connexion.";
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errorMessage = "Adresse e-mail ou mot de passe incorrect.";
+      console.error("Erreur d'inscription:", error);
+      let errorMessage = "Une erreur est survenue lors de l'inscription.";
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = "Cette adresse e-mail est déjà utilisée.";
       }
       toast({
-        title: "Erreur de connexion",
+        title: "Erreur d'inscription",
         description: errorMessage,
         variant: "destructive",
       });
@@ -60,7 +80,7 @@ export default function LoginPage() {
       setIsLoading(false);
     }
   };
-
+  
   const DollarSignIcon = () => (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -80,15 +100,15 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-4xl lg:grid lg:grid-cols-2 shadow-2xl overflow-hidden rounded-xl">
-        <div className="bg-primary p-8 md:p-12 flex flex-col justify-center items-center text-primary-foreground">
+         <div className="bg-primary p-8 md:p-12 flex flex-col justify-center items-center text-primary-foreground order-last lg:order-first">
           <div className="text-center">
             <DollarSignIcon />
             <h1 className="text-4xl md:text-5xl font-bold mt-4">Dépense Partagée</h1>
             <p className="mt-3 text-lg md:text-xl">
-              Simplifiez la gestion de vos dépenses partagées en quelques clics
+              Rejoignez-nous et simplifiez vos finances de groupe !
             </p>
           </div>
-          <ul className="mt-8 md:mt-12 space-y-4 text-left w-full max-w-xs">
+            <ul className="mt-8 md:mt-12 space-y-4 text-left w-full max-w-xs">
             <li className="flex items-center">
               <Icons.trendingUp className="h-6 w-6 mr-3 shrink-0" />
               <span>Suivi des dépenses en temps réel</span>
@@ -109,13 +129,34 @@ export default function LoginPage() {
         </div>
 
         <div className="p-8 md:p-12 flex flex-col justify-center">
-          <h2 className="text-3xl font-semibold text-foreground mb-2">Connectez-vous</h2>
+          <h2 className="text-3xl font-semibold text-foreground mb-2">Créer un compte</h2>
           <p className="text-muted-foreground mb-8">
-            Entrez vos identifiants pour accéder à votre compte
+            Remplissez le formulaire pour vous inscrire.
           </p>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nom complet</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Icons.user className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <Input 
+                          placeholder="Votre nom complet" 
+                          {...field} 
+                          className="pl-10" 
+                          data-ai-hint="full name input"
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="email"
@@ -162,14 +203,8 @@ export default function LoginPage() {
                 )}
               />
               
-              <div className="text-right">
-                <Link href="/reset-password" className="text-sm text-primary hover:underline">
-                  Mot de passe oublié ?
-                </Link>
-              </div>
-
               <Button type="submit" className="w-full text-lg py-3" disabled={isLoading}>
-                {isLoading ? <Icons.loader className="animate-spin" /> : 'Se connecter'}
+                {isLoading ? <Icons.loader className="animate-spin" /> : "S'inscrire"}
               </Button>
             </form>
           </Form>
@@ -186,9 +221,9 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-sm text-muted-foreground">
-            Vous n&apos;avez pas de compte ?{' '}
-            <Link href="/register" className="font-semibold text-primary hover:underline">
-              Créer un compte
+            Vous avez déjà un compte ?{' '}
+            <Link href="/login" className="font-semibold text-primary hover:underline">
+              Se connecter
             </Link>
           </p>
         </div>
