@@ -5,57 +5,66 @@ import type React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import type { Project } from '@/data/mock-data';
+import type { Project, User as AppUserType } from '@/data/mock-data';
 import { Icons } from '@/components/icons';
 
 interface ProjectExpenseSettlementProps {
   project: Project;
+  allUsersProfiles: AppUserType[];
+  isLoadingUserProfiles: boolean;
 }
 
 interface MemberBalance {
+  uid: string;
   name: string;
   balance: number; // Positive if owed by project, negative if owes to project
   amountPaid: number;
   share: number;
 }
 
-const getAvatarFallback = (name: string) => {
-  const parts = name.split(' ');
-  if (parts.length >= 2) {
-    return parts[0][0] + (parts[parts.length - 1][0] || '');
-  }
-  return name.substring(0, 2).toUpperCase();
-};
+const getAvatarFallbackText = (name: string | undefined | null) => {
+    if (!name) return '??';
+    const parts = name.split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+  
 
-const calculateBalances = (project: Project): MemberBalance[] => {
-  if (!project || project.members.length === 0 || project.recentExpenses.length === 0) {
-    return project.members.map(member => ({
-        name: member,
-        balance: 0,
-        amountPaid: 0,
-        share: 0,
-    }));
+const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): MemberBalance[] => {
+  if (!project || project.members.length === 0) {
+    return [];
   }
 
-  const totalPaidByMember: { [key: string]: number } = {};
-  project.members.forEach(member => {
-    totalPaidByMember[member] = 0;
+  const getUserProfileByUid = (uid: string): AppUserType | undefined => allUsersProfiles.find(u => u.id === uid);
+  const getUserProfileByName = (name: string): AppUserType | undefined => allUsersProfiles.find(u => u.name === name);
+
+  const totalPaidByMemberUid: { [key: string]: number } = {};
+  project.members.forEach(memberUid => {
+    totalPaidByMemberUid[memberUid] = 0;
   });
 
   let currentProjectTotalExpenses = 0;
   project.recentExpenses.forEach(expense => {
-    if (expense.payer && typeof totalPaidByMember[expense.payer] === 'number') {
-      totalPaidByMember[expense.payer] += expense.amount;
+    if (expense.payer) { // expense.payer is a name
+      const payerProfile = getUserProfileByName(expense.payer);
+      if (payerProfile && project.members.includes(payerProfile.id)) { // Check if payer is a member of this project
+        totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
+      }
     }
     currentProjectTotalExpenses += expense.amount;
   });
   
   const sharePerMember = project.members.length > 0 ? currentProjectTotalExpenses / project.members.length : 0;
 
-  return project.members.map(member => {
-    const amountPaid = totalPaidByMember[member] || 0;
+  return project.members.map(memberUid => {
+    const memberProfile = getUserProfileByUid(memberUid);
+    const memberName = memberProfile?.name || memberUid; // Fallback to UID if profile/name not found
+    const amountPaid = totalPaidByMemberUid[memberUid] || 0;
     return {
-      name: member,
+      uid: memberUid,
+      name: memberName,
       balance: amountPaid - sharePerMember,
       amountPaid: amountPaid,
       share: sharePerMember,
@@ -65,8 +74,8 @@ const calculateBalances = (project: Project): MemberBalance[] => {
 
 const generateSettlementSuggestions = (balances: MemberBalance[]): { from: string, to: string, amount: number }[] => {
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  let debtors = balances.filter(m => m.balance < -0.005).map(m => ({ name: m.name, balance: -m.balance })).sort((a,b) => b.balance - a.balance); 
-  let creditors = balances.filter(m => m.balance > 0.005).map(m => ({ name: m.name, balance: m.balance })).sort((a,b) => b.balance - a.balance); 
+  let debtors = balances.filter(m => m.balance < -0.005).map(m => ({ ...m, balance: -m.balance })).sort((a,b) => b.balance - a.balance); 
+  let creditors = balances.filter(m => m.balance > 0.005).map(m => ({ ...m })).sort((a,b) => b.balance - a.balance); 
 
   let i = 0; 
   let j = 0; 
@@ -94,32 +103,77 @@ const generateSettlementSuggestions = (balances: MemberBalance[]): { from: strin
 }
 
 
-export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({ project }) => {
-  const memberBalances = calculateBalances(project);
-  const settlementSuggestions = generateSettlementSuggestions(memberBalances.map(mb => ({ ...mb })));
+export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({ project, allUsersProfiles, isLoadingUserProfiles }) => {
+  
+  if (isLoadingUserProfiles) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
+          <CardDescription>Chargement des informations utilisateurs...</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center py-4">
+          <Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  const memberBalances = calculateBalances(project, allUsersProfiles);
+  const settlementSuggestions = generateSettlementSuggestions(memberBalances.map(mb => ({ ...mb }))); // Create a copy for mutation
   const allBalanced = memberBalances.every(b => Math.abs(b.balance) <= 0.005);
   const noExpenses = project.recentExpenses.length === 0;
+
+  if (memberBalances.length === 0 && project.recentExpenses.length === 0 && !isLoadingUserProfiles) {
+    return (
+     <Card>
+       <CardHeader>
+         <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
+         <CardDescription>Aucune dépense enregistrée pour ce projet.</CardDescription>
+       </CardHeader>
+       <CardContent>
+         <p className="text-muted-foreground text-center py-3">Les balances s'afficheront ici une fois des dépenses ajoutées.</p>
+       </CardContent>
+     </Card>
+   );
+ }
+  if (memberBalances.length === 0 && project.recentExpenses.length > 0 && !isLoadingUserProfiles) {
+    return (
+     <Card>
+       <CardHeader>
+         <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
+         <CardDescription>Impossible de calculer les balances. Vérifiez les membres du projet et leurs profils.</CardDescription>
+       </CardHeader>
+       <CardContent>
+         <p className="text-muted-foreground text-center py-4">Aucun membre avec profil trouvé pour répartir les dépenses, ou problème avec les données de paiement.</p>
+       </CardContent>
+     </Card>
+   );
+ }
+
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
-        {noExpenses && <CardDescription>Aucune dépense enregistrée pour ce projet.</CardDescription>}
+        {noExpenses && !isLoadingUserProfiles && <CardDescription>Aucune dépense enregistrée pour ce projet.</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-4">
-        {noExpenses ? (
+        {isLoadingUserProfiles ? (
+            <div className="text-center py-4"><Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></div>
+        ) : noExpenses ? (
              <p className="text-sm text-muted-foreground text-center py-3">Les balances s'afficheront ici une fois des dépenses ajoutées.</p>
         ) : (
         <>
         <div>
           <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Balances Individuelles</h3>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-            {memberBalances.map(({ name, balance, amountPaid, share }) => (
-              <div key={name} className="flex items-center justify-between p-2.5 bg-muted/50 rounded-md">
+            {memberBalances.map(({ uid, name, balance, amountPaid, share }) => (
+              <div key={uid} className="flex items-center justify-between p-2.5 bg-muted/50 rounded-md">
                 <div className="flex items-center gap-2.5">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=32`} alt={name} data-ai-hint="member avatar"/>
-                    <AvatarFallback className="text-xs">{getAvatarFallback(name)}</AvatarFallback>
+                    <AvatarImage src={allUsersProfiles.find(u=>u.id===uid)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff&size=32`} alt={name} data-ai-hint="member avatar"/>
+                    <AvatarFallback className="text-xs">{getAvatarFallbackText(name)}</AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="font-medium text-xs">{name}</p>
@@ -155,14 +209,14 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
                 <div key={index} className="flex items-center justify-between p-2 border border-border/70 bg-card rounded-md shadow-xs">
                     <div className="flex items-center gap-1.5 text-xs">
                         <Avatar className="h-6 w-6">
-                            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=24`} alt={settlement.from} data-ai-hint="payer avatar"/>
-                            <AvatarFallback className="text-xxs">{getAvatarFallback(settlement.from)}</AvatarFallback>
+                            <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.from)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=24`} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.from)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-3 w-3 text-muted-foreground mx-0.5" />
                         <Avatar className="h-6 w-6">
-                             <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=24`} alt={settlement.to} data-ai-hint="receiver avatar"/>
-                             <AvatarFallback className="text-xxs">{getAvatarFallback(settlement.to)}</AvatarFallback>
+                             <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.to)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=24`} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.to)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
                     </div>
@@ -185,3 +239,4 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
     </Card>
   );
 };
+

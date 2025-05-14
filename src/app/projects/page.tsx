@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Icons } from '@/components/icons';
-import type { Project as ProjectType } from '@/data/mock-data';
+import type { Project as ProjectType, User as AppUserType } from '@/data/mock-data';
 import {
   Dialog,
   DialogContent,
@@ -37,11 +37,11 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 
-const getAvatarFallback = (name: string) => {
+const getAvatarFallback = (name: string | undefined | null) => {
   if (!name) return '??';
   const parts = name.split(' ');
   if (parts.length > 0 && parts[0].length > 0) {
-    if (parts.length > 1 && parts[parts.length -1].length > 0) {
+    if (parts.length > 1 && parts[parts.length - 1] && parts[parts.length - 1].length > 0) {
         return parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
@@ -51,7 +51,7 @@ const getAvatarFallback = (name: string) => {
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') { // Handle old mock data if any
+  if (typeof timestamp === 'string') { 
     try {
       return format(new Date(timestamp), 'PP', { locale: fr });
     } catch (e) { return 'Date invalide'; }
@@ -65,7 +65,7 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
     const parts = name.split(' ');
-    if (parts.length >= 2) {
+    if (parts.length >= 2 && parts[0] && parts[parts.length-1]) {
       return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
     }
     return name.substring(0, 2).toUpperCase();
@@ -83,10 +83,13 @@ export default function ProjectsPage() {
   const { currentUser, userProfile, loading: authLoading } = useAuth();
 
   const [projects, setProjects] = useState<ProjectType[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // General loading for operations
+  const [isLoading, setIsLoading] = useState(true); 
   const [isFetchingProjects, setIsFetchingProjects] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
+
+  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]);
+  const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true);
 
   const [editingBudget, setEditingBudget] = useState(false);
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
@@ -99,18 +102,39 @@ export default function ProjectsPage() {
     }
   }, [authLoading, currentUser, router]);
 
+  const fetchAllUserProfiles = useCallback(async () => {
+    if (!currentUser) return;
+    setIsLoadingUserProfiles(true);
+    try {
+      const usersCollectionRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const usersList = usersSnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      } as AppUserType));
+      setAllUserProfiles(usersList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des profils utilisateurs: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les profils utilisateurs.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingUserProfiles(false);
+    }
+  }, [currentUser, toast]);
+
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
     setIsFetchingProjects(true);
     try {
       const projectsCollectionRef = collection(db, "projects");
       
-      // Query for projects where the current user is a member
       const memberQuery = query(projectsCollectionRef, 
         where("members", "array-contains", currentUser.uid)
       );
       
-      // Query for projects where the current user is the owner
       const ownerQuery = query(projectsCollectionRef, 
         where("ownerId", "==", currentUser.uid)
       );
@@ -148,8 +172,9 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (currentUser) {
       fetchProjects();
+      fetchAllUserProfiles();
     }
-  }, [currentUser, fetchProjects]);
+  }, [currentUser, fetchProjects, fetchAllUserProfiles]);
 
   const handleViewProjectDetails = (project: ProjectType) => {
     setSelectedProject(project);
@@ -176,7 +201,7 @@ export default function ProjectsPage() {
           budget: currentBudget,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Approximate client-side update
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; 
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
@@ -205,7 +230,7 @@ export default function ProjectsPage() {
           notes: currentNotes,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Approximate client-side update
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; 
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
@@ -249,6 +274,10 @@ export default function ProjectsPage() {
       case 'terminé': return 'outline';
       default: return 'secondary';
     }
+  };
+
+  const getUserProfileById = (uid: string): AppUserType | undefined => {
+    return allUserProfiles.find(p => p.id === uid);
   };
   
   if (authLoading || !currentUser) {
@@ -298,7 +327,7 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {isFetchingProjects ? (
+        {isFetchingProjects || isLoadingUserProfiles ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1,2,3].map(i => (
                     <Card key={i} className="flex flex-col">
@@ -314,7 +343,9 @@ export default function ProjectsPage() {
             </div>
         ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map((project) => (
+            {projects.map((project) => {
+              const memberProfiles = project.members.map(uid => getUserProfileById(uid)).filter(Boolean) as AppUserType[];
+              return (
               <Card key={project.id} className="hover:shadow-lg transition-shadow duration-300 flex flex-col">
                 <CardHeader>
                   <div className="flex justify-between items-start mb-2">
@@ -348,10 +379,10 @@ export default function ProjectsPage() {
                 <DialogFooter className="p-4 pt-0 border-t mt-auto">
                      <div className="flex items-center justify-between w-full">
                         <div className="flex -space-x-2 overflow-hidden">
-                            {project.members.slice(0, 3).map((memberUid, index) => ( // memberUid is now an UID
+                            {memberProfiles.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={index} className="h-8 w-8 border-2 border-background">
-                                <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberUid)}&background=random&color=fff&size=32`} alt={memberUid} data-ai-hint="member avatar"/>
-                                <AvatarFallback className="text-xs">{getAvatarFallback(memberUid)}</AvatarFallback> 
+                                <AvatarImage src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'N A')}&background=random&color=fff&size=32`} alt={memberProfile.name || 'Membre'} data-ai-hint="member avatar"/>
+                                <AvatarFallback className="text-xs">{getAvatarFallback(memberProfile.name)}</AvatarFallback> 
                             </Avatar>
                             ))}
                             {project.members.length > 3 && (
@@ -366,7 +397,7 @@ export default function ProjectsPage() {
                     </div>
                 </DialogFooter>
               </Card>
-            ))}
+            )})}
           </div>
         ) : (
           <Card className="col-span-full">
@@ -393,7 +424,7 @@ export default function ProjectsPage() {
             </DialogHeader>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
               <div className="lg:col-span-2 space-y-6">
-                <ProjectExpenseSettlement project={selectedProject} />
+                <ProjectExpenseSettlement project={selectedProject} allUsersProfiles={allUserProfiles} isLoadingUserProfiles={isLoadingUserProfiles} />
                 <Card>
                   <CardHeader>
                     <CardTitle>Dépenses Récentes</CardTitle>
@@ -487,15 +518,22 @@ export default function ProjectsPage() {
                     <CardTitle>Membres ({selectedProject.members.length})</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 max-h-48 overflow-y-auto">
-                    {selectedProject.members.map((memberUid, index) => ( // memberUid is an UID
-                      <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberUid)}&background=random&color=fff&size=32`} alt={memberUid} data-ai-hint="member avatar small"/>
-                          <AvatarFallback className="text-xs">{getAvatarFallback(memberUid)}</AvatarFallback>
-                        </Avatar>
-                        <p className="font-medium text-sm">{memberUid}</p> 
-                      </div>
-                    ))}
+                    {isLoadingUserProfiles ? (
+                      <div className="text-center py-2"><Icons.loader className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
+                    ) : (
+                      selectedProject.members.map((memberUid) => {
+                        const member = getUserProfileById(memberUid);
+                        return (
+                          <div key={memberUid} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'N A')}&background=random&color=fff&size=32`} alt={member?.name || 'Membre'} data-ai-hint="member avatar small"/>
+                              <AvatarFallback className="text-xs">{getAvatarFallback(member?.name)}</AvatarFallback>
+                            </Avatar>
+                            <p className="font-medium text-sm">{member?.name || memberUid}</p> 
+                          </div>
+                        );
+                      })
+                    )}
                      {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
                        <Button variant="link" className="mt-2 w-full text-primary text-sm" disabled={isLoading}>
                            <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
@@ -591,3 +629,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+
