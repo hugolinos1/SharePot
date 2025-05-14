@@ -22,8 +22,9 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.id == request.auth.uid;
 
       // Admin can read any user document.
-      // A user can read their OWN user document.
-      allow read: if isAdmin() || request.auth.uid == userId;
+      // ANY authenticated user can read ANY user document.
+      // The application logic should handle displaying only relevant profiles (e.g., project members).
+      allow read: if request.auth != null;
 
       // Admin can update any user document.
       // A user can update their OWN user document (specific fields like name, avatarUrl).
