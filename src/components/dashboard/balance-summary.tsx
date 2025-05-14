@@ -33,8 +33,12 @@ const getAvatarFallback = (name: string | undefined | null) => {
 
 const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): MemberBalance[] => {
   if (!project || project.members.length === 0 || !allUsersProfiles) {
+    console.log("BalanceSummary (calculateBalances): Pre-condition fail. Project:", project, "allUsersProfiles:", allUsersProfiles);
     return [];
   }
+  console.log("BalanceSummary (calculateBalances): Calculating for project:", project.name, "with members (UIDs):", project.members.join(', '));
+  console.log("BalanceSummary (calculateBalances): Received allUsersProfiles for calculation:", JSON.stringify(allUsersProfiles.map(u => ({id: u.id, name: u.name}))));
+
 
   const getUserProfileByUid = (uid: string): AppUserType | undefined => allUsersProfiles.find(u => u.id === uid);
   
@@ -55,8 +59,9 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
       const payerProfile = getUserProfileByName(expense.payer);
       if (payerProfile && project.members.includes(payerProfile.id)) { 
         totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
+        console.log(`BalanceSummary (calculateBalances): Attributed ${expense.amount} to UID ${payerProfile.id} (Name: ${payerProfile.name}) for expense "${expense.name}"`);
       } else {
-         console.warn(`BalanceSummary (calculateBalances): Payer "${expense.payer}" (from expense: ${expense.name}) not found in project members or user profiles, or name mismatch for project "${project.name}".`);
+         console.warn(`BalanceSummary (calculateBalances): Payer "${expense.payer}" (from expense: ${expense.name}) not found in project members or user profiles, or name mismatch for project "${project.name}". PayerProfile found: ${JSON.stringify(payerProfile)}, Project Members: ${project.members.join(', ')}`);
       }
     }
     currentProjectTotalExpenses += expense.amount;
@@ -64,10 +69,11 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
   
   const sharePerMember = project.members.length > 0 ? currentProjectTotalExpenses / project.members.length : 0;
 
-  return project.members.map(memberUid => {
+  const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
+    console.log(`BalanceSummary (calculateBalances): For memberUid "${memberUid}", found profile in allUsersProfiles:`, JSON.stringify(memberProfile));
     if (memberProfile && (!memberProfile.name || memberProfile.name.trim() === '')) {
-      console.warn(`BalanceSummary (calculateBalances): Profile found for UID ${memberUid} but 'name' field is missing or empty in allUsersProfiles. Displaying UID instead.`);
+      console.warn(`BalanceSummary (calculateBalances): Profile for UID ${memberUid} found, but 'name' field is missing or empty. Using UID as name.`);
     }
     const memberName = (memberProfile?.name && memberProfile.name.trim() !== '') ? memberProfile.name.trim() : memberUid;
     
@@ -79,7 +85,9 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
       amountPaid: amountPaid,
       share: sharePerMember,
     };
-  }).sort((a, b) => b.balance - a.balance); 
+  }).sort((a, b) => b.balance - a.balance);
+  console.log("BalanceSummary (calculateBalances): Calculated balances:", JSON.stringify(balances));
+  return balances;
 };
 
 const generateSettlementSuggestions = (balances: MemberBalance[]): { from: string, to: string, amount: number }[] => {
@@ -114,8 +122,11 @@ const generateSettlementSuggestions = (balances: MemberBalance[]): { from: strin
 
 
 export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUsersProfiles, isLoadingUserProfiles }) => {
-  // console.log("BalanceSummary: Received allUsersProfiles:", allUsersProfiles);
-  // console.log("BalanceSummary: Received project:", project);
+  console.log("BalanceSummary Render: Project:", project?.name, "isLoadingUserProfiles:", isLoadingUserProfiles, "allUsersProfiles count:", allUsersProfiles.length);
+  if (allUsersProfiles.length > 0) {
+    console.log("BalanceSummary Render: allUsersProfiles content:", JSON.stringify(allUsersProfiles.map(u => ({id: u.id, name: u.name}))));
+  }
+
 
   if (!project) {
     return (
@@ -190,9 +201,10 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
             {memberBalances.map(({ name, balance, amountPaid, share, uid }) => {
               const userProfileInList = allUsersProfiles.find(u=>u.id===uid);
               if (userProfileInList && (!userProfileInList.name || userProfileInList.name.trim() === '')) {
-                 console.warn(`BalanceSummary (JSX): Profile for UID ${uid} found in allUsersProfiles, but 'name' is missing or empty. Displaying fallback name: "${name}".`);
+                 console.warn(`BalanceSummary (JSX Display): Profile for UID ${uid} found in allUsersProfiles, but 'name' is missing or empty. Displaying fallback name: "${name}".`);
               }
-              const displayName = (userProfileInList?.name && userProfileInList.name.trim() !== '') ? userProfileInList.name.trim() : name; // 'name' is from memberBalances, which might be UID
+              // Prioritize name from allUsersProfiles if available, otherwise use name from memberBalances (which might be UID)
+              const displayName = (userProfileInList?.name && userProfileInList.name.trim() !== '') ? userProfileInList.name.trim() : name; 
               
               const avatarUrl = userProfileInList?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff`;
 
@@ -274,3 +286,4 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
     </Card>
   );
 };
+

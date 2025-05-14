@@ -203,18 +203,16 @@ export default function DashboardPage() {
   }, [currentUser, toast]);
 
   const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser || !isAdmin) { // Ensure admin check
-        setIsLoadingUserProfiles(false);
-        if (userProfile && !isAdmin) { // If not admin, provide at least current user's profile
-            setAllUserProfiles([userProfile]);
-        } else {
-            setAllUserProfiles([]);
-        }
-        return;
+    if (!currentUser) {
+      console.warn("DashboardPage: fetchAllUserProfiles called without currentUser.");
+      setIsLoadingUserProfiles(false);
+      setAllUserProfiles([]);
+      return;
     }
+     // Removed isAdmin check here, will be handled by useEffect logic
     setIsLoadingUserProfiles(true);
     try {
-      console.log("DashboardPage: Fetching all user profiles as admin.");
+      console.log("DashboardPage: Fetching all user profiles.");
       const usersCollectionRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
@@ -222,6 +220,7 @@ export default function DashboardPage() {
         ...docSnap.data(),
       } as AppUserType));
       setAllUserProfiles(usersList);
+      console.log("DashboardPage: Successfully fetched allUserProfiles:", JSON.stringify(usersList.map(u => ({id: u.id, name: u.name}))));
     } catch (error) {
       console.error("Erreur lors de la récupération des profils utilisateurs (Dashboard): ", error);
       toast({
@@ -229,24 +228,28 @@ export default function DashboardPage() {
         description: "Impossible de charger les profils utilisateurs pour les balances.",
         variant: "destructive",
       });
-      setAllUserProfiles([]); // Ensure it's an empty array on error
+      setAllUserProfiles([]); 
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, isAdmin, userProfile, toast]);
+  }, [currentUser, toast]);
 
   useEffect(() => {
     if (currentUser) {
       fetchProjects();
       fetchRecentGlobalExpenses();
+      console.log(`DashboardPage: useEffect - currentUser exists. isAdmin: ${isAdmin}`);
       if (isAdmin) {
+        console.log("DashboardPage: useEffect - Calling fetchAllUserProfiles because isAdmin is true.");
         fetchAllUserProfiles();
       } else {
-        // For non-admins, provide a minimal list for BalanceSummary
+        console.log("DashboardPage: useEffect - Not admin or isAdmin status pending. Providing minimal profiles.");
         if (userProfile) {
           setAllUserProfiles([userProfile]);
+           console.log("DashboardPage: useEffect - Set allUserProfiles for non-admin with userProfile:", JSON.stringify([userProfile].map(u => ({id: u.id, name: u.name}))));
         } else {
           setAllUserProfiles([]);
+          console.log("DashboardPage: useEffect - Set allUserProfiles to empty for non-admin (no userProfile).");
         }
         setIsLoadingUserProfiles(false);
       }
