@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { User } from '@/data/mock-data'; // Project type is not directly used here anymore for getProjectsForUser
+import type { User } from '@/data/mock-data'; 
 import {
   Table,
   TableBody,
@@ -43,7 +43,7 @@ import { useAuth } from '@/contexts/AuthContext';
 interface UserProject {
   id: string;
   name: string;
-  members: string[]; // Assuming members are stored by name for now
+  members: string[]; // Contains user UIDs
 }
 
 export default function UsersPage() {
@@ -79,12 +79,13 @@ export default function UsersPage() {
       if (!isAdmin) return;
       setIsLoadingUsers(true);
       try {
-        const usersCollection = collection(db, "users");
-        const usersSnapshot = await getDocs(usersCollection);
+        const usersCollectionRef = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollectionRef);
         const usersList = usersSnapshot.docs.map(docSnap => ({
           id: docSnap.id,
           ...docSnap.data(),
         } as User));
+        console.log('Fetched usersList:', usersList); // For debugging
         setAllUsers(usersList);
       } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs: ", error);
@@ -99,7 +100,6 @@ export default function UsersPage() {
     }, [isAdmin, toast]);
 
     const fetchProjectsForUsers = useCallback(async () => {
-      // Fetches all projects - admin context. Filtering per user is done client-side.
       if (!isAdmin) return;
       setIsLoadingProjects(true);
       try {
@@ -110,7 +110,7 @@ export default function UsersPage() {
           return {
             id: docSnap.id,
             name: data.name || "Projet sans nom",
-            members: data.members || [], // Ensure members array exists
+            members: data.members || [], // Ensure members array exists (should contain UIDs)
           } as UserProject;
         });
         setProjects(projectsList);
@@ -138,17 +138,18 @@ export default function UsersPage() {
         if (!searchTerm) return allUsers;
         const lowerCaseSearch = searchTerm.toLowerCase();
         return allUsers.filter(user =>
-            user.name.toLowerCase().includes(lowerCaseSearch) ||
-            user.email.toLowerCase().includes(lowerCaseSearch)
+            (user.name && user.name.toLowerCase().includes(lowerCaseSearch)) ||
+            (user.email && user.email.toLowerCase().includes(lowerCaseSearch))
         );
     }, [isAdmin, allUsers, searchTerm, isLoadingUsers]);
 
-    const getProjectsForSpecificUser = useCallback((userName: string): UserProject[] => {
+    const getProjectsForSpecificUser = useCallback((userIdToCheck: string): UserProject[] => {
         if (isLoadingProjects || !projects) return [];
-        return projects.filter(project => project.members.includes(userName));
+        // Ensure project.members exists and is an array before calling .includes
+        return projects.filter(project => project.members && Array.isArray(project.members) && project.members.includes(userIdToCheck));
     }, [projects, isLoadingProjects]);
 
-    const getAvatarFallback = (name: string | undefined) => {
+    const getAvatarFallback = (name: string | undefined | null) => {
         if (!name) return '??';
         const parts = name.split(' ');
         if (parts.length >= 2) {
@@ -246,7 +247,7 @@ export default function UsersPage() {
                             </TableRow>
                             )}
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.map((user) => {
-                            const userProjectsList = getProjectsForSpecificUser(user.name);
+                            const userProjectsList = getProjectsForSpecificUser(user.id); // Use user.id (UID)
                             return (
                                 <TableRow key={user.id}>
                                 <TableCell>
@@ -255,10 +256,10 @@ export default function UsersPage() {
                                         className="flex items-center gap-3 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-primary rounded-md p-1 -m-1"
                                     >
                                         <Avatar>
-                                            <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
-                                            <AvatarFallback>{getAvatarFallback(user.name)}</AvatarFallback>
+                                            <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'U')}&background=random&color=fff`} alt={user.name || user.email} data-ai-hint="user avatar placeholder"/>
+                                            <AvatarFallback>{getAvatarFallback(user.name || user.email)}</AvatarFallback>
                                         </Avatar>
-                                        <span className="font-medium">{user.name}</span>
+                                        <span className="font-medium">{user.name || 'Utilisateur sans nom'}</span>
                                     </button>
                                 </TableCell>
                                 <TableCell>{user.email}</TableCell>
@@ -292,7 +293,7 @@ export default function UsersPage() {
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
-                                Aucun utilisateur trouvé.
+                                Aucun utilisateur trouvé. Vérifiez votre base de données Firestore ou les filtres appliqués.
                                 </TableCell>
                             </TableRow>
                             )}
@@ -307,10 +308,10 @@ export default function UsersPage() {
                     <DialogContent className="sm:max-w-lg">
                         <DialogHeader className="items-center text-center pt-4">
                             <Avatar className="h-24 w-24 mb-3 ring-2 ring-primary ring-offset-2 ring-offset-background">
-                                <AvatarImage src={selectedUserForModal.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUserForModal.name)}&background=random&color=fff&size=128`} alt={selectedUserForModal.name} data-ai-hint="user avatar large"/>
-                                <AvatarFallback className="text-3xl">{getAvatarFallback(selectedUserForModal.name)}</AvatarFallback>
+                                <AvatarImage src={selectedUserForModal.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUserForModal.name || selectedUserForModal.email || 'U')}&background=random&color=fff&size=128`} alt={selectedUserForModal.name || selectedUserForModal.email} data-ai-hint="user avatar large"/>
+                                <AvatarFallback className="text-3xl">{getAvatarFallback(selectedUserForModal.name || selectedUserForModal.email)}</AvatarFallback>
                             </Avatar>
-                            <DialogTitle className="text-2xl">{selectedUserForModal.name}</DialogTitle>
+                            <DialogTitle className="text-2xl">{selectedUserForModal.name || 'Utilisateur sans nom'}</DialogTitle>
                             <DialogDescription>{selectedUserForModal.email}</DialogDescription>
                         </DialogHeader>
                         <div className="py-4 px-6 space-y-4">
@@ -325,9 +326,9 @@ export default function UsersPage() {
                                 {isLoadingProjects ? (
                                      <p className="text-sm text-muted-foreground">Chargement des projets...</p>
                                 ) : (
-                                    getProjectsForSpecificUser(selectedUserForModal.name).length > 0 ? (
+                                    getProjectsForSpecificUser(selectedUserForModal.id).length > 0 ? ( // Use id for fetching projects
                                         <ul className="list-disc list-inside space-y-1 text-sm text-foreground max-h-32 overflow-y-auto">
-                                            {getProjectsForSpecificUser(selectedUserForModal.name).map(proj => (
+                                            {getProjectsForSpecificUser(selectedUserForModal.id).map(proj => (
                                                 <li key={proj.id}>{proj.name}</li>
                                             ))}
                                         </ul>
@@ -347,5 +348,7 @@ export default function UsersPage() {
             )}
         </div>
     );
+
+    
 
     
