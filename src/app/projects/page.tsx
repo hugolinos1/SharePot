@@ -77,8 +77,12 @@ export default function ProjectsPage() {
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
 
-  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]);
-  const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true);
+  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]); // For admin "Add Member" dialog
+  const [isLoadingAllUserProfiles, setIsLoadingAllUserProfiles] = useState(true); // For admin "Add Member" dialog
+
+  const [projectModalMemberProfiles, setProjectModalMemberProfiles] = useState<AppUserType[]>([]);
+  const [isLoadingProjectModalMemberProfiles, setIsLoadingProjectModalMemberProfiles] = useState(false);
+
 
   const [editingBudget, setEditingBudget] = useState(false);
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
@@ -96,14 +100,17 @@ export default function ProjectsPage() {
     }
   }, [authLoading, currentUser, router]);
 
-  const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser || !isAdmin) { // Ensure admin check before fetching all users
-        setIsLoadingUserProfiles(false);
-        return;
+  // Fetches ALL user profiles, typically for admin use (e.g., adding members)
+  const fetchAllUserProfilesForAdmin = useCallback(async () => {
+    if (!currentUser || !isAdmin) { 
+      setIsLoadingAllUserProfiles(false);
+      // For non-admins, allUserProfiles might be minimal or not fetched if not needed for "Add Member" like dialogs
+      if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+      return;
     }
-    setIsLoadingUserProfiles(true);
+    console.log("ProjectsPage: (Admin) Fetching all user profiles.");
+    setIsLoadingAllUserProfiles(true);
     try {
-      console.log("ProjectsPage: Fetching all user profiles as admin.");
       const usersCollectionRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
@@ -112,17 +119,17 @@ export default function ProjectsPage() {
       } as AppUserType));
       setAllUserProfiles(usersList);
     } catch (error) {
-      console.error("Erreur lors de la récupération des profils utilisateurs (ProjectsPage): ", error);
+      console.error("Erreur lors de la récupération de tous les profils utilisateurs (Admin - ProjectsPage): ", error);
       toast({
-        title: "Erreur de chargement",
-        description: "Impossible de charger les profils utilisateurs.",
+        title: "Erreur de chargement (Admin)",
+        description: "Impossible de charger tous les profils utilisateurs.",
         variant: "destructive",
       });
-      setAllUserProfiles([]); // Ensure it's an empty array on error
+      setAllUserProfiles([]);
     } finally {
-      setIsLoadingUserProfiles(false);
+      setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, isAdmin, toast]);
+  }, [currentUser, isAdmin, userProfile, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -172,40 +179,62 @@ export default function ProjectsPage() {
     if (currentUser) {
       fetchProjects();
       if (isAdmin) {
-        console.log("ProjectsPage: isAdmin is true, calling fetchAllUserProfiles.");
-        fetchAllUserProfiles();
+        console.log("ProjectsPage: useEffect - isAdmin is true, calling fetchAllUserProfilesForAdmin.");
+        fetchAllUserProfilesForAdmin();
       } else {
-        console.log("ProjectsPage: isAdmin is false, NOT calling fetchAllUserProfiles. Setting minimal profiles.");
-        // For non-admins, we might not need all profiles, or fetch them differently.
-        // For now, ensure isLoadingUserProfiles is set to false if not fetching.
-        if (userProfile) {
-            setAllUserProfiles([userProfile]); // Provide at least the current user's profile
-        } else {
-            setAllUserProfiles([]);
-        }
-        setIsLoadingUserProfiles(false);
+        console.log("ProjectsPage: useEffect - Not admin. Minimal allUserProfiles set. Project member profiles will be fetched on demand.");
+        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+        setIsLoadingAllUserProfiles(false);
       }
     } else {
-      console.log("ProjectsPage: currentUser is null.");
+      console.log("ProjectsPage: useEffect - currentUser is null.");
     }
-  }, [currentUser, isAdmin, userProfile, fetchProjects, fetchAllUserProfiles]);
+  }, [currentUser, isAdmin, userProfile, fetchProjects, fetchAllUserProfilesForAdmin]);
 
 
-  const handleViewProjectDetails = (project: ProjectType) => {
+  const handleViewProjectDetails = async (project: ProjectType) => {
     setSelectedProject(project);
     setCurrentBudget(project.budget);
     setCurrentNotes(project.notes || '');
+
+    // Fetch profiles for members of this specific project
+    if (project.members && project.members.length > 0) {
+      setIsLoadingProjectModalMemberProfiles(true);
+      try {
+        const memberPromises = project.members.map(uid => getDoc(doc(db, "users", uid)));
+        const memberDocs = await Promise.all(memberPromises);
+        const fetchedProfiles = memberDocs
+          .filter(d => d.exists())
+          .map(d => ({ id: d.id, ...d.data() } as AppUserType));
+        setProjectModalMemberProfiles(fetchedProfiles);
+        console.log("ProjectsPage (handleViewProjectDetails): Fetched projectModalMemberProfiles:", fetchedProfiles);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des profils des membres du projet pour la modale:", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger les détails des membres du projet.",
+          variant: "destructive",
+        });
+        setProjectModalMemberProfiles([]);
+      } finally {
+        setIsLoadingProjectModalMemberProfiles(false);
+      }
+    } else {
+      setProjectModalMemberProfiles([]);
+    }
   };
+
 
   const handleCloseProjectDetails = () => {
     setSelectedProject(null);
     setEditingBudget(false);
     setEditingNotes(false);
+    setProjectModalMemberProfiles([]); // Clear specific member profiles
   };
   
   const handleSaveBudget = async () => {
     if (selectedProject && typeof currentBudget === 'number' && currentBudget >=0 && currentUser) {
-      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+      if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier le budget.", variant: "destructive" });
         return;
       }
@@ -234,7 +263,7 @@ export default function ProjectsPage() {
 
   const handleSaveNotes = async () => {
     if (selectedProject && currentUser) {
-      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+      if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier les notes.", variant: "destructive" });
         return;
       }
@@ -261,7 +290,7 @@ export default function ProjectsPage() {
 
   const handleDeleteProject = async () => {
     if (selectedProject && currentUser) {
-      if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
+      if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut supprimer un projet.", variant: "destructive" });
         setIsDeleteConfirmModalOpen(false);
         return;
@@ -291,12 +320,16 @@ export default function ProjectsPage() {
     }
   };
 
-  const getUserProfileById = (uid: string): AppUserType | undefined => {
+  // This function will now primarily be used for the "Add Member" dialog, where allUserProfiles is relevant for admins
+  const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
     return allUserProfiles.find(p => p.id === uid);
   };
 
   const handleOpenAddMemberDialog = () => {
-    if (!selectedProject || isLoadingUserProfiles) return;
+    if (!selectedProject || isLoadingAllUserProfiles || !isAdmin) { // Only admin can add members this way
+      toast({ title: "Action non autorisée", description: "Seul un administrateur peut ajouter des membres via cette interface.", variant: "destructive" });
+      return;
+    }
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
     setAvailableUsersForProject(available);
@@ -311,7 +344,7 @@ export default function ProjectsPage() {
   };
 
   const handleConfirmAddMembers = async () => {
-    if (!selectedProject || usersToAddToProject.length === 0) return;
+    if (!selectedProject || usersToAddToProject.length === 0 || !isAdmin) return;
     setIsLoading(true);
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
@@ -326,6 +359,13 @@ export default function ProjectsPage() {
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
       
+      // Refetch member profiles for the modal if they were updated
+      if (updatedProjectData.members && updatedProjectData.members.length > 0) {
+        const memberPromises = updatedProjectData.members.map(uid => getDoc(doc(db, "users", uid)));
+        const memberDocs = await Promise.all(memberPromises);
+        setProjectModalMemberProfiles(memberDocs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() } as AppUserType)));
+      }
+
       toast({ title: "Membres ajoutés", description: `${usersToAddToProject.length} membre(s) ont été ajoutés au projet.` });
       setIsAddMemberDialogOpen(false);
     } catch (error) {
@@ -383,7 +423,7 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {isFetchingProjects || isLoadingUserProfiles ? (
+        {isFetchingProjects ? ( // Combined loading state for initial project list
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1,2,3].map(i => (
                     <Card key={i} className="flex flex-col">
@@ -400,7 +440,10 @@ export default function ProjectsPage() {
         ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
-              const memberProfiles = project.members.map(uid => getUserProfileById(uid)).filter(Boolean) as AppUserType[];
+              // For card display, we might not have all member profiles if not admin.
+              // Fallback to UID count or show limited avatars.
+              // The full member list with names will be in the modal.
+              const displayableMemberProfiles = project.members.map(uid => getAnyUserProfileById(uid)).filter(Boolean) as AppUserType[];
               return (
               <Card key={project.id} className="hover:shadow-lg transition-shadow duration-300 flex flex-col">
                 <CardHeader>
@@ -435,7 +478,7 @@ export default function ProjectsPage() {
                 <DialogFooter className="p-4 pt-0 border-t mt-auto">
                      <div className="flex items-center justify-between w-full">
                         <div className="flex -space-x-2 overflow-hidden">
-                            {memberProfiles.slice(0, 3).map((memberProfile, index) => (
+                            {displayableMemberProfiles.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={index} className="h-8 w-8 border-2 border-background">
                                 <AvatarImage src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'N A')}&background=random&color=fff&size=32`} alt={memberProfile.name || 'Membre'} data-ai-hint="member avatar"/>
                                 <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile.name)}</AvatarFallback> 
@@ -480,7 +523,11 @@ export default function ProjectsPage() {
             </DialogHeader>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
               <div className="lg:col-span-2 space-y-6">
-                <ProjectExpenseSettlement project={selectedProject} allUsersProfiles={allUserProfiles} isLoadingUserProfiles={isLoadingUserProfiles} />
+                <ProjectExpenseSettlement 
+                    project={selectedProject} 
+                    allUsersProfiles={projectModalMemberProfiles} // Use specific profiles for this project
+                    isLoadingUserProfiles={isLoadingProjectModalMemberProfiles} 
+                />
                 <Card>
                   <CardHeader>
                     <CardTitle>Dépenses Récentes</CardTitle>
@@ -539,7 +586,7 @@ export default function ProjectsPage() {
                           <p className="font-semibold text-lg">
                             {(typeof currentBudget === 'number' ? currentBudget : (selectedProject.budget || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
-                          {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                          {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
                                 <Icons.edit className="h-4 w-4"/>
                             </Button>
@@ -574,24 +621,21 @@ export default function ProjectsPage() {
                     <CardTitle>Membres ({selectedProject.members.length})</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 max-h-48 overflow-y-auto">
-                    {isLoadingUserProfiles ? (
+                    {isLoadingProjectModalMemberProfiles ? (
                       <div className="text-center py-2"><Icons.loader className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
                     ) : (
-                      selectedProject.members.map((memberUid) => {
-                        const member = getUserProfileById(memberUid);
-                        return (
-                          <div key={memberUid} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
+                      projectModalMemberProfiles.map((member) => (
+                          <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
                               <AvatarImage src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'N A')}&background=random&color=fff&size=32`} alt={member?.name || 'Membre'} data-ai-hint="member avatar small"/>
                               <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name)}</AvatarFallback>
                             </Avatar>
-                            <p className="font-medium text-sm">{member?.name || memberUid}</p> 
+                            <p className="font-medium text-sm">{member?.name || member.id}</p> 
                           </div>
-                        );
-                      })
+                        ))
                     )}
-                     {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
-                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isLoading || isLoadingUserProfiles}>
+                     {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isLoading || isLoadingAllUserProfiles}>
                            <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
                        </Button>
                      )}
@@ -606,7 +650,7 @@ export default function ProjectsPage() {
                     {(selectedProject.tags || []).length > 0 ? selectedProject.tags.map((tag, index) => (
                       <Badge key={index} variant="secondary">{tag}</Badge>
                     )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
-                    {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                    {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                      <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none" disabled={isLoading}>
                         <Icons.plus className="mr-1 h-3 w-3" /> Ajouter
                      </Button>
@@ -618,7 +662,7 @@ export default function ProjectsPage() {
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>Notes du projet</CardTitle>
-                             {!editingNotes && (selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+                             {!editingNotes && (selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isLoading}>
                                     <Icons.edit className="h-4 w-4"/>
                                 </Button>
@@ -651,7 +695,7 @@ export default function ProjectsPage() {
                 </div>
             </div>
             <DialogFooter className="border-t pt-4">
-              {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
+              {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                 <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
                   <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
                 </Button>
@@ -691,7 +735,7 @@ export default function ProjectsPage() {
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-3 max-h-72 overflow-y-auto">
-                    {isLoadingUserProfiles ? (
+                    {isLoadingAllUserProfiles ? ( // Use isLoadingAllUserProfiles here for admin "Add Member" dialog
                         <p>Chargement des utilisateurs...</p>
                     ) : availableUsersForProject.length > 0 ? (
                         availableUsersForProject.map(user => (
@@ -730,5 +774,6 @@ export default function ProjectsPage() {
     </div>
   );
 }
+    
 
     
