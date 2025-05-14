@@ -29,8 +29,11 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 
-// Placeholder for current authenticated user ID - replace with actual auth logic
-const CURRENT_USER_ID = 'user1'; 
+// TODO: Remplacer par une véritable authentification Firebase Auth
+// Cet ID est utilisé pour récupérer le profil de l'utilisateur qui est supposé être l'administrateur.
+// Assurez-vous qu'un document avec cet ID existe dans votre collection 'users'
+// et qu'il a un champ `isAdmin: true`.
+const EXPECTED_ADMIN_DOCUMENT_ID = 'adminPrincipal'; 
 
 export default function UsersPage() {
     const router = useRouter();
@@ -41,30 +44,30 @@ export default function UsersPage() {
     const [projects, setProjects] = useState<Project[]>([]);
     
     const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-    const [isLoadingProjects, setIsLoadingProjects] = useState(true); // Needed to count projects per user
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true); 
     const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
 
     const fetchCurrentUserProfile = useCallback(async () => {
       setIsLoadingCurrentUser(true);
       try {
-        // In a real app, CURRENT_USER_ID would come from auth.currentUser.uid
-        const userDocRef = doc(db, "users", CURRENT_USER_ID);
+        // Dans une vraie application, l'ID viendrait de auth.currentUser.uid après une connexion réussie.
+        const userDocRef = doc(db, "users", EXPECTED_ADMIN_DOCUMENT_ID);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
           setCurrentUserProfile({ id: userDocSnap.id, ...userDocSnap.data() } as User);
         } else {
-          console.error("Current user profile not found in Firestore.");
+          console.error(`Profil administrateur (document ID: ${EXPECTED_ADMIN_DOCUMENT_ID}) non trouvé dans Firestore.`);
           toast({
-            title: "Erreur utilisateur",
-            description: "Profil utilisateur actuel introuvable.",
+            title: "Erreur de configuration Admin",
+            description: `Profil administrateur (${EXPECTED_ADMIN_DOCUMENT_ID}) introuvable. Vérifiez votre base de données.`,
             variant: "destructive",
           });
         }
       } catch (error) {
-        console.error("Erreur lors de la récupération du profil utilisateur: ", error);
+        console.error("Erreur lors de la récupération du profil utilisateur admin: ", error);
         toast({
           title: "Erreur de chargement",
-          description: "Impossible de charger le profil utilisateur.",
+          description: "Impossible de charger le profil utilisateur admin.",
           variant: "destructive",
         });
       } finally {
@@ -77,9 +80,9 @@ export default function UsersPage() {
       try {
         const usersCollection = collection(db, "users");
         const usersSnapshot = await getDocs(usersCollection);
-        const usersList = usersSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
+        const usersList = usersSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap pour éviter conflit
+          id: docSnap.id,
+          ...docSnap.data(),
         } as User));
         setAllUsers(usersList);
       } catch (error) {
@@ -99,9 +102,9 @@ export default function UsersPage() {
       try {
         const projectsCollection = collection(db, "projects");
         const projectSnapshot = await getDocs(projectsCollection);
-        const projectsList = projectSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
+        const projectsList = projectSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap
+          id: docSnap.id,
+          ...docSnap.data(),
         } as Project));
         setProjects(projectsList);
       } catch (error) {
@@ -119,26 +122,29 @@ export default function UsersPage() {
     useEffect(() => {
       fetchCurrentUserProfile();
       fetchAllUsers();
-      fetchProjects(); // Fetch projects to determine project membership for users
+      fetchProjects(); 
     }, [fetchCurrentUserProfile, fetchAllUsers, fetchProjects]);
 
 
     const isAdmin = useMemo(() => currentUserProfile?.isAdmin ?? false, [currentUserProfile]);
 
-    // Determine projects for the current user (if not admin) to filter visible users
     const currentUserProjects = useMemo(() => {
         if (!currentUserProfile || isLoadingProjects) return [];
+        // Un admin voit tous les projets, donc pas besoin de filtrer ici pour ses propres projets
+        if (isAdmin) return projects; 
         return projects.filter(project => project.members.includes(currentUserProfile.name));
-    }, [currentUserProfile, projects, isLoadingProjects]);
+    }, [currentUserProfile, projects, isLoadingProjects, isAdmin]);
 
     const visibleUsers = useMemo(() => {
         if (isLoadingUsers) return [];
         if (isAdmin) {
             return allUsers;
         }
+        // Pour un non-admin, la logique actuelle de `currentUserProjects` et `relatedUserNames` s'applique.
+        // Elle pourrait être ajustée si un non-admin ne doit pas voir la page des utilisateurs.
+        // Actuellement, elle est bloquée par le check `isAdmin` plus bas.
         if (!currentUserProfile) return [];
 
-        // Non-admins see users who are members of the same projects they are in
         const relatedUserNames = new Set<string>();
         currentUserProjects.forEach(project => {
             project.members.forEach(memberName => relatedUserNames.add(memberName));
@@ -175,7 +181,6 @@ export default function UsersPage() {
             description: `L'action de "${actionType}" pour l'utilisateur ${userId} n'est pas encore connectée à Firestore.`,
             variant: "default",
         });
-        // Actual implementation would involve Firestore updates/deletes
     };
 
     if (isLoadingCurrentUser) {
@@ -186,12 +191,13 @@ export default function UsersPage() {
           </div>
         );
     }
-
-    if (!isAdmin) { // Or a more robust check for authorization
-        return (
+    
+    // Si après chargement, on ne détermine pas que l'utilisateur est admin, on bloque l'accès.
+    if (!isAdmin) { 
+         return (
             <div className="container mx-auto py-10 text-center">
                  <p className="text-2xl font-semibold mb-4">Accès non autorisé</p>
-                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page.</p>
+                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page. Vérifiez que votre compte est configuré comme administrateur dans la base de données (document ID: {EXPECTED_ADMIN_DOCUMENT_ID}).</p>
                  <Button onClick={() => router.push('/dashboard')}>
                      <Icons.home className="mr-2 h-4 w-4" />
                      Retour au tableau de bord
@@ -199,9 +205,11 @@ export default function UsersPage() {
             </div>
         );
     }
-    if (!currentUserProfile) {
-         return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
-    }
+    
+    // Ce cas est couvert par le !isAdmin ci-dessus si currentUserProfile est null ou n'a pas isAdmin:true
+    // if (!currentUserProfile) {
+    //      return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
+    // }
 
 
     return (
@@ -220,6 +228,7 @@ export default function UsersPage() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="max-w-xs"
+                        data-ai-hint="search users"
                     />
                      <Link href="/dashboard" passHref>
                        <Button variant="outline">
@@ -249,15 +258,15 @@ export default function UsersPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {isLoadingUsers && (
+                            {(isLoadingUsers || isLoadingProjects) && (
                             <TableRow>
                                 <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-10">
                                     <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
-                                    Chargement des utilisateurs...
+                                    Chargement des données...
                                 </TableCell>
                             </TableRow>
                             )}
-                            {!isLoadingUsers && filteredUsers.map((user) => {
+                            {!isLoadingUsers && !isLoadingProjects && filteredUsers.map((user) => {
                             const userProjectsList = getProjectsForUser(user.name);
                             return (
                                 <TableRow key={user.id}>
@@ -287,11 +296,11 @@ export default function UsersPage() {
                                 </TableCell>
                                 {isAdmin && (
                                     <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" className="mr-1" onClick={() => handleUserAction('edit', user.id)}>
+                                    <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleUserAction('edit', user.id)}>
                                         <Icons.edit className="h-4 w-4" />
                                         <span className="sr-only">Modifier</span>
                                     </Button>
-                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90" onClick={() => handleUserAction('delete', user.id)}>
+                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleUserAction('delete', user.id)}>
                                         <Icons.trash className="h-4 w-4" />
                                         <span className="sr-only">Supprimer</span>
                                     </Button>
@@ -300,7 +309,7 @@ export default function UsersPage() {
                                 </TableRow>
                             );
                             })}
-                            {!isLoadingUsers && filteredUsers.length === 0 && (
+                            {!isLoadingUsers && !isLoadingProjects && filteredUsers.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-4">
                                 Aucun utilisateur trouvé.

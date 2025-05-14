@@ -25,10 +25,12 @@ import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { User } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
-// Placeholder for current authenticated user ID - replace with actual auth logic
-const CURRENT_USER_ID = 'user1'; 
+// TODO: Remplacer par une véritable authentification Firebase Auth.
+// Pour l'instant, cette page affiche le profil de l'utilisateur admin par défaut.
+// Dans une application réelle, l'ID viendrait de auth.currentUser.uid.
+const USER_TO_DISPLAY_ID = 'adminPrincipal'; 
 
 const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Le nom doit comporter au moins 2 caractères." }).max(50, { message: "Le nom ne doit pas dépasser 50 caractères." }),
@@ -53,20 +55,21 @@ export default function ProfilePage() {
   const fetchUserProfile = useCallback(async () => {
     setIsLoading(true);
     try {
-      const userDocRef = doc(db, "users", CURRENT_USER_ID);
+      const userDocRef = doc(db, "users", USER_TO_DISPLAY_ID);
       const userDocSnap = await getDoc(userDocRef);
       if (userDocSnap.exists()) {
         const userData = { id: userDocSnap.id, ...userDocSnap.data() } as User;
         setUserProfile(userData);
-        form.reset({ name: userData.name }); // Initialize form with fetched name
+        form.reset({ name: userData.name }); 
       } else {
-        console.error("Profil utilisateur non trouvé.");
+        console.error(`Profil utilisateur (ID: ${USER_TO_DISPLAY_ID}) non trouvé.`);
         toast({
           title: "Erreur",
-          description: "Profil utilisateur introuvable.",
+          description: `Profil utilisateur (ID: ${USER_TO_DISPLAY_ID}) introuvable.`,
           variant: "destructive",
         });
-        router.push('/dashboard'); // Redirect if profile not found
+        // Optionnel: rediriger si le profil admin par défaut n'est pas trouvé
+        // router.push('/dashboard'); 
       }
     } catch (error) {
       console.error("Erreur lors de la récupération du profil: ", error);
@@ -78,7 +81,7 @@ export default function ProfilePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, router, form]);
+  }, [toast, form]); // router retiré des dépendances si non utilisé en cas d'erreur
 
   useEffect(() => {
     fetchUserProfile();
@@ -95,12 +98,15 @@ export default function ProfilePage() {
 
   const handleSaveName = async (values: ProfileFormValues) => {
     if (!userProfile) return;
-    setIsLoading(true);
+    // Ne pas remettre setIsLoading à true ici, car il est géré par le FormField et le bouton de soumission.
+    // Si le bouton est déjà en mode "isLoading", cela peut causer des conflits.
+    // Le formulaire gère déjà son propre état de soumission.
+
     try {
       const userDocRef = doc(db, "users", userProfile.id);
       await updateDoc(userDocRef, {
         name: values.name,
-        // You might want an 'updatedAt' field for users too
+        // updatedAt: serverTimestamp(), // Envisagez d'ajouter un champ updatedAt pour les utilisateurs aussi
       });
       setUserProfile(prev => prev ? { ...prev, name: values.name } : null);
       toast({
@@ -115,12 +121,11 @@ export default function ProfilePage() {
         description: "Impossible de mettre à jour le nom.",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
-    }
+    } 
+    // setIsLoading(false) n'est pas nécessaire ici si le bouton de formulaire gère son propre état de chargement
   };
 
-  if (isLoading || !userProfile) {
+  if (isLoading && !userProfile) { // Modifié pour afficher le loader seulement si userProfile n'est pas encore là
     return (
       <div className="container mx-auto py-10 text-center">
         <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
@@ -128,6 +133,22 @@ export default function ProfilePage() {
       </div>
     );
   }
+
+  if (!userProfile) { // Si après chargement, userProfile est toujours null
+     return (
+      <div className="container mx-auto py-10 text-center">
+        <p className="text-xl text-destructive">Profil utilisateur non trouvé.</p>
+        <p className="text-muted-foreground mb-6">Impossible de charger les informations du profil (ID: {USER_TO_DISPLAY_ID}). Veuillez vérifier votre base de données ou la configuration.</p>
+        <Link href="/dashboard" passHref>
+          <Button variant="outline">
+            <Icons.arrowLeft className="mr-2 h-4 w-4" />
+            Retour au tableau de bord
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
@@ -144,7 +165,7 @@ export default function ProfilePage() {
       <Card className="max-w-2xl mx-auto shadow-lg">
         <CardHeader className="items-center text-center">
           <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background">
-            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&background=random&color=fff&size=128`} alt={userProfile.name} data-ai-hint="user avatar large" />
+            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&background=random&color=fff&size=128`} alt={userProfile.name} data-ai-hint="user avatar large"/>
             <AvatarFallback className="text-3xl">{getAvatarFallback(userProfile.name)}</AvatarFallback>
           </Avatar>
           {!isEditingName ? (
@@ -169,10 +190,10 @@ export default function ProfilePage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" size="sm" disabled={isLoading}>
-                  <Icons.save className="h-4 w-4" />
+                <Button type="submit" size="icon" className="h-8 w-8" disabled={form.formState.isSubmitting}>
+                  {form.formState.isSubmitting ? <Icons.loader className="h-4 w-4 animate-spin"/> : <Icons.save className="h-4 w-4" />}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditingName(false)} disabled={isLoading}>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsEditingName(false)} disabled={form.formState.isSubmitting}>
                   <Icons.close className="h-4 w-4" />
                 </Button>
               </form>
@@ -189,7 +210,6 @@ export default function ProfilePage() {
               </Badge>
             </div>
             
-            {/* Future sections can be added here, e.g., project list, preferences */}
             <div className="border-t pt-4">
                 <h3 className="text-lg font-semibold mb-2">Paramètres du compte</h3>
                 <Button variant="outline" className="w-full justify-start" disabled>

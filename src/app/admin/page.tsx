@@ -29,8 +29,11 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 
-// Placeholder for current authenticated user ID - replace with actual auth logic
-const CURRENT_USER_ID = 'user1'; 
+// TODO: Remplacer par une véritable authentification Firebase Auth
+// Cet ID est utilisé pour récupérer le profil de l'utilisateur qui est supposé être l'administrateur.
+// Assurez-vous qu'un document avec cet ID existe dans votre collection 'users'
+// et qu'il a un champ `isAdmin: true`.
+const EXPECTED_ADMIN_DOCUMENT_ID = 'adminPrincipal'; 
 
 export default function AdminProjectsPage() {
     const router = useRouter();
@@ -45,23 +48,23 @@ export default function AdminProjectsPage() {
     const fetchCurrentUserProfile = useCallback(async () => {
       setIsLoadingCurrentUser(true);
       try {
-        const userDocRef = doc(db, "users", CURRENT_USER_ID);
+        const userDocRef = doc(db, "users", EXPECTED_ADMIN_DOCUMENT_ID);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
           setCurrentUserProfile({ id: userDocSnap.id, ...userDocSnap.data() } as User);
         } else {
-          console.error("Current user profile not found in Firestore.");
+          console.error(`Profil administrateur (document ID: ${EXPECTED_ADMIN_DOCUMENT_ID}) non trouvé dans Firestore.`);
           toast({
-            title: "Erreur utilisateur",
-            description: "Profil utilisateur actuel introuvable.",
+            title: "Erreur de configuration Admin",
+            description: `Profil administrateur (${EXPECTED_ADMIN_DOCUMENT_ID}) introuvable.`,
             variant: "destructive",
           });
         }
       } catch (error) {
-        console.error("Erreur lors de la récupération du profil utilisateur: ", error);
+        console.error("Erreur lors de la récupération du profil utilisateur admin: ", error);
         toast({
           title: "Erreur de chargement",
-          description: "Impossible de charger le profil utilisateur.",
+          description: "Impossible de charger le profil utilisateur admin.",
           variant: "destructive",
         });
       } finally {
@@ -74,9 +77,9 @@ export default function AdminProjectsPage() {
       try {
         const projectsCollection = collection(db, "projects");
         const projectSnapshot = await getDocs(projectsCollection);
-        const projectsList = projectSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
+        const projectsList = projectSnapshot.docs.map(docSnap => ({ // Renommé doc en docSnap
+          id: docSnap.id,
+          ...docSnap.data(),
         } as Project));
         setProjects(projectsList);
       } catch (error) {
@@ -100,8 +103,7 @@ export default function AdminProjectsPage() {
 
      const filteredProjects = useMemo(() => {
          if (isLoadingProjects) return [];
-         // Admins see all projects
-         if (!searchTerm) return projects;
+         if (!searchTerm) return projects; // Admins see all projects if no search term
          const lowerCaseSearch = searchTerm.toLowerCase();
          return projects.filter(project =>
              project.name.toLowerCase().includes(lowerCaseSearch) ||
@@ -124,7 +126,6 @@ export default function AdminProjectsPage() {
             description: `L'action de "${actionType}" pour le projet ${projectId} n'est pas encore connectée à Firestore.`,
             variant: "default",
         });
-        // Actual implementation would involve Firestore updates/deletes for projects
     };
 
 
@@ -141,7 +142,7 @@ export default function AdminProjectsPage() {
          return (
             <div className="container mx-auto py-10 text-center">
                  <p className="text-2xl font-semibold mb-4">Accès non autorisé</p>
-                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page.</p>
+                 <p className="text-muted-foreground mb-6">Vous n'avez pas les droits nécessaires pour accéder à cette page. Vérifiez que votre compte est configuré comme administrateur dans la base de données (document ID: {EXPECTED_ADMIN_DOCUMENT_ID}).</p>
                  <Button onClick={() => router.push('/dashboard')}>
                      <Icons.home className="mr-2 h-4 w-4" />
                      Retour au tableau de bord
@@ -150,9 +151,10 @@ export default function AdminProjectsPage() {
         );
     }
 
-    if (!currentUserProfile) {
-        return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
-    }
+    // Ce cas est couvert par le !isAdmin ci-dessus si currentUserProfile est null ou n'a pas isAdmin:true
+    // if (!currentUserProfile) {
+    //     return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
+    // }
 
 
     return (
@@ -171,6 +173,7 @@ export default function AdminProjectsPage() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="max-w-xs"
+                        data-ai-hint="search projects"
                     />
                      <Link href="/dashboard" passHref>
                        <Button variant="outline">
@@ -246,11 +249,11 @@ export default function AdminProjectsPage() {
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" className="mr-1" onClick={() => handleProjectAction('edit', project.id)}>
+                                    <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleProjectAction('edit', project.id)}>
                                     <Icons.edit className="h-4 w-4" />
                                         <span className="sr-only">Modifier</span>
                                     </Button>
-                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90" onClick={() => handleProjectAction('delete', project.id)}>
+                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleProjectAction('delete', project.id)}>
                                     <Icons.trash className="h-4 w-4" />
                                         <span className="sr-only">Supprimer</span>
                                     </Button>
