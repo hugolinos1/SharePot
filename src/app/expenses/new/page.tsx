@@ -39,7 +39,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import type { Project } from '@/data/mock-data'; // User is now part of AuthContext or fetched
+import type { Project } from '@/data/mock-data'; 
 import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -71,7 +71,7 @@ export default function NewExpensePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [users, setUsers] = useState<AppUserType[]>([]); // Changed from User to AppUserType
+  const [users, setUsers] = useState<AppUserType[]>([]); 
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
 
   useEffect(() => {
@@ -109,12 +109,11 @@ export default function NewExpensePage() {
     setIsLoadingUsers(true);
     try {
       const usersCollection = collection(db, "users");
-      // TODO: Potentially filter users to those in the selected project
       const usersSnapshot = await getDocs(usersCollection);
       const usersList = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-      } as AppUserType)); // Ensure correct type casting
+      } as AppUserType));
       setUsers(usersList);
     } catch (error) {
       console.error("Erreur lors de la récupération des utilisateurs: ", error);
@@ -139,19 +138,27 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: undefined,
+      amount: '' as unknown as number, // Initialize with empty string
       currency: 'EUR',
       projectId: '',
-      paidById: currentUser?.uid || '', // Pre-fill with current user if available
+      paidById: currentUser?.uid || '', 
       expenseDate: new Date(),
       tags: '',
     },
   });
   
-  // Reset form paidById if currentUser changes
   useEffect(() => {
-    if (currentUser) {
-      form.reset({ ...form.getValues(), paidById: currentUser.uid });
+    if (currentUser && !form.getValues('paidById')) { // Only reset if paidById is not already set
+      form.reset({ 
+        ...form.getValues(), 
+        paidById: currentUser.uid,
+        amount: form.getValues('amount') || '' as unknown as number, // Preserve amount or set to empty string
+        description: form.getValues('description') || '',
+        currency: form.getValues('currency') || 'EUR',
+        projectId: form.getValues('projectId') || '',
+        expenseDate: form.getValues('expenseDate') || new Date(),
+        tags: form.getValues('tags') || '',
+      });
     }
   }, [currentUser, form]);
 
@@ -165,7 +172,7 @@ export default function NewExpensePage() {
     setIsLoading(true);
     
     const selectedProject = projects.find(p => p.id === values.projectId);
-    const payer = users.find(u => u.id === values.paidById); // Find from fetched users list
+    const payer = users.find(u => u.id === values.paidById); 
 
     if (!selectedProject) {
         toast({ title: "Erreur de données", description: "Projet introuvable.", variant: "destructive" });
@@ -185,12 +192,12 @@ export default function NewExpensePage() {
         currency: values.currency,
         projectId: values.projectId,
         projectName: selectedProject.name, 
-        paidById: payer.id, // Use the ID from the selected user
-        paidByName: payer.name, // Use the name from the selected user
+        paidById: payer.id, 
+        paidByName: payer.name, 
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
         createdAt: serverTimestamp(),
-        createdBy: currentUser.uid, // Track who created the expense
+        createdBy: currentUser.uid, 
       };
 
       const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
@@ -207,7 +214,7 @@ export default function NewExpensePage() {
         const recentExpenseSummary = {
           id: expenseDocRef.id, 
           name: values.description,
-          date: Timestamp.fromDate(values.expenseDate), // Use Timestamp for consistency
+          date: Timestamp.fromDate(values.expenseDate), 
           amount: values.amount,
           payer: payer.name,
         };
@@ -226,7 +233,7 @@ export default function NewExpensePage() {
       });
       form.reset({
          description: '',
-         amount: undefined,
+         amount: '' as unknown as number, // Reset to empty string
          currency: 'EUR',
          projectId: '',
          paidById: currentUser.uid || '',
@@ -299,7 +306,15 @@ export default function NewExpensePage() {
                     <FormItem>
                       <FormLabel>Montant</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} step="0.01" data-ai-hint="expense amount"/>
+                        <Input 
+                          type="number" 
+                          placeholder="0.00" 
+                          {...field} 
+                          step="0.01" 
+                          data-ai-hint="expense amount"
+                          value={field.value === undefined || field.value === null ? '' : field.value} // Ensure defined value
+                          onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} // Handle empty string for parseFloat
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -337,7 +352,7 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Projet associé</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingProjects}>
+                    <Select onValueChange={field.onChange} value={field.value || ''} disabled={isLoadingProjects}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
                           <SelectValue placeholder={isLoadingProjects ? "Chargement des projets..." : "Sélectionner un projet"} />
@@ -362,7 +377,7 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payé par</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value} disabled={isLoadingUsers}>
+                    <Select onValueChange={field.onChange} value={field.value || ''} disabled={isLoadingUsers}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="user select paid by">
                           <SelectValue placeholder={isLoadingUsers ? "Chargement des utilisateurs..." : "Sélectionner un utilisateur"} />
@@ -486,3 +501,4 @@ export default function NewExpensePage() {
     </div>
   );
 }
+
