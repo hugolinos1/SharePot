@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { Timestamp } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -38,10 +39,10 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import type { Project } from '@/data/mock-data';
-import { mockUsers } from '@/data/mock-data'; // Assuming users are still mock for now
+import type { Project, User } from '@/data/mock-data'; // Import User type
+import { mockUsers } from '@/data/mock-data'; 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -67,6 +68,8 @@ export default function NewExpensePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  // For simplicity, still using mockUsers. In a full app, fetch from Firestore.
+  const [users] = useState<User[]>(mockUsers); 
 
   const fetchProjects = useCallback(async () => {
     setIsLoadingProjects(true);
@@ -111,40 +114,62 @@ export default function NewExpensePage() {
     setIsLoading(true);
     
     const selectedProject = projects.find(p => p.id === values.projectId);
-    const payerName = mockUsers.find(u => u.id === values.paidById)?.name || 'Inconnu';
+    const payer = users.find(u => u.id === values.paidById);
+
+    if (!selectedProject || !payer) {
+        toast({
+            title: "Erreur de données",
+            description: "Projet ou payeur introuvable. Veuillez vérifier les sélections.",
+            variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+    }
 
     try {
-      // 1. Add expense to a global "expenses" collection (or subcollection)
-      // For simplicity, let's assume a global "expenses" collection for now
-      // You might want a subcollection under projects: doc(db, "projects", values.projectId, "expenses", newExpenseId)
-      const newExpenseData = {
-        ...values,
-        expenseDate: Timestamp.fromDate(values.expenseDate), // Convert Date to Firestore Timestamp
+      // Data for the new expense document in "expenses" collection
+      const newExpenseDocData = {
+        title: values.description,
+        amount: values.amount,
+        currency: values.currency,
+        projectId: values.projectId,
+        projectName: selectedProject.name, // Denormalized
+        paidById: values.paidById,
+        paidByName: payer.name, // Denormalized
+        expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
         createdAt: serverTimestamp(),
-        // We might not store receipt directly in Firestore if it's a file. Store a URL instead after uploading to Firebase Storage.
-        // For now, 'receipt' field from form is not processed for storage.
+        // receiptUrl: null, // Placeholder for actual file upload URL
       };
-      // const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseData); // If global collection
-      
-      // 2. Update project's totalExpenses and recentExpenses
-      if (selectedProject) {
-        const projectRef = doc(db, "projects", selectedProject.id);
-        const newRecentExpense = {
+
+      // Add the expense to "expenses" collection
+      const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
+
+      // Update project's summary in a transaction for consistency
+      const projectRef = doc(db, "projects", selectedProject.id);
+      await runTransaction(db, async (transaction) => {
+        const projectDoc = await transaction.get(projectRef);
+        if (!projectDoc.exists()) {
+          throw "Project document does not exist!";
+        }
+        const currentTotalExpenses = projectDoc.data().totalExpenses || 0;
+        const newTotalExpenses = currentTotalExpenses + values.amount;
+        
+        const recentExpenseSummary = {
+          id: expenseDocRef.id, // Link to the actual expense document
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate),
           amount: values.amount,
-          payer: payerName,
-          // id: expenseDocRef.id // if global collection and you want to link it
+          payer: payer.name,
         };
 
-        await updateDoc(projectRef, {
-          totalExpenses: (selectedProject.totalExpenses || 0) + values.amount,
-          recentExpenses: arrayUnion(newRecentExpense), // Adds to array, limit array size in practice
-          lastActivity: serverTimestamp(), // Update last activity
+        transaction.update(projectRef, {
+          totalExpenses: newTotalExpenses,
+          recentExpenses: arrayUnion(recentExpenseSummary), // Consider limiting the size of this array in production
+          lastActivity: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-      }
+      });
 
       toast({
         title: "Dépense ajoutée",
@@ -278,7 +303,7 @@ export default function NewExpensePage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {mockUsers.map(user => ( // Assuming mockUsers is still used for payers list
+                        {users.map(user => ( 
                           <SelectItem key={user.id} value={user.id}>
                             {user.name}
                           </SelectItem>
@@ -341,7 +366,7 @@ export default function NewExpensePage() {
                       <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags"/>
                     </FormControl>
                     <FormDescription>
-                      Séparez les tags par une virgule. L'IA pourra suggérer des tags ultérieurement.
+                      Séparez les tags par une virgule.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -363,7 +388,7 @@ export default function NewExpensePage() {
                       />
                     </FormControl>
                      <FormDescription>
-                      Téléchargez une image ou un PDF du justificatif. (Non implémenté pour le stockage)
+                      Le téléchargement de fichiers n'est pas encore implémenté pour le stockage.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

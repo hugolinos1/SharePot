@@ -16,57 +16,42 @@ import { Input } from '@/components/ui/input';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
-import type { Project } from '@/data/mock-data'; // Import Project type
+import type { Project } from '@/data/mock-data'; 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp, type DocumentData } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-interface ExpenseItem {
-  id: string;
-  title: string; 
-  project: string; 
-  paidBy: string; 
-  date: string | Timestamp; // Allow Timestamp
-  amount: string; 
-  tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
-  // Potentially add original amount and currency if different from display
-  // originalAmount?: number;
-  // originalCurrency?: string;
+// Updated ExpenseItem interface to reflect Firestore structure
+export interface ExpenseItem {
+  id: string; // Firestore document ID
+  title: string;
+  projectId: string;
+  projectName: string; // Denormalized for display
+  paidById: string;
+  paidByName: string; // Denormalized for display
+  expenseDate: Timestamp; // Firestore Timestamp
+  amount: number;
+  currency: string;
+  tags: string[]; // Array of strings
+  createdAt?: Timestamp;
 }
 
-// This mock data will be replaced by fetching expenses, possibly filtered by project, from Firestore.
-// For now, it serves as a placeholder.
-const allExpensesData: ExpenseItem[] = [
-  { id: 'exp1', title: 'Restaurant Chez Michel', project: 'Voyage à Paris', paidBy: 'Jean Dupont', date: '2025-05-13', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
-  { id: 'exp2', title: 'Tickets de métro', project: 'Voyage à Paris', paidBy: 'Marie Martin', date: '2025-05-13', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
-  { id: 'exp3', title: 'Visite du musée', project: 'Voyage à Paris', paidBy: 'Paul Durand', date: '2025-05-13', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
-  { id: 'exp4', title: 'Loyer agence', project: 'Déménagement Bureau', paidBy: 'Admin User', date: '2025-06-01', amount: '1350,75 €', tags: [{label: 'logement', variant: 'secondary'}, {label: 'fixe', variant: 'secondary'}] },
-  { id: 'exp5', title: 'Courses alimentaires equipe', project: 'Déménagement Bureau', paidBy: 'Lucie Petit', date: '2025-06-03', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'équipe', variant: 'secondary'}] },
-  { id: 'exp6', title: 'Billets d\'avion conférence', project: 'Événement Startup', paidBy: 'Admin User', date: '2025-05-10', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
-  { id: 'exp7', title: 'Frais de stand salon', project: 'Événement Startup', paidBy: 'Sarah Leroy', date: '2025-05-11', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
-  { id: 'exp8', title: 'Logiciel de design (Abonnement)', project: 'Développement Application Mobile', paidBy: 'Jean Dupont', date: '2025-06-15', amount: '150,00 €', tags: [{label: 'logiciel', variant: 'secondary'}, {label: 'design', variant: 'secondary'}]},
-  { id: 'exp9', title: 'Hébergement serveur (Mensuel)', project: 'Développement Application Mobile', paidBy: 'Alice Dubois', date: '2025-06-20', amount: '75,00 €', tags: [{label: 'infra', variant: 'secondary'}, {label: 'cloud', variant: 'secondary'}]},
-  { id: 'exp10', title: 'Fournitures de bureau diverses', project: 'Déménagement Bureau', paidBy: 'Marc Blanc', date: '2025-05-01', amount: '95,00 €', tags: [{label: 'bureau', variant: 'secondary'}, {label: 'fournitures', variant: 'secondary'}]},
-  { id: 'exp11', title: 'Déjeuner client Alpha', project: 'Voyage à Paris', paidBy: 'Jean Dupont', date: '2025-05-14', amount: '70,00 €', tags: [{label: 'client', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}]},
-  { id: 'exp12', title: 'Publicité en ligne', project: 'Événement Startup', paidBy: 'Admin User', date: '2025-05-05', amount: '300,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'pub', variant: 'secondary'}]},
-];
-
-const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
+const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') {
-     try { return format(new Date(timestamp), 'PP', { locale: fr }); } catch (e) { return 'Date invalide'; }
-  }
-  if (timestamp instanceof Timestamp) {
+  try {
     return format(timestamp.toDate(), 'PP', { locale: fr });
+  } catch (e) {
+    return 'Date invalide';
   }
-  return 'Date invalide';
 };
 
 export default function ExpensesPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [allExpenses, setAllExpenses] = useState<ExpenseItem[]>([]);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
@@ -93,35 +78,60 @@ export default function ExpensesPage() {
     }
   }, [toast]);
 
+  const fetchExpenses = useCallback(async () => {
+    setIsLoadingExpenses(true);
+    try {
+      const expensesCollection = collection(db, "expenses");
+      // For now, fetch all expenses. Could be optimized with queries later.
+      const expenseSnapshot = await getDocs(expensesCollection);
+      const expensesList = expenseSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as ExpenseItem));
+      setAllExpenses(expensesList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des dépenses: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger la liste des dépenses.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingExpenses(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     fetchProjects();
-    // Here you would also fetch expenses, possibly based on selectedProjectId or all expenses
-    // For now, we use mock allExpensesData
-  }, [fetchProjects]);
+    fetchExpenses();
+  }, [fetchProjects, fetchExpenses]);
 
   const filteredExpenses = useMemo(() => {
-    let expensesToFilter = allExpensesData; // Replace with fetched expenses from Firestore
+    let expensesToFilter = allExpenses;
 
     if (selectedProjectId !== 'all' && !isLoadingProjects) {
-      const selectedProjectDetails = projects.find(p => p.id === selectedProjectId);
-      if (selectedProjectDetails) {
-        expensesToFilter = expensesToFilter.filter(expense => expense.project === selectedProjectDetails.name);
-      } else {
-        expensesToFilter = []; // Or handle as "no project found with this ID"
-      }
+        expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
     }
     
     if (searchTerm) {
       const lowerCaseSearch = searchTerm.toLowerCase();
       expensesToFilter = expensesToFilter.filter(expense =>
         expense.title.toLowerCase().includes(lowerCaseSearch) ||
-        expense.project.toLowerCase().includes(lowerCaseSearch) ||
-        expense.paidBy.toLowerCase().includes(lowerCaseSearch) ||
-        expense.tags.some(tag => tag.label.toLowerCase().includes(lowerCaseSearch))
+        expense.projectName.toLowerCase().includes(lowerCaseSearch) ||
+        expense.paidByName.toLowerCase().includes(lowerCaseSearch) ||
+        expense.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch)) ||
+        expense.amount.toString().includes(lowerCaseSearch)
       );
     }
     return expensesToFilter;
-  }, [selectedProjectId, searchTerm, projects, isLoadingProjects]);
+  }, [selectedProjectId, searchTerm, allExpenses, isLoadingProjects]);
+  
+  const handleExpenseAction = (actionType: 'edit' | 'delete') => {
+    toast({
+        title: "Fonctionnalité en cours de développement",
+        description: `L'action de "${actionType}" dépense n'est pas encore connectée à Firestore.`,
+    });
+  };
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
@@ -148,7 +158,7 @@ export default function ExpensesPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
             <div>
-                <CardTitle>Liste des Dépenses ({filteredExpenses.length})</CardTitle>
+                <CardTitle>Liste des Dépenses ({isLoadingExpenses ? '...' : filteredExpenses.length})</CardTitle>
                 <CardDescription>
                 Filtrez par projet ou recherchez par mots-clés.
                 </CardDescription>
@@ -195,33 +205,43 @@ export default function ExpensesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredExpenses.map((expense) => (
+                {isLoadingExpenses && (
+                    <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                            <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
+                            Chargement des dépenses...
+                        </TableCell>
+                    </TableRow>
+                )}
+                {!isLoadingExpenses && filteredExpenses.map((expense) => (
                   <TableRow key={expense.id}>
                     <TableCell className="font-medium">{expense.title}</TableCell>
-                    <TableCell className="text-muted-foreground">{expense.project}</TableCell>
-                    <TableCell className="text-muted-foreground">{expense.paidBy}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDateFromTimestamp(expense.date)}</TableCell>
-                    <TableCell className="text-right font-semibold">{expense.amount}</TableCell>
+                    <TableCell className="text-muted-foreground">{expense.projectName}</TableCell>
+                    <TableCell className="text-muted-foreground">{expense.paidByName}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDateFromTimestamp(expense.expenseDate)}</TableCell>
+                    <TableCell className="text-right font-semibold">
+                        {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {expense.tags.map(tag => (
-                          <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
+                          <Badge key={tag} variant="secondary" className="text-xs px-1.5 py-0.5">{tag}</Badge>
                         ))}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8">
+                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleExpenseAction('edit')}>
                             <Icons.edit className="h-4 w-4" />
                             <span className="sr-only">Modifier</span>
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8">
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleExpenseAction('delete')}>
                             <Icons.trash className="h-4 w-4" />
                             <span className="sr-only">Supprimer</span>
                         </Button>
                     </TableCell>
                   </TableRow>
                 ))}
-                {filteredExpenses.length === 0 && (
+                {!isLoadingExpenses && filteredExpenses.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
                       Aucune dépense trouvée pour les filtres actuels.

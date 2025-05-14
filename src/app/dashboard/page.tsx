@@ -44,10 +44,11 @@ import type { ChartConfig } from '@/components/ui/chart';
 import type { Project } from '@/data/mock-data'; 
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, Timestamp, query, where, orderBy, limit } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import type { ExpenseItem } from '@/app/expenses/page'; // Import ExpenseItem
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -74,39 +75,20 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
   </Card>
 );
 
-interface RecentExpenseItem { 
-  id: string;
-  icon: React.ElementType;
-  title: string;
-  project: string; 
-  date: string | Timestamp;
-  amount: string; // This is a display string, like "120,50 €"
-  tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
+
+// Interface for display purposes, matching ExpenseItem structure but might have different icon logic
+interface DisplayExpenseItem extends ExpenseItem {
+  displayIcon: React.ElementType; // Separate icon for display on dashboard
 }
 
-// This mock data might be replaced by fetching from Firestore later
-const mockRecentExpenseItems: RecentExpenseItem[] = [ 
-  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '2025-05-13', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
-  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Paris', date: '2025-05-13', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
-  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Paris', date: '2025-05-13', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
-  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Déménagement Bureau', date: '2025-05-13', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
-  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Déménagement Bureau', date: '2025-05-13', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
-  { id: '6', icon: Icons.fileText, title: 'Billets d\'avion', project: 'Événement Startup', date: '2025-05-10', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
-  { id: '7', icon: Icons.fileText, title: 'Frais de stand', project: 'Événement Startup', date: '2025-05-11', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
-];
 
-
-interface SidebarGroupContentProps {
-  children: React.ReactNode;
-}
-
-const SidebarGroupContent: React.FC<SidebarGroupContentProps> = ({ children }) => {
+const SidebarGroupContent: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <div className="space-y-2">{children}</div>;
 };
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') { // Could be an ISO string
+  if (typeof timestamp === 'string') { 
     try {
       return format(new Date(timestamp), 'PP', { locale: fr });
     } catch (e) { return 'Date invalide'; }
@@ -121,6 +103,8 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
 export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [recentGlobalExpenses, setRecentGlobalExpenses] = useState<DisplayExpenseItem[]>([]);
+  const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const { toast } = useToast();
 
@@ -146,9 +130,36 @@ export default function DashboardPage() {
     }
   }, [toast]);
 
+  const fetchRecentGlobalExpenses = useCallback(async () => {
+    setIsLoadingRecentExpenses(true);
+    try {
+        const expensesRef = collection(db, "expenses");
+        // Fetch latest 5 expenses globally for the "Recent Expenses" card
+        const q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
+        const querySnapshot = await getDocs(q);
+        const fetchedExpenses = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            displayIcon: Icons.fileText, // Default icon for now
+        } as DisplayExpenseItem));
+        setRecentGlobalExpenses(fetchedExpenses);
+    } catch (error) {
+        console.error("Erreur lors de la récupération des dépenses récentes: ", error);
+        toast({
+            title: "Erreur de chargement",
+            description: "Impossible de charger les dépenses récentes.",
+            variant: "destructive",
+        });
+    } finally {
+        setIsLoadingRecentExpenses(false);
+    }
+  }, [toast]);
+
+
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]);
+    fetchRecentGlobalExpenses();
+  }, [fetchProjects, fetchRecentGlobalExpenses]);
 
 
   const chartConfig = {
@@ -168,18 +179,20 @@ export default function DashboardPage() {
   }, [selectedProjectId, projects, isLoadingProjects]);
 
   const summaryData = useMemo(() => {
-    if (isLoadingProjects && projects.length === 0) { // Still loading initial data
+    if (isLoadingProjects && projects.length === 0) { 
         return { totalSpent: "Chargement...", expenseCount: "...", participantsCount: "...", averagePerPerson: "..." };
     }
 
     const projectsToConsider = selectedProject ? [selectedProject] : projects;
     
-    if (projectsToConsider.length === 0 && !selectedProject) { // No projects at all
+    if (projectsToConsider.length === 0 && !selectedProject) { 
         return { totalSpent: "0,00 €", expenseCount: "0", participantsCount: "0", averagePerPerson: "0,00 €" };
     }
 
     const totalSpentAll = projectsToConsider.reduce((sum, p) => sum + (p.totalExpenses || 0), 0);
-    const totalExpenseCountAll = projectsToConsider.reduce((sum, p) => sum + (p.recentExpenses?.length || 0), 0);
+    // expenseCount should ideally sum up actual expenses from "expenses" collection if more accurate count needed
+    // For now, using project.recentExpenses.length (which is a summary and might not be the full count)
+    const totalExpenseCountAll = projectsToConsider.reduce((sum, p) => sum + (p.recentExpenses?.length || 0), 0); 
     
     const allParticipants = new Set<string>();
     projectsToConsider.forEach(p => p.members?.forEach(m => allParticipants.add(m)));
@@ -194,13 +207,10 @@ export default function DashboardPage() {
     };
   }, [selectedProject, projects, isLoadingProjects]);
 
-  const filteredRecentExpenses = useMemo(() => {
-    // Note: mockRecentExpenseItems is used here. For real data, this would filter actual expenses.
-    if (selectedProject) {
-      return mockRecentExpenseItems.filter(expense => expense.project === selectedProject.name);
-    }
-    return mockRecentExpenseItems;
-  }, [selectedProject]);
+  // The filteredRecentExpenses for the card now uses fetched global expenses, not filtered by project on this card.
+  const displayRecentExpenses = useMemo(() => {
+    return recentGlobalExpenses;
+  }, [recentGlobalExpenses]);
 
 
   return (
@@ -269,7 +279,6 @@ export default function DashboardPage() {
       </Sidebar>
 
       <SidebarInset className="flex flex-col">
-        {/* Header */}
         <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6 shadow-sm">
           <SidebarTrigger><Icons.chevronsLeft /></SidebarTrigger>
           <div className="relative flex-1">
@@ -282,13 +291,12 @@ export default function DashboardPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar"/>
+              <AvatarImage src="https://placehold.co/40x40.png" alt="User" data-ai-hint="user avatar"/>
               <AvatarFallback>AD</AvatarFallback>
             </Avatar>
           </div>
         </header>
 
-        {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
             <div>
@@ -315,20 +323,16 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <SummaryCard title="Total dépensé" value={summaryData.totalSpent} icon={<Icons.euro className="h-5 w-5 text-muted-foreground" />} />
-            <SummaryCard title="Dépenses enregistrées" value={summaryData.expenseCount} icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} />
+            <SummaryCard title="Dépenses (global)" value={isLoadingRecentExpenses ? '...' : recentGlobalExpenses.length.toString()} icon={<Icons.fileText className="h-5 w-5 text-muted-foreground" />} description="Basé sur les 5 dernières" />
             <SummaryCard title="Participants" value={summaryData.participantsCount} icon={<Icons.users className="h-5 w-5 text-muted-foreground" />} description={selectedProject ? "Dans ce projet" : "Total unique"}/>
             <SummaryCard title="Moyenne / pers." value={summaryData.averagePerPerson} icon={<Icons.lineChart className="h-5 w-5 text-muted-foreground" />} />
           </div>
 
-          {/* Balance Summary */}
           <BalanceSummary project={selectedProject} />
 
-          {/* Charts and Recent Expenses */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Expense Analysis Chart */}
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Analyse des dépenses</CardTitle>
@@ -352,7 +356,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Recent Expenses List */}
             <Card className="lg:col-span-1">
               <CardHeader>
                 <CardTitle>Dépenses récentes (global)</CardTitle> 
@@ -361,30 +364,35 @@ export default function DashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {filteredRecentExpenses.length > 0 ? (
-                  filteredRecentExpenses.slice(0, 5).map(expense => ( 
+                {isLoadingRecentExpenses && (
+                    <div className="text-center py-4"><Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></div>
+                )}
+                {!isLoadingRecentExpenses && displayRecentExpenses.length > 0 ? (
+                  displayRecentExpenses.map(expense => ( 
                     <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
                       <div className="p-2 bg-primary/10 rounded-md">
-                           <expense.icon className="h-5 w-5 text-primary" />
+                           <expense.displayIcon className="h-5 w-5 text-primary" />
                       </div>
                       <div className="flex-1">
                         <div className="flex justify-between items-center">
                           <p className="font-medium">{expense.title}</p>
-                          <p className="font-semibold text-sm">{expense.amount}</p>
+                          <p className="font-semibold text-sm">{expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency})}</p>
                         </div>
-                        <p className="text-xs text-muted-foreground">{expense.project} • {formatDateFromTimestamp(expense.date)}</p>
+                        <p className="text-xs text-muted-foreground">{expense.projectName} • {formatDateFromTimestamp(expense.expenseDate)}</p>
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {expense.tags.map(tag => (
-                            <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
+                            <Badge key={tag} variant="secondary" className="text-xs px-1.5 py-0.5">{tag}</Badge>
                           ))}
                         </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <p className="text-muted-foreground text-center py-4">Aucune dépense récente à afficher.</p>
+                  !isLoadingRecentExpenses && <p className="text-muted-foreground text-center py-4">Aucune dépense récente à afficher.</p>
                 )}
-                 <Button variant="link" className="w-full mt-2 text-primary">Voir toutes les dépenses</Button>
+                 <Button variant="link" className="w-full mt-2 text-primary" asChild>
+                    <Link href="/expenses">Voir toutes les dépenses</Link>
+                 </Button>
               </CardContent>
             </Card>
           </div>
