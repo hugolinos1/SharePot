@@ -4,6 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   SidebarProvider,
   Sidebar,
@@ -40,6 +41,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ChartConfig } from '@/components/ui/chart';
 import type { Project } from '@/data/mock-data'; 
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
@@ -107,6 +116,7 @@ export default function DashboardPage() {
   const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const { toast } = useToast();
+  const router = useRouter();
 
   const fetchProjects = useCallback(async () => {
     setIsLoadingProjects(true);
@@ -290,10 +300,37 @@ export default function DashboardPage() {
               <Icons.bell className="h-5 w-5" />
               <span className="sr-only">Notifications</span>
             </Button>
-            <Avatar className="h-9 w-9">
-              <AvatarImage src="https://placehold.co/40x40.png" alt="User" data-ai-hint="user avatar"/>
-              <AvatarFallback>AD</AvatarFallback>
-            </Avatar>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Avatar className="h-9 w-9 cursor-pointer">
+                  <AvatarImage src="https://placehold.co/40x40.png" alt="User" data-ai-hint="user avatar"/>
+                  <AvatarFallback>AD</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Mon Compte</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">
+                    <Icons.user className="mr-2 h-4 w-4" />
+                    Mon Profil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                   <Link href="#">
+                    <Icons.settings className="mr-2 h-4 w-4" />
+                    Paramètres
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/login">
+                    <Icons.logOut className="mr-2 h-4 w-4" />
+                    Déconnexion
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -402,3 +439,4 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
+
