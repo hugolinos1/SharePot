@@ -32,30 +32,29 @@ const getAvatarFallback = (name: string) => {
 };
 
 const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): MemberBalance[] => {
-  if (!project || project.members.length === 0) {
+  if (!project || project.members.length === 0 || !allUsersProfiles) {
     return [];
   }
 
-  const getUserName = (uid: string): string => {
-    const user = allUsersProfiles.find(u => u.id === uid);
-    return user?.name || uid; // Fallback to UID if name not found
-  };
+  const getUserProfileByUid = (uid: string): AppUserType | undefined => allUsersProfiles.find(u => u.id === uid);
+  const getUserProfileByName = (name: string): AppUserType | undefined => allUsersProfiles.find(u => u.name === name);
 
-  // Stores total paid by each member, keyed by their *name* because expense.payer is a name
-  const totalPaidByMemberName: { [key: string]: number } = {};
+  // Stores total paid by each member, keyed by their UID
+  const totalPaidByMemberUid: { [key: string]: number } = {};
   project.members.forEach(memberUid => {
-    const memberName = getUserName(memberUid);
-    totalPaidByMemberName[memberName] = 0;
+    totalPaidByMemberUid[memberUid] = 0; // Initialize for all project members
   });
 
   let currentProjectTotalExpenses = 0;
-  project.recentExpenses.forEach(expense => {
-    // expense.payer is expected to be the name of the payer
-    if (expense.payer && typeof totalPaidByMemberName[expense.payer] === 'number') {
-      totalPaidByMemberName[expense.payer] += expense.amount;
-    } else if (expense.payer) {
-       // If payer name wasn't pre-initialized (e.g. member added after expenses)
-       totalPaidByMemberName[expense.payer] = expense.amount;
+  (project.recentExpenses || []).forEach(expense => {
+    if (expense.payer) { // expense.payer is a name
+      const payerProfile = getUserProfileByName(expense.payer);
+      if (payerProfile && project.members.includes(payerProfile.id)) { // Ensure payer is part of the current project
+        totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
+      } else {
+        // Optional: Log if a payer name in expenses doesn't match any project member's profile or if profile not found
+        // console.warn(`Payer "${expense.payer}" not found in project members or user profiles for expense: ${expense.name}`);
+      }
     }
     currentProjectTotalExpenses += expense.amount;
   });
@@ -63,8 +62,9 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
   const sharePerMember = project.members.length > 0 ? currentProjectTotalExpenses / project.members.length : 0;
 
   return project.members.map(memberUid => {
-    const memberName = getUserName(memberUid);
-    const amountPaid = totalPaidByMemberName[memberName] || 0;
+    const memberProfile = getUserProfileByUid(memberUid);
+    const memberName = memberProfile?.name || memberUid; // Fallback to UID if profile/name not found
+    const amountPaid = totalPaidByMemberUid[memberUid] || 0; // Amount paid by this member (UID)
     return {
       uid: memberUid,
       name: memberName,
@@ -138,7 +138,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
 
   const memberBalances = calculateBalances(project, allUsersProfiles);
   
-  if (memberBalances.length === 0 && project.recentExpenses.length === 0) {
+  if (memberBalances.length === 0 && (project.recentExpenses || []).length === 0) {
      return (
       <Card>
         <CardHeader>
@@ -151,7 +151,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
       </Card>
     );
   }
-   if (memberBalances.length === 0 && project.recentExpenses.length > 0) {
+   if (memberBalances.length === 0 && (project.recentExpenses || []).length > 0) {
      return (
       <Card>
         <CardHeader>
@@ -159,7 +159,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
           <CardDescription>Impossible de calculer les balances. Vérifiez les membres du projet.</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-center py-4">Aucun membre trouvé pour répartir les dépenses.</p>
+          <p className="text-muted-foreground text-center py-4">Aucun membre trouvé pour répartir les dépenses, ou les profils utilisateurs ne sont pas encore chargés.</p>
         </CardContent>
       </Card>
     );
@@ -182,7 +182,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
               <div key={uid} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9">
-                    <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`} alt={name} data-ai-hint="member avatar" />
+                    <AvatarImage src={allUsersProfiles.find(u=>u.id===uid)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`} alt={name} data-ai-hint="member avatar" />
                     <AvatarFallback>{getAvatarFallback(name)}</AvatarFallback>
                   </Avatar>
                   <div>
@@ -219,13 +219,13 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
                 <div key={index} className="flex items-center justify-between p-3 border border-border bg-card rounded-lg shadow-sm">
                     <div className="flex items-center gap-2 text-sm">
                         <Avatar className="h-7 w-7">
-                            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=28`} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.from)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=28`} alt={settlement.from} data-ai-hint="payer avatar"/>
                             <AvatarFallback className="text-xs">{getAvatarFallback(settlement.from)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-4 w-4 text-muted-foreground mx-1" />
                         <Avatar className="h-7 w-7">
-                             <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=28`} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.to)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=28`} alt={settlement.to} data-ai-hint="receiver avatar"/>
                              <AvatarFallback className="text-xs">{getAvatarFallback(settlement.to)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
@@ -238,7 +238,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
             </div>
           </div>
         )}
-         {allBalanced && project.recentExpenses.length > 0 && (
+         {allBalanced && (project.recentExpenses || []).length > 0 && (
             <div className="text-center text-green-600 font-medium py-3 bg-green-500/10 rounded-md">
                 <Icons.checkCircle className="inline mr-2 h-5 w-5"/> Toutes les dépenses sont équilibrées pour ce projet !
             </div>
@@ -248,4 +248,3 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
     </Card>
   );
 };
-
