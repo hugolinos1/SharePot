@@ -39,8 +39,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import type { Project, User } from '@/data/mock-data'; // Import User type
-import { mockUsers } from '@/data/mock-data'; 
+import type { Project, User } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
 
@@ -68,8 +67,8 @@ export default function NewExpensePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  // For simplicity, still using mockUsers. In a full app, fetch from Firestore.
-  const [users] = useState<User[]>(mockUsers); 
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
 
   const fetchProjects = useCallback(async () => {
     setIsLoadingProjects(true);
@@ -93,9 +92,32 @@ export default function NewExpensePage() {
     }
   }, [toast]);
 
+  const fetchUsers = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const usersCollection = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollection);
+      const usersList = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as User));
+      setUsers(usersList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des utilisateurs: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger la liste des utilisateurs.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]);
+    fetchUsers();
+  }, [fetchProjects, fetchUsers]);
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
@@ -127,25 +149,21 @@ export default function NewExpensePage() {
     }
 
     try {
-      // Data for the new expense document in "expenses" collection
       const newExpenseDocData = {
         title: values.description,
         amount: values.amount,
         currency: values.currency,
         projectId: values.projectId,
-        projectName: selectedProject.name, // Denormalized
+        projectName: selectedProject.name, 
         paidById: values.paidById,
-        paidByName: payer.name, // Denormalized
+        paidByName: payer.name, 
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
         createdAt: serverTimestamp(),
-        // receiptUrl: null, // Placeholder for actual file upload URL
       };
 
-      // Add the expense to "expenses" collection
       const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
 
-      // Update project's summary in a transaction for consistency
       const projectRef = doc(db, "projects", selectedProject.id);
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
@@ -156,7 +174,7 @@ export default function NewExpensePage() {
         const newTotalExpenses = currentTotalExpenses + values.amount;
         
         const recentExpenseSummary = {
-          id: expenseDocRef.id, // Link to the actual expense document
+          id: expenseDocRef.id, 
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate),
           amount: values.amount,
@@ -165,7 +183,7 @@ export default function NewExpensePage() {
 
         transaction.update(projectRef, {
           totalExpenses: newTotalExpenses,
-          recentExpenses: arrayUnion(recentExpenseSummary), // Consider limiting the size of this array in production
+          recentExpenses: arrayUnion(recentExpenseSummary), 
           lastActivity: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -274,7 +292,7 @@ export default function NewExpensePage() {
                     <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingProjects}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
-                          <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Sélectionner un projet"} />
+                          <SelectValue placeholder={isLoadingProjects ? "Chargement des projets..." : "Sélectionner un projet"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -296,10 +314,10 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payé par</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingUsers}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="user select paid by">
-                          <SelectValue placeholder="Sélectionner un utilisateur" />
+                          <SelectValue placeholder={isLoadingUsers ? "Chargement des utilisateurs..." : "Sélectionner un utilisateur"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -399,7 +417,7 @@ export default function NewExpensePage() {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isLoading}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isLoading || isLoadingProjects}>
+                <Button type="submit" disabled={isLoading || isLoadingProjects || isLoadingUsers}>
                   {isLoading ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
