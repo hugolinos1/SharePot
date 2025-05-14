@@ -22,11 +22,11 @@ interface MemberBalance {
   share: number;
 }
 
-const getAvatarFallback = (name: string) => {
+const getAvatarFallback = (name: string | undefined | null) => {
   if (!name) return '??';
   const parts = name.split(' ');
   if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
-    return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
+    return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
   }
   return name.substring(0, 2).toUpperCase();
 };
@@ -37,7 +37,12 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
   }
 
   const getUserProfileByUid = (uid: string): AppUserType | undefined => allUsersProfiles.find(u => u.id === uid);
-  const getUserProfileByName = (name: string): AppUserType | undefined => allUsersProfiles.find(u => u.name === name);
+  
+  const getUserProfileByName = (name: string): AppUserType | undefined => {
+    if (!name) return undefined;
+    const normalizedName = name.trim().toLowerCase();
+    return allUsersProfiles.find(u => u.name && u.name.trim().toLowerCase() === normalizedName);
+  };
 
   // Stores total paid by each member, keyed by their UID
   const totalPaidByMemberUid: { [key: string]: number } = {};
@@ -47,13 +52,12 @@ const calculateBalances = (project: Project, allUsersProfiles: AppUserType[]): M
 
   let currentProjectTotalExpenses = 0;
   (project.recentExpenses || []).forEach(expense => {
-    if (expense.payer) { // expense.payer is a name
+    if (expense.payer) { // expense.payer is a name string
       const payerProfile = getUserProfileByName(expense.payer);
       if (payerProfile && project.members.includes(payerProfile.id)) { // Ensure payer is part of the current project
         totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
       } else {
-        // Optional: Log if a payer name in expenses doesn't match any project member's profile or if profile not found
-        // console.warn(`Payer "${expense.payer}" not found in project members or user profiles for expense: ${expense.name}`);
+         console.warn(`Payer "${expense.payer}" (from expense: ${expense.name}) not found in project members or user profiles, or name mismatch.`);
       }
     }
     currentProjectTotalExpenses += expense.amount;
@@ -178,36 +182,42 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
         <div>
           <h3 className="text-md font-semibold mb-3">Balances Individuelles</h3>
           <div className="space-y-3">
-            {memberBalances.map(({ name, balance, amountPaid, share, uid }) => (
-              <div key={uid} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={allUsersProfiles.find(u=>u.id===uid)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random&color=fff`} alt={name} data-ai-hint="member avatar" />
-                    <AvatarFallback>{getAvatarFallback(name)}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium text-sm">{name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      A payé: {amountPaid.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} / 
-                      Part: {share.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                    </p>
+            {memberBalances.map(({ name, balance, amountPaid, share, uid }) => {
+              const userProfile = allUsersProfiles.find(u=>u.id===uid);
+              const displayName = userProfile?.name || name; // Prefer profile name, fallback to calculated name (which could be UID)
+              const avatarUrl = userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff`;
+
+              return (
+                <div key={uid} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={avatarUrl} alt={displayName} data-ai-hint="member avatar" />
+                      <AvatarFallback>{getAvatarFallback(displayName)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium text-sm">{displayName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        A payé: {amountPaid.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} / 
+                        Part: {share.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </p>
+                    </div>
                   </div>
+                  {balance > 0.005 && (
+                    <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-primary-foreground">
+                      Doit recevoir {balance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                    </Badge>
+                  )}
+                  {balance < -0.005 && (
+                    <Badge variant="destructive">
+                      Doit payer {Math.abs(balance).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                    </Badge>
+                  )}
+                  {Math.abs(balance) <= 0.005 && (
+                    <Badge variant="secondary">Équilibré</Badge>
+                  )}
                 </div>
-                {balance > 0.005 && (
-                  <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-primary-foreground">
-                    Doit recevoir {balance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                  </Badge>
-                )}
-                {balance < -0.005 && (
-                  <Badge variant="destructive">
-                    Doit payer {Math.abs(balance).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                  </Badge>
-                )}
-                {Math.abs(balance) <= 0.005 && (
-                   <Badge variant="secondary">Équilibré</Badge>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -215,17 +225,23 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
           <div>
             <h3 className="text-md font-semibold mb-3">Suggestions de Remboursement</h3>
             <div className="space-y-2">
-              {settlementSuggestions.map((settlement, index) => (
+              {settlementSuggestions.map((settlement, index) => {
+                 const fromUserProfile = allUsersProfiles.find(u=>u.name && u.name.trim().toLowerCase() === settlement.from.trim().toLowerCase());
+                 const toUserProfile = allUsersProfiles.find(u=>u.name && u.name.trim().toLowerCase() === settlement.to.trim().toLowerCase());
+                 const fromAvatarUrl = fromUserProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=28`;
+                 const toAvatarUrl = toUserProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=28`;
+
+                return (
                 <div key={index} className="flex items-center justify-between p-3 border border-border bg-card rounded-lg shadow-sm">
                     <div className="flex items-center gap-2 text-sm">
                         <Avatar className="h-7 w-7">
-                            <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.from)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=28`} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarImage src={fromAvatarUrl} alt={settlement.from} data-ai-hint="payer avatar"/>
                             <AvatarFallback className="text-xs">{getAvatarFallback(settlement.from)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-4 w-4 text-muted-foreground mx-1" />
                         <Avatar className="h-7 w-7">
-                             <AvatarImage src={allUsersProfiles.find(u=>u.name===settlement.to)?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=28`} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarImage src={toAvatarUrl} alt={settlement.to} data-ai-hint="receiver avatar"/>
                              <AvatarFallback className="text-xs">{getAvatarFallback(settlement.to)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
@@ -234,7 +250,8 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
                         {settlement.amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                     </Badge>
                 </div>
-              ))}
+              );
+            })}
             </div>
           </div>
         )}
@@ -248,3 +265,4 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({ project, allUser
     </Card>
   );
 };
+
