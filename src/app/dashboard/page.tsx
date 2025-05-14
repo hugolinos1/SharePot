@@ -203,9 +203,18 @@ export default function DashboardPage() {
   }, [currentUser, toast]);
 
   const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !isAdmin) { // Ensure admin check
+        setIsLoadingUserProfiles(false);
+        if (userProfile && !isAdmin) { // If not admin, provide at least current user's profile
+            setAllUserProfiles([userProfile]);
+        } else {
+            setAllUserProfiles([]);
+        }
+        return;
+    }
     setIsLoadingUserProfiles(true);
     try {
+      console.log("DashboardPage: Fetching all user profiles as admin.");
       const usersCollectionRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
@@ -214,24 +223,35 @@ export default function DashboardPage() {
       } as AppUserType));
       setAllUserProfiles(usersList);
     } catch (error) {
-      console.error("Erreur lors de la récupération des profils utilisateurs: ", error);
+      console.error("Erreur lors de la récupération des profils utilisateurs (Dashboard): ", error);
       toast({
         title: "Erreur de chargement",
         description: "Impossible de charger les profils utilisateurs pour les balances.",
         variant: "destructive",
       });
+      setAllUserProfiles([]); // Ensure it's an empty array on error
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, isAdmin, userProfile, toast]);
 
   useEffect(() => {
     if (currentUser) {
       fetchProjects();
       fetchRecentGlobalExpenses();
-      fetchAllUserProfiles();
+      if (isAdmin) {
+        fetchAllUserProfiles();
+      } else {
+        // For non-admins, provide a minimal list for BalanceSummary
+        if (userProfile) {
+          setAllUserProfiles([userProfile]);
+        } else {
+          setAllUserProfiles([]);
+        }
+        setIsLoadingUserProfiles(false);
+      }
     }
-  }, [currentUser, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]);
+  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]);
 
   const handleLogout = async () => {
     try {
@@ -516,3 +536,4 @@ export default function DashboardPage() {
   );
 }
 
+    

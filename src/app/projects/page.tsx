@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { Checkbox } from '@/components/ui/checkbox'; // Ajout de Checkbox
+import { Checkbox } from '@/components/ui/checkbox'; 
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
@@ -69,7 +69,7 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
 export default function ProjectsPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { currentUser, userProfile, loading: authLoading } = useAuth();
+  const { currentUser, userProfile, isAdmin, loading: authLoading } = useAuth();
 
   const [projects, setProjects] = useState<ProjectType[]>([]);
   const [isLoading, setIsLoading] = useState(true); 
@@ -97,9 +97,13 @@ export default function ProjectsPage() {
   }, [authLoading, currentUser, router]);
 
   const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !isAdmin) { // Ensure admin check before fetching all users
+        setIsLoadingUserProfiles(false);
+        return;
+    }
     setIsLoadingUserProfiles(true);
     try {
+      console.log("ProjectsPage: Fetching all user profiles as admin.");
       const usersCollectionRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
@@ -108,16 +112,17 @@ export default function ProjectsPage() {
       } as AppUserType));
       setAllUserProfiles(usersList);
     } catch (error) {
-      console.error("Erreur lors de la récupération des profils utilisateurs: ", error);
+      console.error("Erreur lors de la récupération des profils utilisateurs (ProjectsPage): ", error);
       toast({
         title: "Erreur de chargement",
         description: "Impossible de charger les profils utilisateurs.",
         variant: "destructive",
       });
+      setAllUserProfiles([]); // Ensure it's an empty array on error
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, isAdmin, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -166,9 +171,25 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (currentUser) {
       fetchProjects();
-      fetchAllUserProfiles();
+      if (isAdmin) {
+        console.log("ProjectsPage: isAdmin is true, calling fetchAllUserProfiles.");
+        fetchAllUserProfiles();
+      } else {
+        console.log("ProjectsPage: isAdmin is false, NOT calling fetchAllUserProfiles. Setting minimal profiles.");
+        // For non-admins, we might not need all profiles, or fetch them differently.
+        // For now, ensure isLoadingUserProfiles is set to false if not fetching.
+        if (userProfile) {
+            setAllUserProfiles([userProfile]); // Provide at least the current user's profile
+        } else {
+            setAllUserProfiles([]);
+        }
+        setIsLoadingUserProfiles(false);
+      }
+    } else {
+      console.log("ProjectsPage: currentUser is null.");
     }
-  }, [currentUser, fetchProjects, fetchAllUserProfiles]);
+  }, [currentUser, isAdmin, userProfile, fetchProjects, fetchAllUserProfiles]);
+
 
   const handleViewProjectDetails = (project: ProjectType) => {
     setSelectedProject(project);
@@ -709,3 +730,5 @@ export default function ProjectsPage() {
     </div>
   );
 }
+
+    
