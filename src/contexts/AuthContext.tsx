@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { User as FirebaseUserType } from 'firebase/auth';
@@ -36,11 +35,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUserProfile(profileData);
           setIsAdmin(profileData.isAdmin || false);
         } else {
-          setUserProfile(null);
-          setIsAdmin(false);
-          console.warn(`User profile not found in Firestore for UID: ${user.uid}. Attempting to create one.`);
-          // Potentially create a basic profile if it doesn't exist, e.g., after social sign-in
-          // For email/password, this should be created at registration.
+          // Firestore document doesn't exist, create a fallback profile from Auth data
+          console.warn(`User profile document not found in Firestore for UID: ${user.uid}. Using fallback profile data.`);
+          const fallbackProfile: AppUserType = {
+            id: user.uid,
+            name: user.displayName || user.email || "Nouvel Utilisateur",
+            email: user.email || "",
+            isAdmin: false, 
+            avatarUrl: user.photoURL || '', 
+          };
+          setUserProfile(fallbackProfile);
+          setIsAdmin(false); 
         }
       } else {
         setUserProfile(null);

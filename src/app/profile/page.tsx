@@ -121,7 +121,7 @@ export default function ProfilePage() {
       <Card className="max-w-2xl mx-auto shadow-lg">
         <CardHeader className="items-center text-center">
           <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background">
-            <AvatarImage src={userProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&background=random&color=fff&size=128`} alt={userProfile.name} data-ai-hint="user avatar large"/>
+            <AvatarImage src={userProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name || 'User')}&background=random&color=fff&size=128`} alt={userProfile.name || 'User'} data-ai-hint="user avatar large"/>
             <AvatarFallback className="text-3xl">{getAvatarFallback(userProfile.name)}</AvatarFallback>
           </Avatar>
           {!isEditingName ? (
