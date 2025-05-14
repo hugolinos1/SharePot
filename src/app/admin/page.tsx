@@ -4,8 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { mockUsers, User } from '@/data/mock-data'; // Assuming User type is from mock-data
-import type { Project } from '@/data/mock-data';
+import type { User, Project } from '@/data/mock-data'; // Assuming User type is from mock-data
 import {
   Table,
   TableBody,
@@ -28,22 +27,72 @@ import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 
-// Simulate fetching the current user (replace with actual authentication logic)
-const getCurrentUser = (): User | undefined => {
-    return mockUsers.find(u => u.id === 'user1'); 
-};
-
+// Placeholder for current authenticated user ID - replace with actual auth logic
+const CURRENT_USER_ID = 'user1'; 
 
 export default function AdminPage() {
     const router = useRouter();
     const { toast } = useToast();
-    const currentUser = getCurrentUser();
+    const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
+    
+    const [isLoadingUsers, setIsLoadingUsers] = useState(true);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+    const [isLoadingCurrentUser, setIsLoadingCurrentUser] = useState(true);
+
+    const fetchCurrentUserProfile = useCallback(async () => {
+      setIsLoadingCurrentUser(true);
+      try {
+        const userDocRef = doc(db, "users", CURRENT_USER_ID);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          setCurrentUserProfile({ id: userDocSnap.id, ...userDocSnap.data() } as User);
+        } else {
+          console.error("Current user profile not found in Firestore.");
+          toast({
+            title: "Erreur utilisateur",
+            description: "Profil utilisateur actuel introuvable.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Erreur lors de la récupération du profil utilisateur: ", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger le profil utilisateur.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingCurrentUser(false);
+      }
+    }, [toast]);
+
+    const fetchAllUsers = useCallback(async () => {
+      setIsLoadingUsers(true);
+      try {
+        const usersCollection = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollection);
+        const usersList = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        } as User));
+        setAllUsers(usersList);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des utilisateurs: ", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger la liste des utilisateurs.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    }, [toast]);
 
     const fetchProjects = useCallback(async () => {
       setIsLoadingProjects(true);
@@ -68,30 +117,33 @@ export default function AdminPage() {
     }, [toast]);
   
     useEffect(() => {
+      fetchCurrentUserProfile();
+      fetchAllUsers();
       fetchProjects();
-    }, [fetchProjects]);
+    }, [fetchCurrentUserProfile, fetchAllUsers, fetchProjects]);
 
 
-    const isAdmin = currentUser?.isAdmin ?? false;
+    const isAdmin = useMemo(() => currentUserProfile?.isAdmin ?? false, [currentUserProfile]);
 
     const userProjects = useMemo(() => {
-        if (!currentUser || isLoadingProjects) return [];
-        return projects.filter(project => project.members.includes(currentUser.name));
-    }, [currentUser, projects, isLoadingProjects]);
+        if (!currentUserProfile || isLoadingProjects) return [];
+        return projects.filter(project => project.members.includes(currentUserProfile.name));
+    }, [currentUserProfile, projects, isLoadingProjects]);
 
     const visibleUsers = useMemo(() => {
+        if (isLoadingUsers) return [];
         if (isAdmin) {
-            return mockUsers; // Admin sees all users (mockUsers for now)
+            return allUsers;
         }
-        if (!currentUser) return [];
+        if (!currentUserProfile) return [];
 
         const relatedUserNames = new Set<string>();
         userProjects.forEach(project => {
             project.members.forEach(memberName => relatedUserNames.add(memberName));
         });
 
-        return mockUsers.filter(user => relatedUserNames.has(user.name));
-    }, [isAdmin, currentUser, userProjects]);
+        return allUsers.filter(user => relatedUserNames.has(user.name));
+    }, [isAdmin, currentUserProfile, userProjects, allUsers, isLoadingUsers]);
 
      const visibleProjects = useMemo(() => {
          if (isLoadingProjects) return [];
@@ -130,8 +182,26 @@ export default function AdminPage() {
         }
         return name.substring(0, 2).toUpperCase();
     };
+    
+    const handleUserAction = (actionType: 'edit' | 'delete') => {
+        toast({
+            title: "Fonctionnalité en cours de développement",
+            description: `L'action de "${actionType}" utilisateur n'est pas encore connectée à Firestore.`,
+            variant: "default",
+        });
+    };
 
-    if (!currentUser) {
+
+    if (isLoadingCurrentUser) {
+        return (
+          <div className="container mx-auto py-10 text-center">
+            <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
+            <p className="mt-4">Chargement du profil utilisateur...</p>
+          </div>
+        );
+    }
+
+    if (!currentUserProfile) {
         return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
     }
 
@@ -163,8 +233,8 @@ export default function AdminPage() {
 
              <Tabs defaultValue="users" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-6">
-                  <TabsTrigger value="users">Utilisateurs ({filteredUsers.length})</TabsTrigger>
-                  <TabsTrigger value="projects">Projets ({filteredProjects.length})</TabsTrigger>
+                  <TabsTrigger value="users">Utilisateurs ({isLoadingUsers ? '...' : filteredUsers.length})</TabsTrigger>
+                  <TabsTrigger value="projects">Projets ({isLoadingProjects ? '...' : filteredProjects.length})</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="users">
@@ -188,7 +258,15 @@ export default function AdminPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {filteredUsers.map((user) => {
+                              {isLoadingUsers && (
+                                <TableRow>
+                                    <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-10">
+                                        <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
+                                        Chargement des utilisateurs...
+                                    </TableCell>
+                                </TableRow>
+                              )}
+                              {!isLoadingUsers && filteredUsers.map((user) => {
                                 const userProjectsList = getProjectsForUser(user.name);
                                 return (
                                   <TableRow key={user.id}>
@@ -218,11 +296,11 @@ export default function AdminPage() {
                                     </TableCell>
                                     {isAdmin && (
                                       <TableCell className="text-right">
-                                        <Button variant="ghost" size="sm" className="mr-1">
+                                        <Button variant="ghost" size="sm" className="mr-1" onClick={() => handleUserAction('edit')}>
                                             <Icons.edit className="h-4 w-4" />
                                             <span className="sr-only">Modifier</span>
                                         </Button>
-                                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90">
+                                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90" onClick={() => handleUserAction('delete')}>
                                             <Icons.trash className="h-4 w-4" />
                                             <span className="sr-only">Supprimer</span>
                                         </Button>
@@ -231,7 +309,7 @@ export default function AdminPage() {
                                   </TableRow>
                                 );
                               })}
-                              {filteredUsers.length === 0 && (
+                              {!isLoadingUsers && filteredUsers.length === 0 && (
                                 <TableRow>
                                   <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground py-4">
                                     Aucun utilisateur trouvé.
@@ -308,11 +386,11 @@ export default function AdminPage() {
                                    </TableCell>
                                   {isAdmin && (
                                     <TableCell className="text-right">
-                                      <Button variant="ghost" size="sm" className="mr-1">
+                                      <Button variant="ghost" size="sm" className="mr-1" onClick={() => handleUserAction('edit')}>
                                         <Icons.edit className="h-4 w-4" />
                                          <span className="sr-only">Modifier</span>
                                       </Button>
-                                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90">
+                                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90" onClick={() => handleUserAction('delete')}>
                                         <Icons.trash className="h-4 w-4" />
                                          <span className="sr-only">Supprimer</span>
                                       </Button>
