@@ -38,19 +38,24 @@ import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 
 const getAvatarFallback = (name: string) => {
+  if (!name) return '??';
   const parts = name.split(' ');
   if (parts.length > 0 && parts[0].length > 0) {
     if (parts.length > 1 && parts[parts.length -1].length > 0) {
         return parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase();
     }
-    return parts[0].substring(0, 2).toUpperCase();
+    return name.substring(0, 2).toUpperCase();
   }
   return '??';
 };
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') return timestamp; 
+  if (typeof timestamp === 'string') { // Handle old mock data if any
+    try {
+      return format(new Date(timestamp), 'PP', { locale: fr });
+    } catch (e) { return 'Date invalide'; }
+  }
   if (timestamp instanceof Timestamp) {
     return format(timestamp.toDate(), 'PP', { locale: fr });
   }
@@ -98,25 +103,34 @@ export default function ProjectsPage() {
     if (!currentUser) return;
     setIsFetchingProjects(true);
     try {
-      const projectsCollection = collection(db, "projects");
-      // Query projects where the current user is the owner OR is in the members array
-      const q = query(projectsCollection, 
-        where("members", "array-contains", currentUser.displayName || currentUser.email) // Or use currentUser.uid if members store UIDs
-      );
-      // If you also want to fetch projects owned by the user specifically (if 'ownerId' exists and is different from 'members' logic)
-      // const ownerQuery = query(projectsCollection, where("ownerId", "==", currentUser.uid));
-      // const [memberSnapshot, ownerSnapshot] = await Promise.all([getDocs(q), getDocs(ownerQuery)]);
-      // const combinedProjects = new Map();
-      // memberSnapshot.docs.forEach(doc => combinedProjects.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType));
-      // ownerSnapshot.docs.forEach(doc => combinedProjects.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType));
-      // setProjects(Array.from(combinedProjects.values()));
+      const projectsCollectionRef = collection(db, "projects");
       
-      const projectSnapshot = await getDocs(q);
-      const projectsList = projectSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      } as ProjectType));
-      setProjects(projectsList);
+      // Query for projects where the current user is a member
+      const memberQuery = query(projectsCollectionRef, 
+        where("members", "array-contains", currentUser.uid)
+      );
+      
+      // Query for projects where the current user is the owner
+      const ownerQuery = query(projectsCollectionRef, 
+        where("ownerId", "==", currentUser.uid)
+      );
+
+      const [memberSnapshot, ownerSnapshot] = await Promise.all([
+        getDocs(memberQuery),
+        getDocs(ownerQuery)
+      ]);
+
+      const projectsMap = new Map<string, ProjectType>();
+
+      memberSnapshot.docs.forEach(doc => {
+        projectsMap.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType);
+      });
+
+      ownerSnapshot.docs.forEach(doc => {
+        projectsMap.set(doc.id, { id: doc.id, ...doc.data() } as ProjectType);
+      });
+      
+      setProjects(Array.from(projectsMap.values()));
 
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
@@ -127,7 +141,7 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); // Also set general loading to false after initial fetch
+      setIsLoading(false); 
     }
   }, [currentUser, toast]);
 
@@ -151,7 +165,6 @@ export default function ProjectsPage() {
   
   const handleSaveBudget = async () => {
     if (selectedProject && typeof currentBudget === 'number' && currentBudget >=0 && currentUser) {
-      // Check if currentUser is owner or admin for edit permissions
       if (selectedProject.ownerId !== currentUser.uid && !userProfile?.isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier le budget.", variant: "destructive" });
         return;
@@ -163,7 +176,7 @@ export default function ProjectsPage() {
           budget: currentBudget,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() };
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Approximate client-side update
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
@@ -192,7 +205,7 @@ export default function ProjectsPage() {
           notes: currentNotes,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() };
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Approximate client-side update
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
@@ -229,7 +242,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const getStatusBadgeVariant = (status: string) => {
+  const getStatusBadgeVariant = (status: string | undefined) => {
     switch (status?.toLowerCase()) {
       case 'actif': return 'default';
       case 'en attente': return 'secondary';
@@ -260,7 +273,7 @@ export default function ProjectsPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src={userProfile?.avatarUrl || "https://placehold.co/40x40.png"} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
+              <AvatarImage src={userProfile?.avatarUrl || `https://placehold.co/40x40.png`} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
               <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser.email)}</AvatarFallback>
             </Avatar>
           </div>
@@ -314,7 +327,7 @@ export default function ProjectsPage() {
                   <div className="flex items-center justify-between mb-3 text-sm">
                     <div>
                       <p className="text-xs text-muted-foreground">Dépenses totales</p>
-                      <p className="font-semibold">{project.totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                      <p className="font-semibold">{(project.totalExpenses || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Dernière activité</p>
@@ -335,10 +348,10 @@ export default function ProjectsPage() {
                 <DialogFooter className="p-4 pt-0 border-t mt-auto">
                      <div className="flex items-center justify-between w-full">
                         <div className="flex -space-x-2 overflow-hidden">
-                            {project.members.slice(0, 3).map((memberName, index) => (
+                            {project.members.slice(0, 3).map((memberUid, index) => ( // memberUid is now an UID
                             <Avatar key={index} className="h-8 w-8 border-2 border-background">
-                                <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberName)}&background=random&color=fff&size=32`} alt={memberName} data-ai-hint="member avatar"/>
-                                <AvatarFallback className="text-xs">{getAvatarFallback(memberName)}</AvatarFallback>
+                                <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberUid)}&background=random&color=fff&size=32`} alt={memberUid} data-ai-hint="member avatar"/>
+                                <AvatarFallback className="text-xs">{getAvatarFallback(memberUid)}</AvatarFallback> 
                             </Avatar>
                             ))}
                             {project.members.length > 3 && (
@@ -361,7 +374,7 @@ export default function ProjectsPage() {
               <Icons.folderKanban className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-4 text-lg font-medium">Aucun projet trouvé</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Commencez par créer un nouveau projet pour organiser vos dépenses.
+                Commencez par créer un nouveau projet pour organiser vos dépenses, ou vérifiez que vous êtes bien membre des projets existants.
               </p>
               <Button onClick={() => router.push('/projects/create')} className="mt-6">
                 <Icons.plus className="mr-2 h-4 w-4" /> Créer un projet
@@ -386,9 +399,9 @@ export default function ProjectsPage() {
                     <CardTitle>Dépenses Récentes</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {selectedProject.recentExpenses.length > 0 ? (
+                    {(selectedProject.recentExpenses || []).length > 0 ? (
                       <ul className="space-y-3">
-                        {selectedProject.recentExpenses.slice(0,3).map((expense, index) => (
+                        {(selectedProject.recentExpenses || []).slice(0,3).map((expense, index) => (
                           <li key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                             <div>
                               <p className="font-medium">{expense.name}</p>
@@ -404,7 +417,7 @@ export default function ProjectsPage() {
                     ) : (
                       <p className="text-muted-foreground text-sm">Aucune dépense récente pour ce projet.</p>
                     )}
-                    {selectedProject.recentExpenses.length > 3 && (
+                    {(selectedProject.recentExpenses || []).length > 3 && (
                          <Button variant="link" className="mt-4 w-full text-primary">
                            Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
                          </Button>
@@ -432,12 +445,12 @@ export default function ProjectsPage() {
                             disabled={isLoading}
                           />
                           <Button size="sm" onClick={handleSaveBudget} disabled={isLoading}><Icons.check className="h-4 w-4"/></Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget);}} disabled={isLoading}><Icons.x className="h-4 w-4"/></Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget || 0);}} disabled={isLoading}><Icons.x className="h-4 w-4"/></Button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between mt-1">
                           <p className="font-semibold text-lg">
-                            {(typeof currentBudget === 'number' ? currentBudget : selectedProject.budget).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                            {(typeof currentBudget === 'number' ? currentBudget : (selectedProject.budget || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
                           {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
@@ -449,20 +462,20 @@ export default function ProjectsPage() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Dépenses totales</p>
-                      <p className="font-semibold text-lg">{selectedProject.totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                      <p className="font-semibold text-lg">{(selectedProject.totalExpenses || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
                     </div>
-                    {selectedProject.budget > 0 && (
+                    {(selectedProject.budget || 0) > 0 && (
                       <>
                         <div>
                           <p className="text-sm text-muted-foreground">Budget restant</p>
-                          <p className={`font-semibold text-lg ${selectedProject.budget - selectedProject.totalExpenses < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                            {(selectedProject.budget - selectedProject.totalExpenses).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          <p className={`font-semibold text-lg ${(selectedProject.budget || 0) - (selectedProject.totalExpenses || 0) < 0 ? 'text-destructive' : 'text-green-600'}`}>
+                            {((selectedProject.budget || 0) - (selectedProject.totalExpenses || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground">Pourcentage utilisé</p>
-                          <Progress value={(selectedProject.totalExpenses / selectedProject.budget) * 100} className="mt-1 h-2.5" />
-                           <p className="text-right text-sm font-medium mt-1">{((selectedProject.totalExpenses / selectedProject.budget) * 100).toFixed(0)}%</p>
+                          <Progress value={((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100} className="mt-1 h-2.5" />
+                           <p className="text-right text-sm font-medium mt-1">{(((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100).toFixed(0)}%</p>
                         </div>
                       </>
                     )}
@@ -474,13 +487,13 @@ export default function ProjectsPage() {
                     <CardTitle>Membres ({selectedProject.members.length})</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 max-h-48 overflow-y-auto">
-                    {selectedProject.members.map((member, index) => (
+                    {selectedProject.members.map((memberUid, index) => ( // memberUid is an UID
                       <div key={index} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar small"/>
-                          <AvatarFallback className="text-xs">{getAvatarFallback(member)}</AvatarFallback>
+                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(memberUid)}&background=random&color=fff&size=32`} alt={memberUid} data-ai-hint="member avatar small"/>
+                          <AvatarFallback className="text-xs">{getAvatarFallback(memberUid)}</AvatarFallback>
                         </Avatar>
-                        <p className="font-medium text-sm">{member}</p>
+                        <p className="font-medium text-sm">{memberUid}</p> 
                       </div>
                     ))}
                      {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
@@ -496,7 +509,7 @@ export default function ProjectsPage() {
                     <CardTitle>Tags</CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-2">
-                    {selectedProject.tags.length > 0 ? selectedProject.tags.map((tag, index) => (
+                    {(selectedProject.tags || []).length > 0 ? selectedProject.tags.map((tag, index) => (
                       <Badge key={index} variant="secondary">{tag}</Badge>
                     )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
                     {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
