@@ -267,7 +267,12 @@ export default function DashboardPage() {
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
-                    <Link href="/admin"><Icons.users /> Utilisateurs</Link>
+                    <Link href="/users"><Icons.users /> Utilisateurs</Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                   <SidebarMenuButton asChild>
+                     <Link href="/admin"><Icons.settings /> Gestion Projets (Admin)</Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
