@@ -31,20 +31,23 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where, arrayUnion } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
+import { Checkbox } from '@/components/ui/checkbox'; // Ajout de Checkbox
 
-const getAvatarFallback = (name: string | undefined | null) => {
-  if (!name) return '??';
-  const parts = name.split(' ');
-  if (parts.length > 0 && parts[0].length > 0) {
-    if (parts.length > 1 && parts[parts.length - 1] && parts[parts.length - 1].length > 0) {
-        return parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase();
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length-1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
+  }
+  if (email) {
+    return email.substring(0, 2).toUpperCase();
   }
   return '??';
 };
@@ -60,20 +63,6 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
     return format(timestamp.toDate(), 'PP', { locale: fr });
   }
   return 'Date invalide';
-};
-
-const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
-    const parts = name.split(' ');
-    if (parts.length >= 2 && parts[0] && parts[parts.length-1]) {
-      return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
-    }
-    return name.substring(0, 2).toUpperCase();
-  }
-  if (email) {
-    return email.substring(0, 2).toUpperCase();
-  }
-  return '??';
 };
 
 
@@ -95,6 +84,11 @@ export default function ProjectsPage() {
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
   const [editingNotes, setEditingNotes] = useState(false);
   const [currentNotes, setCurrentNotes] = useState('');
+
+  const [isAddMemberDialogOpen, setIsAddMemberDialogOpen] = useState(false);
+  const [usersToAddToProject, setUsersToAddToProject] = useState<string[]>([]);
+  const [availableUsersForProject, setAvailableUsersForProject] = useState<AppUserType[]>([]);
+
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -279,6 +273,47 @@ export default function ProjectsPage() {
   const getUserProfileById = (uid: string): AppUserType | undefined => {
     return allUserProfiles.find(p => p.id === uid);
   };
+
+  const handleOpenAddMemberDialog = () => {
+    if (!selectedProject || isLoadingUserProfiles) return;
+    const currentMemberIds = new Set(selectedProject.members);
+    const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
+    setAvailableUsersForProject(available);
+    setUsersToAddToProject([]);
+    setIsAddMemberDialogOpen(true);
+  };
+
+  const handleToggleUserForAddition = (userId: string) => {
+    setUsersToAddToProject(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleConfirmAddMembers = async () => {
+    if (!selectedProject || usersToAddToProject.length === 0) return;
+    setIsLoading(true);
+    try {
+      const projectRef = doc(db, "projects", selectedProject.id);
+      await updateDoc(projectRef, {
+        members: arrayUnion(...usersToAddToProject),
+        updatedAt: serverTimestamp(),
+      });
+
+      const updatedMembers = Array.from(new Set([...selectedProject.members, ...usersToAddToProject]));
+      const updatedProjectData = { ...selectedProject, members: updatedMembers, updatedAt: Timestamp.now() };
+      
+      setSelectedProject(updatedProjectData);
+      setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
+      
+      toast({ title: "Membres ajoutés", description: `${usersToAddToProject.length} membre(s) ont été ajoutés au projet.` });
+      setIsAddMemberDialogOpen(false);
+    } catch (error) {
+      console.error("Erreur lors de l'ajout de membres: ", error);
+      toast({ title: "Erreur", description: "Impossible d'ajouter les membres.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   if (authLoading || !currentUser) {
     return (
@@ -382,7 +417,7 @@ export default function ProjectsPage() {
                             {memberProfiles.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={index} className="h-8 w-8 border-2 border-background">
                                 <AvatarImage src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'N A')}&background=random&color=fff&size=32`} alt={memberProfile.name || 'Membre'} data-ai-hint="member avatar"/>
-                                <AvatarFallback className="text-xs">{getAvatarFallback(memberProfile.name)}</AvatarFallback> 
+                                <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile.name)}</AvatarFallback> 
                             </Avatar>
                             ))}
                             {project.members.length > 3 && (
@@ -527,7 +562,7 @@ export default function ProjectsPage() {
                           <div key={memberUid} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
                               <AvatarImage src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'N A')}&background=random&color=fff&size=32`} alt={member?.name || 'Membre'} data-ai-hint="member avatar small"/>
-                              <AvatarFallback className="text-xs">{getAvatarFallback(member?.name)}</AvatarFallback>
+                              <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name)}</AvatarFallback>
                             </Avatar>
                             <p className="font-medium text-sm">{member?.name || memberUid}</p> 
                           </div>
@@ -535,7 +570,7 @@ export default function ProjectsPage() {
                       })
                     )}
                      {(selectedProject.ownerId === currentUser?.uid || userProfile?.isAdmin) && (
-                       <Button variant="link" className="mt-2 w-full text-primary text-sm" disabled={isLoading}>
+                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isLoading || isLoadingUserProfiles}>
                            <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
                        </Button>
                      )}
@@ -626,7 +661,51 @@ export default function ProjectsPage() {
             </DialogContent>
         </Dialog>
 
+        <Dialog open={isAddMemberDialogOpen} onOpenChange={setIsAddMemberDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Ajouter des membres au projet "{selectedProject?.name}"</DialogTitle>
+                    <DialogDescription>
+                        Sélectionnez les utilisateurs à ajouter à ce projet.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-3 max-h-72 overflow-y-auto">
+                    {isLoadingUserProfiles ? (
+                        <p>Chargement des utilisateurs...</p>
+                    ) : availableUsersForProject.length > 0 ? (
+                        availableUsersForProject.map(user => (
+                            <div key={user.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md">
+                                <Checkbox
+                                    id={`add-member-${user.id}`}
+                                    checked={usersToAddToProject.includes(user.id)}
+                                    onCheckedChange={() => handleToggleUserForAddition(user.id)}
+                                />
+                                <Avatar className="h-8 w-8">
+                                  <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'N A')}&background=random&color=fff&size=32`} alt={user.name || 'Utilisateur'} data-ai-hint="user avatar"/>
+                                  <AvatarFallback className="text-xs">{getAvatarFallbackText(user.name, user.email)}</AvatarFallback>
+                                </Avatar>
+                                <label
+                                    htmlFor={`add-member-${user.id}`}
+                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 cursor-pointer"
+                                >
+                                    {user.name} ({user.email})
+                                </label>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-muted-foreground text-sm text-center">Aucun nouvel utilisateur disponible à ajouter.</p>
+                    )}
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddMemberDialogOpen(false)} disabled={isLoading}>Annuler</Button>
+                    <Button onClick={handleConfirmAddMembers} disabled={isLoading || usersToAddToProject.length === 0}>
+                        {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.plus className="mr-2 h-4 w-4"/>}
+                        Ajouter les membres sélectionnés
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
     </div>
   );
 }
-
