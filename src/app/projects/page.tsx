@@ -40,14 +40,25 @@ import { Checkbox } from '@/components/ui/checkbox';
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
-    const parts = name.split(' ');
-    if (parts.length >= 2 && parts[0] && parts[parts.length-1]) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    return name.substring(0, 2).toUpperCase();
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
   }
   if (email) {
-    return email.substring(0, 2).toUpperCase();
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
   }
   return '??';
 };
@@ -107,12 +118,10 @@ export default function ProjectsPage() {
         setAllUserProfiles([]);
         return;
     }
-    // This function should only be called if the user is an admin,
-    // otherwise it might fail due to Firestore rules.
     if (!isAdmin) { 
       setIsLoadingAllUserProfiles(false);
       if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-      console.log("ProjectsPage: fetchAllUserProfiles - Not admin. Minimal profiles set or only self.");
+      console.log("ProjectsPage: fetchAllUserProfiles - Not admin. Minimal profiles set (only self or empty).");
       return;
     }
     console.log("ProjectsPage: fetchAllUserProfiles - Admin is fetching all user profiles.");
@@ -191,9 +200,9 @@ export default function ProjectsPage() {
         console.log("ProjectsPage: useEffect - Calling fetchAllUserProfiles because isAdmin is true.");
         fetchAllUserProfiles();
       } else {
-        console.log("ProjectsPage: useEffect - Not admin. Minimal allUserProfiles. Specific member profiles will be fetched for modals.");
+        console.log("ProjectsPage: useEffect - Not admin. Minimal allUserProfiles will be used (self), and specific member profiles will be fetched for modals.");
         if (userProfile) {
-          setAllUserProfiles([userProfile]); // Provide at least current user's profile
+          setAllUserProfiles([userProfile]); 
         } else {
           setAllUserProfiles([]);
         }
@@ -225,10 +234,13 @@ export default function ProjectsPage() {
           const userDocRef = doc(db, "users", uid);
           const docSnapshot = await getDoc(userDocRef);
           if (docSnapshot.exists()) {
-            console.log(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} EXISTS. Data:`, JSON.stringify(docSnapshot.data()));
-            fetchedProfilesArray.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
+            const profileData = { id: docSnapshot.id, ...docSnapshot.data() } as AppUserType;
+            console.log(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} EXISTS. Data:`, JSON.stringify(profileData));
+            fetchedProfilesArray.push(profileData);
           } else {
             console.warn(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} DOES NOT EXIST in 'users' collection.`);
+            // Optionally, add a placeholder or skip if profile doesn't exist
+            // For now, we'll only include existing profiles.
           }
         }
         setProjectModalMemberProfiles(fetchedProfilesArray);
@@ -347,9 +359,11 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    if (isLoadingAllUserProfiles && !isAdmin) return undefined; 
+    // Use allUserProfiles which is populated based on admin status.
+    // If not admin, it only contains current user's profile.
     const profile = allUserProfiles.find(p => p.id === uid);
-    if (!profile && isAdmin) console.warn(`ProjectsPage (getAnyUserProfileById - Admin): Profile for UID ${uid} not found in allUserProfiles.`);
+    if (!profile && isAdmin) console.warn(`ProjectsPage (getAnyUserProfileById - Admin): Profile for UID ${uid} not found in allUserProfiles (which should be complete for admin).`);
+    else if (!profile && !isAdmin && uid !== currentUser?.uid) console.warn(`ProjectsPage (getAnyUserProfileById - NonAdmin): Profile for UID ${uid} not found; allUserProfiles only contains self for non-admins.`);
     return profile;
   };
 
@@ -362,16 +376,17 @@ export default function ProjectsPage() {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-    if (isLoadingAllUserProfiles && isAdmin) { // Only block if admin AND profiles are loading
+    if (isLoadingAllUserProfiles && isAdmin) { 
         toast({ title: "Chargement", description: "Veuillez patienter pendant le chargement des utilisateurs disponibles.", variant: "default" });
         return;
     }
     
     const currentMemberIds = new Set(selectedProject.members);
-    // For admins, use allUserProfiles. For non-admins (owners), they should only add from users they already know or have access to,
-    // but for simplicity here, if they are not admin and allUserProfiles is just them, they can't add anyone else via this UI.
-    // A more robust solution for non-admins would be an input field to add by email/UID and backend validation.
-    const usersAvailableForSelection = isAdmin ? allUserProfiles : (userProfile ? [userProfile] : []);
+    // For admins, use allUserProfiles. For non-admins (owners), they should only add from users they already know or have access to.
+    // The 'allUserProfiles' for a non-admin is already limited to their own profile.
+    // This means non-admins effectively cannot add users via this UI unless 'allUserProfiles' is expanded for them (which has permission implications).
+    // For now, the list of available users for non-admins will be empty if allUserProfiles only contains themselves.
+    const usersAvailableForSelection = isAdmin ? allUserProfiles : []; 
     const available = usersAvailableForSelection.filter(user => !currentMemberIds.has(user.id));
     
     setAvailableUsersForProject(available);
@@ -449,7 +464,11 @@ export default function ProjectsPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src={userProfile?.avatarUrl || `https://placehold.co/40x40.png`} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
+               <AvatarImage 
+                src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser.email || 'U')}&background=random&color=fff&size=32`} 
+                alt={userProfile?.name || currentUser.email || "User"} 
+                data-ai-hint="user avatar"
+              />
               <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser.email)}</AvatarFallback>
             </Avatar>
           </div>
@@ -492,7 +511,7 @@ export default function ProjectsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
               const displayableMemberProfilesOnCard = project.members.map(uid => {
-                const profile = (isAdmin && !isLoadingAllUserProfiles) ? getAnyUserProfileById(uid) : (userProfile && userProfile.id === uid ? userProfile : null);
+                const profile = getAnyUserProfileById(uid); // Uses the refined getAnyUserProfileById
                 return profile || ({ id: uid, name: uid.substring(0,6)+"..." , email: "", isAdmin: false } as AppUserType);
               }).filter(Boolean) as AppUserType[];
 
@@ -532,8 +551,12 @@ export default function ProjectsPage() {
                         <div className="flex -space-x-2 overflow-hidden">
                             {displayableMemberProfilesOnCard.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={memberProfile.id || index} className="h-8 w-8 border-2 border-background">
-                                <AvatarImage src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'N A')}&background=random&color=fff&size=32`} alt={memberProfile.name || 'Membre'} data-ai-hint="member avatar"/>
-                                <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile.name)}</AvatarFallback> 
+                                <AvatarImage 
+                                  src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'N A')}&background=random&color=fff&size=32`} 
+                                  alt={memberProfile.name || 'Membre'} 
+                                  data-ai-hint="member avatar"
+                                />
+                                <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile.name, memberProfile.email)}</AvatarFallback> 
                             </Avatar>
                             ))}
                             {project.members.length > 3 && (
@@ -679,8 +702,12 @@ export default function ProjectsPage() {
                       projectModalMemberProfiles.map((member) => (
                           <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
-                              <AvatarImage src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'N A')}&background=random&color=fff&size=32`} alt={member?.name || 'Membre'} data-ai-hint="member avatar small"/>
-                              <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name)}</AvatarFallback>
+                              <AvatarImage 
+                                src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'N A')}&background=random&color=fff&size=32`} 
+                                alt={member?.name || 'Membre'} 
+                                data-ai-hint="member avatar small"
+                              />
+                              <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name, member?.email)}</AvatarFallback>
                             </Avatar>
                             <p className="font-medium text-sm">{member?.name || member.id}</p> 
                           </div>
@@ -798,7 +825,11 @@ export default function ProjectsPage() {
                                     onCheckedChange={() => handleToggleUserForAddition(user.id)}
                                 />
                                 <Avatar className="h-8 w-8">
-                                  <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'N A')}&background=random&color=fff&size=32`} alt={user.name || 'Utilisateur'} data-ai-hint="user avatar"/>
+                                  <AvatarImage 
+                                    src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'U')}&background=random&color=fff&size=32`} 
+                                    alt={user.name || user.email || 'Utilisateur'} 
+                                    data-ai-hint="user avatar"
+                                  />
                                   <AvatarFallback className="text-xs">{getAvatarFallbackText(user.name, user.email)}</AvatarFallback>
                                 </Avatar>
                                 <label
@@ -811,7 +842,7 @@ export default function ProjectsPage() {
                         ))
                     ) : (
                         <p className="text-muted-foreground text-sm text-center">
-                           {isAdmin ? "Aucun nouvel utilisateur disponible à ajouter." : "Vous ne pouvez ajouter que vous-même ou la fonctionnalité d'ajout par email/UID n'est pas disponible pour les non-admins."}
+                           {isAdmin ? "Aucun nouvel utilisateur disponible à ajouter." : "Les non-administrateurs ne peuvent pas ajouter de membres via cette interface pour le moment."}
                         </p>
                     )}
                 </div>

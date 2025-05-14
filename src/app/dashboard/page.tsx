@@ -108,14 +108,25 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
-    const parts = name.split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    return name.substring(0, 2).toUpperCase();
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
   }
   if (email) {
-    return email.substring(0, 2).toUpperCase();
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
   }
   return '??';
 };
@@ -209,7 +220,6 @@ export default function DashboardPage() {
       setAllUserProfiles([]);
       return;
     }
-     // Removed isAdmin check here, will be handled by useEffect logic
     setIsLoadingUserProfiles(true);
     try {
       console.log("DashboardPage: Fetching all user profiles.");
@@ -400,7 +410,11 @@ export default function DashboardPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
-                  <AvatarImage src={userProfile?.avatarUrl || `https://placehold.co/40x40.png`} alt={userProfile?.name || "User"} data-ai-hint="user avatar"/>
+                  <AvatarImage 
+                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'U')}&background=random&color=fff&size=32`} 
+                    alt={userProfile?.name || currentUser?.email || "User"} 
+                    data-ai-hint="user avatar"
+                  />
                   <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
@@ -540,3 +554,4 @@ export default function DashboardPage() {
 }
 
     
+
