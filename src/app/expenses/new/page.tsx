@@ -41,7 +41,7 @@ import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data'; 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction, getDoc, query, where } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 
@@ -71,8 +71,24 @@ export default function NewExpensePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [users, setUsers] = useState<AppUserType[]>([]); 
-  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  
+  const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
+  const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
+
+  const form = useForm<ExpenseFormValues>({
+    resolver: zodResolver(expenseFormSchema),
+    defaultValues: {
+      description: '',
+      amount: '' as unknown as number,
+      currency: 'EUR',
+      projectId: '',
+      paidById: currentUser?.uid || '', 
+      expenseDate: new Date(),
+      tags: '',
+    },
+  });
+  
+  const watchedProjectId = form.watch('projectId');
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -80,13 +96,33 @@ export default function NewExpensePage() {
     }
   }, [authLoading, currentUser, router]);
 
+  useEffect(() => {
+    if (userProfile && usersForDropdown.length === 0) {
+        setUsersForDropdown([userProfile]); // Initialize with current user
+    }
+    if (currentUser && !form.getValues('paidById')) {
+      form.reset({ 
+        ...form.getValues(), 
+        paidById: currentUser.uid,
+        amount: form.getValues('amount') || '' as unknown as number,
+        description: form.getValues('description') || '',
+        currency: form.getValues('currency') || 'EUR',
+        projectId: form.getValues('projectId') || '',
+        expenseDate: form.getValues('expenseDate') || new Date(),
+        tags: form.getValues('tags') || '',
+      });
+    }
+  }, [currentUser, userProfile, form, usersForDropdown.length]);
+
+
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
-      // TODO: Potentially filter projects to those the user is a member of
-      const projectSnapshot = await getDocs(projectsCollection);
+      // Consider fetching only projects the user is a member of
+      const q = query(projectsCollection, where("members", "array-contains", currentUser.uid));
+      const projectSnapshot = await getDocs(q);
       const projectsList = projectSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
@@ -104,63 +140,75 @@ export default function NewExpensePage() {
     }
   }, [currentUser, toast]);
 
-  const fetchUsers = useCallback(async () => {
-    if (!currentUser) return;
-    setIsLoadingUsers(true);
-    try {
-      const usersCollection = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollection);
-      const usersList = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      } as AppUserType));
-      setUsers(usersList);
-    } catch (error) {
-      console.error("Erreur lors de la récupération des utilisateurs: ", error);
-      toast({
-        title: "Erreur de chargement",
-        description: "Impossible de charger la liste des utilisateurs.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingUsers(false);
-    }
-  }, [currentUser, toast]);
-
   useEffect(() => {
     if(currentUser){
       fetchProjects();
-      fetchUsers();
     }
-  }, [currentUser, fetchProjects, fetchUsers]);
+  }, [currentUser, fetchProjects]);
 
-  const form = useForm<ExpenseFormValues>({
-    resolver: zodResolver(expenseFormSchema),
-    defaultValues: {
-      description: '',
-      amount: '' as unknown as number, // Initialize with empty string
-      currency: 'EUR',
-      projectId: '',
-      paidById: currentUser?.uid || '', 
-      expenseDate: new Date(),
-      tags: '',
-    },
-  });
-  
   useEffect(() => {
-    if (currentUser && !form.getValues('paidById')) { // Only reset if paidById is not already set
-      form.reset({ 
-        ...form.getValues(), 
-        paidById: currentUser.uid,
-        amount: form.getValues('amount') || '' as unknown as number, // Preserve amount or set to empty string
-        description: form.getValues('description') || '',
-        currency: form.getValues('currency') || 'EUR',
-        projectId: form.getValues('projectId') || '',
-        expenseDate: form.getValues('expenseDate') || new Date(),
-        tags: form.getValues('tags') || '',
-      });
+    const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
+      if (!currentUser || !projectId) {
+        setUsersForDropdown(userProfile ? [userProfile] : []);
+        return;
+      }
+      setIsLoadingUsersForDropdown(true);
+      try {
+        const projectRef = doc(db, "projects", projectId);
+        const projectSnap = await getDoc(projectRef);
+
+        let fetchedProjectMembers: AppUserType[] = [];
+        if (projectSnap.exists()) {
+          const projectData = projectSnap.data() as Project;
+          const memberUIDs = projectData.members || [];
+
+          if (memberUIDs.length > 0) {
+            const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
+            const userDocs = await Promise.all(userPromises);
+            fetchedProjectMembers = userDocs
+              .filter(d => d.exists())
+              .map(d => ({ id: d.id, ...d.data() } as AppUserType));
+          }
+        } else {
+          toast({ title: "Erreur", description: "Projet non trouvé pour charger les membres payeurs.", variant: "destructive" });
+        }
+        
+        // Ensure current user is always in the list and at the top if possible
+        let finalUsersList: AppUserType[] = [];
+        if (userProfile) {
+            finalUsersList = [userProfile, ...fetchedProjectMembers.filter(member => member.id !== userProfile.id)];
+        } else if (currentUser) {
+            // Fallback if profile not loaded, add current auth user
+            const currentAuthUserAsProfile: AppUserType = {id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false};
+            finalUsersList = [currentAuthUserAsProfile, ...fetchedProjectMembers.filter(member => member.id !== currentUser.uid)];
+        } else {
+            finalUsersList = fetchedProjectMembers;
+        }
+         // Remove duplicates by ID, keeping the first occurrence (which might be the prioritised current user)
+        finalUsersList = finalUsersList.filter((user, index, self) => index === self.findIndex(u => u.id === user.id));
+
+        setUsersForDropdown(finalUsersList);
+
+      } catch (error) {
+        console.error("Erreur lors de la récupération des membres du projet: ", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger les membres du projet pour la sélection.",
+          variant: "destructive",
+        });
+        setUsersForDropdown(userProfile ? [userProfile] : []);
+      } finally {
+        setIsLoadingUsersForDropdown(false);
+      }
+    };
+
+    if (watchedProjectId) {
+      fetchProjectMembersAndSetDropdown(watchedProjectId);
+    } else {
+      // No project selected, default to current user if available for "Paid by"
+      setUsersForDropdown(userProfile ? [userProfile] : []);
     }
-  }, [currentUser, form]);
+  }, [watchedProjectId, currentUser, userProfile, toast]);
 
 
   async function onSubmit(values: ExpenseFormValues) {
@@ -172,15 +220,15 @@ export default function NewExpensePage() {
     setIsLoading(true);
     
     const selectedProject = projects.find(p => p.id === values.projectId);
-    const payer = users.find(u => u.id === values.paidById); 
+    const payerProfile = usersForDropdown.find(u => u.id === values.paidById);
 
     if (!selectedProject) {
         toast({ title: "Erreur de données", description: "Projet introuvable.", variant: "destructive" });
         setIsLoading(false);
         return;
     }
-    if (!payer) {
-        toast({ title: "Erreur de données", description: "Payeur introuvable.", variant: "destructive" });
+    if (!payerProfile) {
+        toast({ title: "Erreur de données", description: "Payeur introuvable dans la liste chargée.", variant: "destructive" });
         setIsLoading(false);
         return;
     }
@@ -192,8 +240,8 @@ export default function NewExpensePage() {
         currency: values.currency,
         projectId: values.projectId,
         projectName: selectedProject.name, 
-        paidById: payer.id, 
-        paidByName: payer.name, 
+        paidById: payerProfile.id, 
+        paidByName: payerProfile.name, 
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
         createdAt: serverTimestamp(),
@@ -216,7 +264,7 @@ export default function NewExpensePage() {
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate), 
           amount: values.amount,
-          payer: payer.name,
+          payer: payerProfile.name,
         };
 
         transaction.update(projectRef, {
@@ -233,13 +281,14 @@ export default function NewExpensePage() {
       });
       form.reset({
          description: '',
-         amount: '' as unknown as number, // Reset to empty string
+         amount: '' as unknown as number, 
          currency: 'EUR',
          projectId: '',
          paidById: currentUser.uid || '',
          expenseDate: new Date(),
          tags: '',
       }); 
+      setUsersForDropdown(userProfile ? [userProfile] : []); // Reset dropdown to current user
       router.push('/expenses'); 
     } catch (error) {
         console.error("Erreur lors de l'ajout de la dépense: ", error);
@@ -312,8 +361,8 @@ export default function NewExpensePage() {
                           {...field} 
                           step="0.01" 
                           data-ai-hint="expense amount"
-                          value={field.value === undefined || field.value === null ? '' : field.value} // Ensure defined value
-                          onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} // Handle empty string for parseFloat
+                          value={field.value === undefined || field.value === null ? '' : field.value}
+                          onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -377,18 +426,27 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payé par</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ''} disabled={isLoadingUsers}>
+                    <Select onValueChange={field.onChange} value={field.value || ''} disabled={isLoadingUsersForDropdown || !watchedProjectId}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="user select paid by">
-                          <SelectValue placeholder={isLoadingUsers ? "Chargement des utilisateurs..." : "Sélectionner un utilisateur"} />
+                          <SelectValue placeholder={
+                            !watchedProjectId 
+                              ? "Sélectionnez d'abord un projet" 
+                              : isLoadingUsersForDropdown 
+                                ? "Chargement des membres..." 
+                                : "Sélectionner un payeur"
+                          } />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {users.map(user => ( 
+                        {usersForDropdown.map(user => ( 
                           <SelectItem key={user.id} value={user.id}>
                             {user.name} {user.id === currentUser?.uid ? "(Moi)" : ""}
                           </SelectItem>
                         ))}
+                         {usersForDropdown.length === 0 && watchedProjectId && !isLoadingUsersForDropdown && (
+                            <p className="p-2 text-sm text-muted-foreground">Aucun membre trouvé pour ce projet.</p>
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -480,7 +538,7 @@ export default function NewExpensePage() {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isLoading}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isLoading || isLoadingProjects || isLoadingUsers}>
+                <Button type="submit" disabled={isLoading || isLoadingProjects || isLoadingUsersForDropdown}>
                   {isLoading ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
