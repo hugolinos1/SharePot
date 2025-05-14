@@ -70,9 +70,9 @@ export default function ProjectCreatePage() {
         budget: values.budget || 0,
         status: 'Actif', 
         totalExpenses: 0,
-        // lastActivity: serverTimestamp(), // Use serverTimestamp for consistency
-        members: [currentUser.displayName || currentUser.email || "Utilisateur connecté"], 
-        ownerId: currentUser.uid, // Store owner ID
+        lastActivity: serverTimestamp(), // Initialisation de la dernière activité
+        members: [currentUser.uid], // L'utilisateur connecté est le premier membre (avec son UID)
+        ownerId: currentUser.uid, 
         recentExpenses: [],
         notes: '',
         tags: [], 
@@ -85,11 +85,11 @@ export default function ProjectCreatePage() {
         description: `Le projet "${values.name}" a été ajouté avec succès.`,
       });
       router.push('/projects');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur lors de la création du projet: ", error);
       toast({
-        title: "Erreur",
-        description: "Impossible de créer le projet. Veuillez réessayer.",
+        title: "Erreur de création du projet",
+        description: `Impossible de créer le projet. ${error.message || "Veuillez réessayer."}`,
         variant: "destructive",
       });
     } finally {
