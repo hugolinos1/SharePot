@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
@@ -41,8 +41,13 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { ChartConfig } from '@/components/ui/chart';
-import { initialProjects, Project } from '@/data/mock-data'; 
+import type { Project } from '@/data/mock-data'; 
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, Timestamp } from 'firebase/firestore';
+import { useToast } from "@/hooks/use-toast";
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 const ExpenseAnalysisChart = dynamic(() => import('@/components/dashboard/expense-analysis-chart'), {
   ssr: false,
@@ -74,19 +79,20 @@ interface RecentExpenseItem {
   icon: React.ElementType;
   title: string;
   project: string; 
-  date: string;
-  amount: string;
+  date: string | Timestamp;
+  amount: string; // This is a display string, like "120,50 €"
   tags: { label: string; variant: "default" | "secondary" | "destructive" | "outline" }[];
 }
 
+// This mock data might be replaced by fetching from Firestore later
 const mockRecentExpenseItems: RecentExpenseItem[] = [ 
-  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '13 mai 2025', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
-  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Paris', date: '13 mai 2025', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
-  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Paris', date: '13 mai 2025', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
-  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Déménagement Bureau', date: '13 mai 2025', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
-  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Déménagement Bureau', date: '13 mai 2025', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
-  { id: '6', icon: Icons.fileText, title: 'Billets d\'avion', project: 'Événement Startup', date: '10 mai 2025', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
-  { id: '7', icon: Icons.fileText, title: 'Frais de stand', project: 'Événement Startup', date: '11 mai 2025', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
+  { id: '1', icon: Icons.fileText, title: 'Restaurant Chez Michel', project: 'Voyage à Paris', date: '2025-05-13', amount: '120,50 €', tags: [{label: 'nourriture', variant: 'secondary'}, {label: 'restaurant', variant: 'secondary'}] },
+  { id: '2', icon: Icons.fileText, title: 'Tickets de métro', project: 'Voyage à Paris', date: '2025-05-13', amount: '45,20 €', tags: [{label: 'transport', variant: 'secondary'}] },
+  { id: '3', icon: Icons.fileText, title: 'Visite du musée', project: 'Voyage à Paris', date: '2025-05-13', amount: '85,00 €', tags: [{label: 'divertissement', variant: 'secondary'}, {label: 'musée', variant: 'secondary'}] },
+  { id: '4', icon: Icons.fileText, title: 'Loyer', project: 'Déménagement Bureau', date: '2025-05-13', amount: '350,75 €', tags: [{label: 'logement', variant: 'secondary'}] },
+  { id: '5', icon: Icons.fileText, title: 'Courses alimentaires', project: 'Déménagement Bureau', date: '2025-05-13', amount: '65,45 €', tags: [{label: 'nourriture', variant: 'secondary'}] },
+  { id: '6', icon: Icons.fileText, title: 'Billets d\'avion', project: 'Événement Startup', date: '2025-05-10', amount: '220,00 €', tags: [{label: 'transport', variant: 'secondary'}, {label: 'voyage affaire', variant: 'secondary'}] },
+  { id: '7', icon: Icons.fileText, title: 'Frais de stand', project: 'Événement Startup', date: '2025-05-11', amount: '560,00 €', tags: [{label: 'marketing', variant: 'secondary'}, {label: 'événement', variant: 'secondary'}] },
 ];
 
 
@@ -98,8 +104,52 @@ const SidebarGroupContent: React.FC<SidebarGroupContentProps> = ({ children }) =
   return <div className="space-y-2">{children}</div>;
 };
 
+const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
+  if (!timestamp) return 'N/A';
+  if (typeof timestamp === 'string') { // Could be an ISO string
+    try {
+      return format(new Date(timestamp), 'PP', { locale: fr });
+    } catch (e) { return 'Date invalide'; }
+  }
+  if (timestamp instanceof Timestamp) {
+    return format(timestamp.toDate(), 'PP', { locale: fr });
+  }
+  return 'Date invalide';
+};
+
+
 export default function DashboardPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+  const { toast } = useToast();
+
+  const fetchProjects = useCallback(async () => {
+    setIsLoadingProjects(true);
+    try {
+      const projectsCollection = collection(db, "projects");
+      const projectSnapshot = await getDocs(projectsCollection);
+      const projectsList = projectSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as Project));
+      setProjects(projectsList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des projets: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les projets pour le filtre.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
 
   const chartConfig = {
     Dépenses: {
@@ -113,38 +163,39 @@ export default function DashboardPage() {
   } satisfies ChartConfig;
 
   const selectedProject = useMemo(() => {
-    if (selectedProjectId === 'all') return null;
-    return initialProjects.find(p => p.id === selectedProjectId);
-  }, [selectedProjectId]);
+    if (selectedProjectId === 'all' || isLoadingProjects) return null;
+    return projects.find(p => p.id === selectedProjectId);
+  }, [selectedProjectId, projects, isLoadingProjects]);
 
   const summaryData = useMemo(() => {
-    if (selectedProject) {
-      const totalExpenses = selectedProject.totalExpenses;
-      const expenseCount = selectedProject.recentExpenses.length; 
-      const averagePerPerson = selectedProject.members.length > 0 ? totalExpenses / selectedProject.members.length : 0;
-      return {
-        totalSpent: `${totalExpenses.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
-        expenseCount: expenseCount.toString(),
-        participantsCount: selectedProject.members.length.toString(),
-        averagePerPerson: `${averagePerPerson.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
-      };
-    } else { 
-      const totalSpentAll = initialProjects.reduce((sum, p) => sum + p.totalExpenses, 0);
-      const totalExpenseCountAll = initialProjects.reduce((sum, p) => sum + p.recentExpenses.length, 0); 
-      const allParticipantsAllProjects = new Set<string>();
-      initialProjects.forEach(p => p.members.forEach(m => allParticipantsAllProjects.add(m)));
-      const averagePerPersonAll = allParticipantsAllProjects.size > 0 ? totalSpentAll / allParticipantsAllProjects.size : 0;
-
-      return {
-        totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
-        expenseCount: totalExpenseCountAll.toString(),
-        participantsCount: allParticipantsAllProjects.size.toString(),
-        averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
-      };
+    if (isLoadingProjects && projects.length === 0) { // Still loading initial data
+        return { totalSpent: "Chargement...", expenseCount: "...", participantsCount: "...", averagePerPerson: "..." };
     }
-  }, [selectedProject]);
+
+    const projectsToConsider = selectedProject ? [selectedProject] : projects;
+    
+    if (projectsToConsider.length === 0 && !selectedProject) { // No projects at all
+        return { totalSpent: "0,00 €", expenseCount: "0", participantsCount: "0", averagePerPerson: "0,00 €" };
+    }
+
+    const totalSpentAll = projectsToConsider.reduce((sum, p) => sum + (p.totalExpenses || 0), 0);
+    const totalExpenseCountAll = projectsToConsider.reduce((sum, p) => sum + (p.recentExpenses?.length || 0), 0);
+    
+    const allParticipants = new Set<string>();
+    projectsToConsider.forEach(p => p.members?.forEach(m => allParticipants.add(m)));
+    
+    const averagePerPersonAll = allParticipants.size > 0 ? totalSpentAll / allParticipants.size : 0;
+
+    return {
+      totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+      expenseCount: totalExpenseCountAll.toString(),
+      participantsCount: allParticipants.size.toString(),
+      averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
+    };
+  }, [selectedProject, projects, isLoadingProjects]);
 
   const filteredRecentExpenses = useMemo(() => {
+    // Note: mockRecentExpenseItems is used here. For real data, this would filter actual expenses.
     if (selectedProject) {
       return mockRecentExpenseItems.filter(expense => expense.project === selectedProject.name);
     }
@@ -209,8 +260,10 @@ export default function DashboardPage() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="p-4">
-          <Button variant="outline" asChild>
-            <Link href="/login"><Icons.home /> Accueil (Portail)</Link>
+           <Button variant="outline" asChild>
+            <Link href="/login">
+                <Icons.logOut className="mr-2 h-4 w-4" /> Déconnexion
+            </Link>
           </Button>
         </SidebarFooter>
       </Sidebar>
@@ -229,7 +282,7 @@ export default function DashboardPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar" />
+              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar"/>
               <AvatarFallback>AD</AvatarFallback>
             </Avatar>
           </div>
@@ -246,13 +299,13 @@ export default function DashboardPage() {
             </div>
             <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5 bg-card p-4 rounded-lg shadow">
              <Label htmlFor="project-filter-select" className="text-sm font-medium text-card-foreground/80">Filtrer par projet</Label>
-              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+              <Select value={selectedProjectId} onValueChange={setSelectedProjectId} disabled={isLoadingProjects}>
                 <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base bg-background">
-                  <SelectValue placeholder="Sélectionner un projet" />
+                  <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Sélectionner un projet"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Tous les projets</SelectItem>
-                  {initialProjects.map(project => (
+                  {projects.map(project => (
                     <SelectItem key={project.id} value={project.id}>
                       {project.name}
                     </SelectItem>
@@ -319,7 +372,7 @@ export default function DashboardPage() {
                           <p className="font-medium">{expense.title}</p>
                           <p className="font-semibold text-sm">{expense.amount}</p>
                         </div>
-                        <p className="text-xs text-muted-foreground">{expense.project} • {expense.date}</p>
+                        <p className="text-xs text-muted-foreground">{expense.project} • {formatDateFromTimestamp(expense.date)}</p>
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {expense.tags.map(tag => (
                             <Badge key={tag.label} variant={tag.variant} className="text-xs px-1.5 py-0.5">{tag.label}</Badge>
@@ -341,4 +394,3 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
-

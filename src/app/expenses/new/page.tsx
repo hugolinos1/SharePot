@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -38,10 +38,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import { initialProjects } from '@/data/mock-data';
-import { mockUsers } from '@/data/mock-data';
+import type { Project } from '@/data/mock-data';
+import { mockUsers } from '@/data/mock-data'; // Assuming users are still mock for now
+import { db } from '@/lib/firebase';
+import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 
-const currencies = ["EUR", "USD", "GBP", "CZK"]; // Add more as needed
+
+const currencies = ["EUR", "USD", "GBP", "CZK"];
 
 const expenseFormSchema = z.object({
   description: z.string().min(3, { message: "La description doit comporter au moins 3 caractères." }).max(100, { message: "La description ne doit pas dépasser 100 caractères." }),
@@ -53,7 +56,7 @@ const expenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  receipt: z.any().optional(), // For file input, handle with specific logic if needed
+  receipt: z.any().optional(), 
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -62,6 +65,34 @@ export default function NewExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+
+  const fetchProjects = useCallback(async () => {
+    setIsLoadingProjects(true);
+    try {
+      const projectsCollection = collection(db, "projects");
+      const projectSnapshot = await getDocs(projectsCollection);
+      const projectsList = projectSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as Project));
+      setProjects(projectsList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des projets: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger la liste des projets.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
@@ -78,18 +109,59 @@ export default function NewExpensePage() {
 
   async function onSubmit(values: ExpenseFormValues) {
     setIsLoading(true);
-    console.log('Expense data submitted:', values);
+    
+    const selectedProject = projects.find(p => p.id === values.projectId);
+    const payerName = mockUsers.find(u => u.id === values.paidById)?.name || 'Inconnu';
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      // 1. Add expense to a global "expenses" collection (or subcollection)
+      // For simplicity, let's assume a global "expenses" collection for now
+      // You might want a subcollection under projects: doc(db, "projects", values.projectId, "expenses", newExpenseId)
+      const newExpenseData = {
+        ...values,
+        expenseDate: Timestamp.fromDate(values.expenseDate), // Convert Date to Firestore Timestamp
+        tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+        createdAt: serverTimestamp(),
+        // We might not store receipt directly in Firestore if it's a file. Store a URL instead after uploading to Firebase Storage.
+        // For now, 'receipt' field from form is not processed for storage.
+      };
+      // const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseData); // If global collection
+      
+      // 2. Update project's totalExpenses and recentExpenses
+      if (selectedProject) {
+        const projectRef = doc(db, "projects", selectedProject.id);
+        const newRecentExpense = {
+          name: values.description,
+          date: Timestamp.fromDate(values.expenseDate),
+          amount: values.amount,
+          payer: payerName,
+          // id: expenseDocRef.id // if global collection and you want to link it
+        };
 
-    setIsLoading(false);
-    toast({
-      title: "Dépense ajoutée",
-      description: `La dépense "${values.description}" a été enregistrée avec succès.`,
-    });
-    form.reset(); // Reset form fields
-    router.push('/expenses'); // Redirect to expenses list or dashboard
+        await updateDoc(projectRef, {
+          totalExpenses: (selectedProject.totalExpenses || 0) + values.amount,
+          recentExpenses: arrayUnion(newRecentExpense), // Adds to array, limit array size in practice
+          lastActivity: serverTimestamp(), // Update last activity
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      toast({
+        title: "Dépense ajoutée",
+        description: `La dépense "${values.description}" a été enregistrée avec succès.`,
+      });
+      form.reset(); 
+      router.push('/expenses'); 
+    } catch (error) {
+        console.error("Erreur lors de l'ajout de la dépense: ", error);
+        toast({
+            title: "Erreur",
+            description: "Impossible d'enregistrer la dépense. Veuillez réessayer.",
+            variant: "destructive",
+        });
+    } finally {
+        setIsLoading(false);
+    }
   }
 
   return (
@@ -121,7 +193,7 @@ export default function NewExpensePage() {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: Dîner d'équipe" {...field} data-ai-hint="expense description" />
+                      <Input placeholder="Ex: Dîner d'équipe" {...field} data-ai-hint="expense description"/>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -136,7 +208,7 @@ export default function NewExpensePage() {
                     <FormItem>
                       <FormLabel>Montant</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} step="0.01" data-ai-hint="expense amount" />
+                        <Input type="number" placeholder="0.00" {...field} step="0.01" data-ai-hint="expense amount"/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -174,14 +246,14 @@ export default function NewExpensePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Projet associé</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoadingProjects}>
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
-                          <SelectValue placeholder="Sélectionner un projet" />
+                          <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Sélectionner un projet"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {initialProjects.map(project => (
+                        {projects.map(project => (
                           <SelectItem key={project.id} value={project.id}>
                             {project.name}
                           </SelectItem>
@@ -206,7 +278,7 @@ export default function NewExpensePage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {mockUsers.map(user => (
+                        {mockUsers.map(user => ( // Assuming mockUsers is still used for payers list
                           <SelectItem key={user.id} value={user.id}>
                             {user.name}
                           </SelectItem>
@@ -266,7 +338,7 @@ export default function NewExpensePage() {
                   <FormItem>
                     <FormLabel>Tags (optionnel)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags" />
+                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags"/>
                     </FormControl>
                     <FormDescription>
                       Séparez les tags par une virgule. L'IA pourra suggérer des tags ultérieurement.
@@ -291,7 +363,7 @@ export default function NewExpensePage() {
                       />
                     </FormControl>
                      <FormDescription>
-                      Téléchargez une image ou un PDF du justificatif.
+                      Téléchargez une image ou un PDF du justificatif. (Non implémenté pour le stockage)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -302,7 +374,7 @@ export default function NewExpensePage() {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isLoading}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isLoading}>
+                <Button type="submit" disabled={isLoading || isLoadingProjects}>
                   {isLoading ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
@@ -323,3 +395,4 @@ export default function NewExpensePage() {
     </div>
   );
 }
+

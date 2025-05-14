@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Icons } from '@/components/icons';
-import { initialProjects, Project as ProjectType, User } from '@/data/mock-data'; // Assuming User type is also in mock-data
+import type { Project as ProjectType } from '@/data/mock-data'; // User type is also in mock-data
 import {
   Dialog,
   DialogContent,
@@ -24,13 +24,17 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger,
   DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { useToast } from "@/hooks/use-toast";
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 // Helper function to get avatar fallback
 const getAvatarFallback = (name: string) => {
@@ -44,24 +48,55 @@ const getAvatarFallback = (name: string) => {
   return '??';
 };
 
+const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
+  if (!timestamp) return 'N/A';
+  if (typeof timestamp === 'string') return timestamp; // Assume it's already formatted or an ISO string
+  if (timestamp instanceof Timestamp) {
+    return format(timestamp.toDate(), 'PP', { locale: fr });
+  }
+  return 'Date invalide';
+};
+
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<ProjectType[]>(initialProjects);
+  const { toast } = useToast();
+  const [projects, setProjects] = useState<ProjectType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
-  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
 
   // Form state for new/edit project
-  const [projectName, setProjectName] = useState('');
-  const [projectDescription, setProjectDescription] = useState('');
-  const [projectBudget, setProjectBudget] = useState<number | ''>('');
-  const [projectNotes, setProjectNotes] = useState('');
   const [editingBudget, setEditingBudget] = useState(false);
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
   const [editingNotes, setEditingNotes] = useState(false);
   const [currentNotes, setCurrentNotes] = useState('');
 
+  const fetchProjects = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const projectsCollection = collection(db, "projects");
+      const projectSnapshot = await getDocs(projectsCollection);
+      const projectsList = projectSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      } as ProjectType));
+      setProjects(projectsList);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des projets: ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les projets depuis la base de données.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const handleViewProjectDetails = (project: ProjectType) => {
     setSelectedProject(project);
@@ -74,81 +109,84 @@ export default function ProjectsPage() {
     setEditingBudget(false);
     setEditingNotes(false);
   };
-
-  const handleCreateNewProject = () => {
-    // Reset form fields
-    setProjectName('');
-    setProjectDescription('');
-    setProjectBudget('');
-    // In a real app, you'd also handle members and tags here
-    setIsNewProjectModalOpen(true);
-  };
-
-  const handleSaveNewProject = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Basic validation
-    if (!projectName) {
-      alert('Project name is required.');
-      return;
-    }
-    const newProject: ProjectType = {
-      id: (projects.length + 1).toString(),
-      name: projectName,
-      description: projectDescription,
-      status: 'Actif', // Default status
-      totalExpenses: 0,
-      lastActivity: new Date().toLocaleDateString('fr-FR'),
-      budget: Number(projectBudget) || 0,
-      members: ['Admin User'], // Default member
-      recentExpenses: [],
-      notes: '',
-      tags: [],
-    };
-    setProjects([...projects, newProject]);
-    setIsNewProjectModalOpen(false);
-  };
   
-  const handleSaveBudget = () => {
-    if (selectedProject && typeof currentBudget === 'number') {
-      const updatedProject = { ...selectedProject, budget: currentBudget };
-      setSelectedProject(updatedProject);
-      const updatedProjects = projects.map(p => 
-        p.id === selectedProject.id ? updatedProject : p
-      );
-      setProjects(updatedProjects);
+  const handleSaveBudget = async () => {
+    if (selectedProject && typeof currentBudget === 'number' && currentBudget >=0) {
+      setIsLoading(true);
+      try {
+        const projectRef = doc(db, "projects", selectedProject.id);
+        await updateDoc(projectRef, {
+          budget: currentBudget,
+          updatedAt: serverTimestamp(),
+        });
+        // Update local state
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Approximate updatedAt
+        setSelectedProject(updatedProject);
+        setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
+        toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour du budget: ", error);
+        toast({ title: "Erreur", description: "Impossible de mettre à jour le budget.", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
+        setEditingBudget(false);
+      }
+    } else {
+       toast({ title: "Valeur invalide", description: "Le budget doit être un nombre positif ou nul.", variant: "destructive" });
     }
-    setEditingBudget(false);
   };
 
-  const handleSaveNotes = () => {
+  const handleSaveNotes = async () => {
     if (selectedProject) {
-      const updatedProject = { ...selectedProject, notes: currentNotes };
-      setSelectedProject(updatedProject);
-       const updatedProjects = projects.map(p => 
-        p.id === selectedProject.id ? updatedProject : p
-      );
-      setProjects(updatedProjects);
+      setIsLoading(true);
+      try {
+        const projectRef = doc(db, "projects", selectedProject.id);
+        await updateDoc(projectRef, {
+          notes: currentNotes,
+          updatedAt: serverTimestamp(),
+        });
+         // Update local state
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Approximate updatedAt
+        setSelectedProject(updatedProject);
+        setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
+        toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour des notes: ", error);
+        toast({ title: "Erreur", description: "Impossible de mettre à jour les notes.", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
+        setEditingNotes(false);
+      }
     }
-    setEditingNotes(false);
   };
 
 
-  const handleDeleteProject = () => {
+  const handleDeleteProject = async () => {
     if (selectedProject) {
-      setProjects(projects.filter(p => p.id !== selectedProject.id));
-      setSelectedProject(null);
-      setIsDeleteConfirmModalOpen(false);
+      setIsLoading(true);
+      try {
+        await deleteDoc(doc(db, "projects", selectedProject.id));
+        setProjects(projects.filter(p => p.id !== selectedProject.id));
+        toast({ title: "Projet supprimé", description: `Le projet "${selectedProject.name}" a été supprimé.` });
+        setSelectedProject(null);
+        setIsDeleteConfirmModalOpen(false);
+      } catch (error) {
+        console.error("Erreur lors de la suppression du projet: ", error);
+        toast({ title: "Erreur", description: "Impossible de supprimer le projet.", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
   const getStatusBadgeVariant = (status: string) => {
-    switch (status.toLowerCase()) {
+    switch (status?.toLowerCase()) {
       case 'actif':
-        return 'default'; // Greenish or primary
+        return 'default';
       case 'en attente':
-        return 'secondary'; // Yellowish or secondary
+        return 'secondary';
       case 'terminé':
-        return 'outline'; // Greyish or outline
+        return 'outline';
       default:
         return 'secondary';
     }
@@ -170,7 +208,7 @@ export default function ProjectsPage() {
               <span className="sr-only">Notifications</span>
             </Button>
             <Avatar className="h-9 w-9">
-              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar" />
+              <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="user avatar"/>
               <AvatarFallback>AU</AvatarFallback>
             </Avatar>
           </div>
@@ -185,7 +223,7 @@ export default function ProjectsPage() {
             <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs.</p>
           </div>
           <div className="flex items-center gap-4 mt-4 md:mt-0">
-            <Button onClick={handleCreateNewProject}>
+            <Button onClick={() => router.push('/projects/create')}>
               <Icons.plus className="mr-2 h-4 w-4" /> Nouveau Projet
             </Button>
             <Link href="/dashboard" passHref>
@@ -197,7 +235,21 @@ export default function ProjectsPage() {
         </div>
 
         {/* Projects Grid */}
-        {projects.length > 0 ? (
+        {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1,2,3].map(i => (
+                    <Card key={i} className="flex flex-col">
+                        <CardHeader><CardTitle><Label className="animate-pulse bg-muted h-6 w-3/4 rounded"></Label></CardTitle><CardDescription className="animate-pulse bg-muted h-4 w-full rounded mt-1"></CardDescription></CardHeader>
+                        <CardContent className="flex-grow space-y-3">
+                            <div className="animate-pulse bg-muted h-5 w-1/2 rounded"></div>
+                            <div className="animate-pulse bg-muted h-5 w-1/3 rounded"></div>
+                            <div className="animate-pulse bg-muted h-2 w-full rounded"></div>
+                        </CardContent>
+                        <DialogFooter className="p-4 pt-0 border-t mt-auto"><div className="animate-pulse bg-muted h-8 w-full rounded"></div></DialogFooter>
+                    </Card>
+                ))}
+            </div>
+        ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (
               <Card key={project.id} className="hover:shadow-lg transition-shadow duration-300 flex flex-col">
@@ -216,7 +268,7 @@ export default function ProjectsPage() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Dernière activité</p>
-                      <p>{project.lastActivity}</p>
+                      <p>{formatDateFromTimestamp(project.lastActivity)}</p>
                     </div>
                   </div>
                   
@@ -261,7 +313,7 @@ export default function ProjectsPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Commencez par créer un nouveau projet pour organiser vos dépenses.
               </p>
-              <Button onClick={handleCreateNewProject} className="mt-6">
+              <Button onClick={() => router.push('/projects/create')} className="mt-6">
                 <Icons.plus className="mr-2 h-4 w-4" /> Créer un projet
               </Button>
             </CardContent>
@@ -293,7 +345,7 @@ export default function ProjectsPage() {
                           <li key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                             <div>
                               <p className="font-medium">{expense.name}</p>
-                              <p className="text-sm text-muted-foreground">{expense.date}</p>
+                              <p className="text-sm text-muted-foreground">{formatDateFromTimestamp(expense.date)}</p>
                             </div>
                             <div className="text-right">
                               <p className="font-semibold">{expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
@@ -331,16 +383,17 @@ export default function ProjectsPage() {
                             onChange={(e) => setCurrentBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
                             className="h-8"
                             data-ai-hint="budget input"
+                            disabled={isLoading}
                           />
-                          <Button size="sm" onClick={handleSaveBudget}><Icons.check className="h-4 w-4"/></Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget);}}><Icons.x className="h-4 w-4"/></Button>
+                          <Button size="sm" onClick={handleSaveBudget} disabled={isLoading}><Icons.check className="h-4 w-4"/></Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget);}} disabled={isLoading}><Icons.x className="h-4 w-4"/></Button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between mt-1">
                           <p className="font-semibold text-lg">
                             {(typeof currentBudget === 'number' ? currentBudget : selectedProject.budget).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
                             <Icons.edit className="h-4 w-4"/>
                           </Button>
                         </div>
@@ -382,7 +435,7 @@ export default function ProjectsPage() {
                         <p className="font-medium text-sm">{member}</p>
                       </div>
                     ))}
-                     <Button variant="link" className="mt-2 w-full text-primary text-sm">
+                     <Button variant="link" className="mt-2 w-full text-primary text-sm" disabled={isLoading}>
                         <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
                      </Button>
                   </CardContent>
@@ -396,7 +449,7 @@ export default function ProjectsPage() {
                     {selectedProject.tags.length > 0 ? selectedProject.tags.map((tag, index) => (
                       <Badge key={index} variant="secondary">{tag}</Badge>
                     )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
-                     <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none">
+                     <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none" disabled={isLoading}>
                         <Icons.plus className="mr-1 h-3 w-3" /> Ajouter
                      </Button>
                   </CardContent>
@@ -408,7 +461,7 @@ export default function ProjectsPage() {
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>Notes du projet</CardTitle>
                              {!editingNotes && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isLoading}>
                                     <Icons.edit className="h-4 w-4"/>
                                 </Button>
                             )}
@@ -423,10 +476,11 @@ export default function ProjectsPage() {
                                         className="text-sm"
                                         placeholder="Ajoutez des notes pour ce projet..."
                                         data-ai-hint="project notes input"
+                                        disabled={isLoading}
                                     />
                                     <div className="flex justify-end gap-2">
-                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}}>Annuler</Button>
-                                        <Button size="sm" onClick={handleSaveNotes}>Enregistrer Notes</Button>
+                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}} disabled={isLoading}>Annuler</Button>
+                                        <Button size="sm" onClick={handleSaveNotes} disabled={isLoading}>Enregistrer Notes</Button>
                                     </div>
                                 </div>
                             ) : (
@@ -439,82 +493,16 @@ export default function ProjectsPage() {
                 </div>
             </div>
             <DialogFooter className="border-t pt-4">
-              <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true); /* Keep details modal open until delete confirmed */}}>
+              <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
                 <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
               </Button>
               <DialogClose asChild>
-                 <Button variant="outline">Fermer</Button>
+                 <Button variant="outline" disabled={isLoading}>Fermer</Button>
               </DialogClose>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
-
-      {/* New Project Modal */}
-      <Dialog open={isNewProjectModalOpen} onOpenChange={setIsNewProjectModalOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-xl">Nouveau Projet</DialogTitle>
-            <DialogDescription>
-              Remplissez les informations ci-dessous pour créer un nouveau projet.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSaveNewProject}>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="project-name" className="text-right">
-                  Nom*
-                </Label>
-                <Input
-                  id="project-name"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  className="col-span-3"
-                  placeholder="Ex: Voyage d'entreprise"
-                  required
-                  data-ai-hint="project name input"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="project-description" className="text-right">
-                  Description
-                </Label>
-                <Textarea
-                  id="project-description"
-                  value={projectDescription}
-                  onChange={(e) => setProjectDescription(e.target.value)}
-                  className="col-span-3"
-                  placeholder="Décrivez le projet..."
-                  data-ai-hint="project description input"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="project-budget" className="text-right">
-                  Budget (€)
-                </Label>
-                <Input
-                  id="project-budget"
-                  type="number"
-                  value={projectBudget}
-                  onChange={(e) => setProjectBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  className="col-span-3"
-                  placeholder="0.00"
-                  data-ai-hint="project budget input"
-                />
-              </div>
-              {/* Add member and tag selection here in a real app */}
-            </div>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Annuler</Button>
-              </DialogClose>
-              <Button type="submit">
-                <Icons.check className="mr-2 h-4 w-4" /> Enregistrer
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
        {/* Delete Confirmation Modal */}
         <Dialog open={isDeleteConfirmModalOpen} onOpenChange={setIsDeleteConfirmModalOpen}>
@@ -526,9 +514,10 @@ export default function ProjectsPage() {
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)}>Annuler</Button>
-                    <Button variant="destructive" onClick={handleDeleteProject}>
-                        <Icons.trash className="mr-2 h-4 w-4"/>Supprimer
+                    <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)} disabled={isLoading}>Annuler</Button>
+                    <Button variant="destructive" onClick={handleDeleteProject} disabled={isLoading}>
+                        {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.trash className="mr-2 h-4 w-4"/>}
+                        Supprimer
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -537,4 +526,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-

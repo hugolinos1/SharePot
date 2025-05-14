@@ -1,9 +1,11 @@
+
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { mockUsers, initialProjects, User, Project } from '@/data/mock-data';
+import { mockUsers, User } from '@/data/mock-data'; // Assuming User type is from mock-data
+import type { Project } from '@/data/mock-data';
 import {
   Table,
   TableBody,
@@ -25,41 +27,61 @@ import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+import { useToast } from "@/hooks/use-toast";
 
 // Simulate fetching the current user (replace with actual authentication logic)
 const getCurrentUser = (): User | undefined => {
-    // For this example, assume the first user is the logged-in user
-    // In a real app, this would come from your auth context/provider
-    return mockUsers.find(u => u.id === 'user1'); // Assuming 'user1' is the admin
+    return mockUsers.find(u => u.id === 'user1'); 
 };
 
 
 export default function AdminPage() {
     const router = useRouter();
+    const { toast } = useToast();
     const currentUser = getCurrentUser();
     const [searchTerm, setSearchTerm] = useState('');
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
-    // Determine if the current user is an admin
+    const fetchProjects = useCallback(async () => {
+      setIsLoadingProjects(true);
+      try {
+        const projectsCollection = collection(db, "projects");
+        const projectSnapshot = await getDocs(projectsCollection);
+        const projectsList = projectSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        } as Project));
+        setProjects(projectsList);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des projets: ", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger les projets.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingProjects(false);
+      }
+    }, [toast]);
+  
+    useEffect(() => {
+      fetchProjects();
+    }, [fetchProjects]);
+
+
     const isAdmin = currentUser?.isAdmin ?? false;
 
-    // --- Data Filtering Logic ---
-
-    // Get projects the current user is a member of
     const userProjects = useMemo(() => {
-        if (!currentUser) return [];
-        return initialProjects.filter(project => project.members.includes(currentUser.name));
-    }, [currentUser]);
+        if (!currentUser || isLoadingProjects) return [];
+        return projects.filter(project => project.members.includes(currentUser.name));
+    }, [currentUser, projects, isLoadingProjects]);
 
-    // Get IDs of projects the current user is a member of
-    const userProjectIds = useMemo(() => {
-        return userProjects.map(p => p.id);
-    }, [userProjects]);
-
-    // Get users who are members of the same projects as the current user
     const visibleUsers = useMemo(() => {
         if (isAdmin) {
-            // Admin sees all users
-            return mockUsers;
+            return mockUsers; // Admin sees all users (mockUsers for now)
         }
         if (!currentUser) return [];
 
@@ -71,13 +93,12 @@ export default function AdminPage() {
         return mockUsers.filter(user => relatedUserNames.has(user.name));
     }, [isAdmin, currentUser, userProjects]);
 
-     // Get projects visible to the current user (all for admin, user's projects for non-admin)
      const visibleProjects = useMemo(() => {
-         if (isAdmin) return initialProjects;
+         if (isLoadingProjects) return [];
+         if (isAdmin) return projects;
          return userProjects;
-     }, [isAdmin, userProjects]);
+     }, [isAdmin, userProjects, projects, isLoadingProjects]);
 
-    // Filter users based on search term
     const filteredUsers = useMemo(() => {
         if (!searchTerm) return visibleUsers;
         const lowerCaseSearch = searchTerm.toLowerCase();
@@ -87,44 +108,36 @@ export default function AdminPage() {
         );
     }, [visibleUsers, searchTerm]);
 
-    // Filter projects based on search term
      const filteredProjects = useMemo(() => {
          if (!searchTerm) return visibleProjects;
          const lowerCaseSearch = searchTerm.toLowerCase();
          return visibleProjects.filter(project =>
              project.name.toLowerCase().includes(lowerCaseSearch) ||
-             project.description.toLowerCase().includes(lowerCaseSearch) ||
+             (project.description && project.description.toLowerCase().includes(lowerCaseSearch)) ||
              project.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch))
          );
      }, [visibleProjects, searchTerm]);
 
-
-    // --- Helper Functions ---
-
     const getProjectsForUser = (userName: string): Project[] => {
-        return initialProjects.filter(project => project.members.includes(userName));
+        if (isLoadingProjects) return [];
+        return projects.filter(project => project.members.includes(userName));
     };
 
     const getAvatarFallback = (name: string) => {
         const parts = name.split(' ');
         if (parts.length >= 2) {
-            return parts[0][0] + parts[parts.length - 1][0];
+            return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
         }
         return name.substring(0, 2).toUpperCase();
     };
 
-    // --- Render Logic ---
-
     if (!currentUser) {
-        // Handle case where user is not logged in (redirect or show message)
-        // router.push('/login'); // Example redirect
         return <div className="container mx-auto py-10 text-center">Veuillez vous connecter pour accéder à cette page.</div>;
     }
 
 
     return (
         <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
-            {/* Header */}
              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
                  <div>
                      <h1 className="text-3xl font-bold mb-1">Gestion Administrateur</h1>
@@ -135,14 +148,14 @@ export default function AdminPage() {
                  <div className="flex items-center gap-4 mt-4 md:mt-0">
                     <Input
                         type="search"
-                        placeholder="Rechercher utilisateurs ou projets..."
+                        placeholder="Rechercher..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="max-w-xs"
                     />
-                     <Link href="/" passHref>
+                     <Link href="/dashboard" passHref>
                        <Button variant="outline">
-                         <Icons.home className="mr-2 h-4 w-4" /> Accueil
+                         <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Tableau de bord
                        </Button>
                      </Link>
                  </div>
@@ -154,7 +167,6 @@ export default function AdminPage() {
                   <TabsTrigger value="projects">Projets ({filteredProjects.length})</TabsTrigger>
                 </TabsList>
 
-                {/* Users Tab */}
                 <TabsContent value="users">
                   <Card>
                     <CardHeader>
@@ -183,7 +195,7 @@ export default function AdminPage() {
                                     <TableCell>
                                       <div className="flex items-center gap-3">
                                         <Avatar>
-                                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder" />
+                                          <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff`} alt={user.name} data-ai-hint="user avatar placeholder"/>
                                           <AvatarFallback>{getAvatarFallback(user.name)}</AvatarFallback>
                                         </Avatar>
                                         <span className="font-medium">{user.name}</span>
@@ -196,7 +208,6 @@ export default function AdminPage() {
                                       </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {/* Show project count or list names */}
                                         {userProjectsList.length > 0 ? (
                                             <Badge variant="outline" title={userProjectsList.map(p => p.name).join(', ')}>
                                                 {userProjectsList.length} projet(s)
@@ -234,7 +245,6 @@ export default function AdminPage() {
                   </Card>
                 </TabsContent>
 
-                {/* Projects Tab */}
                 <TabsContent value="projects">
                   <Card>
                     <CardHeader>
@@ -257,7 +267,15 @@ export default function AdminPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {filteredProjects.map((project) => (
+                              {isLoadingProjects && (
+                                <TableRow>
+                                  <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-10">
+                                    <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
+                                    Chargement des projets...
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                              {!isLoadingProjects && filteredProjects.map((project) => (
                                 <TableRow key={project.id}>
                                   <TableCell className="font-medium">{project.name}</TableCell>
                                   <TableCell className="text-muted-foreground truncate max-w-xs">{project.description}</TableCell>
@@ -302,7 +320,7 @@ export default function AdminPage() {
                                   )}
                                 </TableRow>
                               ))}
-                              {filteredProjects.length === 0 && (
+                              {!isLoadingProjects && filteredProjects.length === 0 && (
                                 <TableRow>
                                   <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-4">
                                     Aucun projet trouvé.
