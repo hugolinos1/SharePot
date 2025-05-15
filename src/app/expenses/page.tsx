@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation'; // Import useRouter
+import { useRouter } from 'next/navigation';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -61,7 +61,7 @@ const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
 
 export default function ExpensesPage() {
   const { currentUser, loading: authLoading } = useAuth();
-  const router = useRouter(); // Initialize useRouter
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [allExpenses, setAllExpenses] = useState<ExpenseItem[]>([]);
@@ -85,6 +85,7 @@ export default function ExpensesPage() {
         ...docSn.data(),
       } as Project));
       setProjects(projectsList);
+      console.log("ExpensesPage: Fetched projectsList:", projectsList.length, "items:", JSON.stringify(projectsList.map(p => p.id)));
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
       toast({
@@ -92,43 +93,50 @@ export default function ExpensesPage() {
         description: "Impossible de charger les projets pour le filtre.",
         variant: "destructive",
       });
+      setProjects([]);
     } finally {
       setIsLoadingProjects(false);
     }
   }, [currentUser, toast]);
 
   const fetchExpenses = useCallback(async () => {
-    if(!currentUser) return;
+    if(!currentUser) {
+        console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
+        return;
+    }
     setIsLoadingExpenses(true);
+    console.log("ExpensesPage: fetchExpenses - Called. projects.length:", projects.length);
     try {
       const expensesCollectionRef = collection(db, "expenses");
-      
+
       if (projects.length > 0) {
         const projectIds = projects.map(p => p.id);
+        console.log("ExpensesPage: fetchExpenses - projectIds to query:", projectIds);
+
         if (projectIds.length > 0) {
-          const expenseQueries = [];
-          const chunkSize = 30; 
+          let expensesList: ExpenseItem[] = [];
+          // Firestore 'in' query limit is 30. Chunk if necessary.
+          const chunkSize = 30;
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
-                expenseQueries.push(getDocs(query(expensesCollectionRef, where("projectId", "in", chunk))));
+                if (chunk.length > 0) {
+                    const q = query(expensesCollectionRef, where("projectId", "in", chunk));
+                    const querySnapshot = await getDocs(q);
+                    querySnapshot.docs.forEach(docSnap => {
+                        expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
+                    });
+                }
             }
-            const querySnapshots = await Promise.all(expenseQueries);
-            let expensesList: ExpenseItem[] = [];
-            querySnapshots.forEach(snapshot => {
-                snapshot.docs.forEach(docSnap => {
-                    expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
-                });
-            });
+            console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e=>({id: e.id, title: e.title}))));
             setAllExpenses(expensesList);
-
         } else {
-            setAllExpenses([]); 
+            console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map (should not happen if projects.length > 0), setting empty expenses.");
+            setAllExpenses([]);
         }
-      } else if (!isLoadingProjects) { 
+      } else {
+         console.log("ExpensesPage: fetchExpenses - No projects available for current user, setting empty expenses.");
          setAllExpenses([]);
       }
-
-
     } catch (error) {
       console.error("Erreur lors de la récupération des dépenses: ", error);
       toast({
@@ -136,23 +144,39 @@ export default function ExpensesPage() {
         description: "Impossible de charger la liste des dépenses.",
         variant: "destructive",
       });
+      setAllExpenses([]);
     } finally {
       setIsLoadingExpenses(false);
+      console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, toast, projects, isLoadingProjects]);
+  }, [currentUser, projects, toast]);
 
   useEffect(() => {
-    if(currentUser) {
+    if (currentUser) {
+      console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
       fetchProjects();
+    } else {
+      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser, clearing projects and expenses.");
+      setProjects([]);
+      setAllExpenses([]);
+      setIsLoadingProjects(true); // Reset loading states
+      setIsLoadingExpenses(true);
     }
   }, [currentUser, fetchProjects]);
 
   useEffect(() => {
-    if (currentUser && projects.length > 0 && !isLoadingProjects) {
-      fetchExpenses();
-    } else if (currentUser && !isLoadingProjects && projects.length === 0) {
-      setAllExpenses([]);
-      setIsLoadingExpenses(false);
+    console.log("ExpensesPage: useEffect for fetchExpenses triggered. currentUser:", !!currentUser, "projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
+    if (currentUser && !isLoadingProjects) {
+      if (projects.length > 0) {
+        console.log("ExpensesPage: Calling fetchExpenses because currentUser, projects loaded, and projects exist.");
+        fetchExpenses();
+      } else {
+        console.log("ExpensesPage: Setting allExpenses to empty and isLoadingExpenses to false because no projects found for user after loading.");
+        setAllExpenses([]);
+        setIsLoadingExpenses(false);
+      }
+    } else {
+        console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
     }
   }, [currentUser, projects, isLoadingProjects, fetchExpenses]);
 
@@ -160,10 +184,10 @@ export default function ExpensesPage() {
   const filteredExpenses = useMemo(() => {
     let expensesToFilter = allExpenses;
 
-    if (selectedProjectId !== 'all' && !isLoadingProjects) {
+    if (selectedProjectId !== 'all' && !isLoadingProjects) { // Ensure projects are loaded before filtering
         expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
     }
-    
+
     if (searchTerm) {
       const lowerCaseSearch = searchTerm.toLowerCase();
       expensesToFilter = expensesToFilter.filter(expense =>
@@ -174,9 +198,13 @@ export default function ExpensesPage() {
         expense.amount.toString().includes(lowerCaseSearch)
       );
     }
-    return expensesToFilter.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+    // Sort by creation date (most recent first), fallback to expenseDate if createdAt is missing
+    return expensesToFilter.sort((a, b) =>
+        (b.createdAt?.toMillis() || b.expenseDate?.toMillis() || 0) -
+        (a.createdAt?.toMillis() || a.expenseDate?.toMillis() || 0)
+    );
   }, [selectedProjectId, searchTerm, allExpenses, isLoadingProjects]);
-  
+
   const handleDeleteExpense = async () => {
     if (!expenseToDelete) return;
     setIsDeleting(true);
@@ -191,7 +219,7 @@ export default function ExpensesPage() {
         }
         const projectData = projectDoc.data() as Project;
         const newTotalExpenses = (projectData.totalExpenses || 0) - expenseToDelete.amount;
-        
+
         const updatedRecentExpenses = (projectData.recentExpenses || []).filter(
           (expSummary) => expSummary.id !== expenseToDelete.id
         );
@@ -222,7 +250,7 @@ export default function ExpensesPage() {
       setExpenseToDelete(null);
     }
   };
-  
+
   const openDeleteConfirmDialog = (expenseItem: ExpenseItem) => {
     setExpenseToDelete(expenseItem);
   };
@@ -230,6 +258,9 @@ export default function ExpensesPage() {
   const handleEditExpense = (expenseId: string) => {
     router.push(`/expenses/${expenseId}/edit`);
   };
+
+  console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
+
 
   if (authLoading || !currentUser) {
     return (
@@ -312,7 +343,7 @@ export default function ExpensesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(isLoadingExpenses && projects.length > 0) && (
+                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && ( // Show loading if expenses are loading AND (projects exist OR projects are still loading)
                     <TableRow>
                         <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
@@ -348,10 +379,10 @@ export default function ExpensesPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(!isLoadingExpenses || (isLoadingExpenses && projects.length === 0)) && filteredExpenses.length === 0 && (
+                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && ( // Condition for "no expenses" or "no projects"
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
-                      {projects.length === 0 && !isLoadingProjects ? "Aucun projet trouvé pour cet utilisateur." : "Aucune dépense trouvée pour les filtres actuels."}
+                      {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -382,3 +413,6 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+
+    
