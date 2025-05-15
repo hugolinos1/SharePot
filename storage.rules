@@ -4,74 +4,66 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
     // Helper function to check if the user is a participant (member or owner) of a project
-    // This requires Firestore access, ensure Firestore rules allow reading project data.
+    // This function reads from Firestore.
     function isProjectParticipant(projectId) {
-      let projectDoc = get(/databases/$(database)/documents/projects/$(projectId)).data;
-      return isAuthenticated() && (
-        request.auth.uid == projectDoc.ownerId ||
-        request.auth.uid in projectDoc.members
-      );
+      let projectPath = /databases/$(database)/documents/projects/$(projectId);
+      // Ensure the project document exists and the user is either the owner or in the members list.
+      return exists(projectPath) &&
+             (
+               request.auth.uid == get(projectPath).data.ownerId ||
+               (get(projectPath).data.members != null && request.auth.uid in get(projectPath).data.members)
+             );
     }
 
-    // Rules for user avatar images (example, adjust path as needed)
-    // Path: /avatars/{userId}/{fileName}
-    match /avatars/{userId}/{fileName} {
-      // Anyone can read avatars
-      allow read: if true;
-      // Only the authenticated user can upload/update their own avatar
-      allow write: if isAuthenticated() && request.auth.uid == userId;
-      // Ensure file is an image and not too large
-      allow create: if isAuthenticated() && request.auth.uid == userId &&
-                       request.resource.size < 2 * 1024 * 1024 && // Max 2MB
-                       request.resource.contentType.matches('image/.*');
-    }
-
-    // Rules for expense receipts
-    // Path: /receipts/{projectId}/{expenseId}/{fileName}
+    // Rules for receipt files
+    // Path: receipts/{projectId}/{expenseId}/{fileName}
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Allow create (upload) if:
+      // Allow CREATE (upload) if:
       // 1. User is authenticated.
-      // 2. File is an image and not too large (e.g., < 5MB).
-      // 3. The project for which the receipt is being uploaded exists.
-      // 4. The authenticated user is a participant (owner or member) of that project.
-      // Note: We don't check for the existence of the expense document here during CREATE,
-      // because the file is uploaded *before* the expense document is written to Firestore in the same operation.
-      // The client-side logic ensures the expenseId in the path will match the Firestore doc ID.
-      allow create: if isAuthenticated() &&
-                       request.resource.size < 5 * 1024 * 1024 && // Max 5MB
+      // 2. File is an image and size is less than 5MB.
+      // 3. User is a participant (owner or member) of the project.
+      allow create: if request.auth != null &&
+                       request.resource.size < 5 * 1024 * 1024 &&
                        request.resource.contentType.matches('image/.*') &&
-                       exists(/databases/$(database)/documents/projects/$(projectId)) &&
                        isProjectParticipant(projectId);
 
-      // Allow read if the user is a participant of the project.
-      allow read: if isAuthenticated() && isProjectParticipant(projectId);
-
-      // Allow delete if:
+      // Allow READ if:
       // 1. User is authenticated.
-      // 2. The expense document exists and belongs to the specified project.
-      // 3. The user is the creator of the expense OR the owner of the project.
-      // (Admin check could also be added here if needed based on Firestore user document)
-      allow delete: if isAuthenticated() &&
+      // 2. User is a participant (owner or member) of the project.
+      allow read: if request.auth != null && isProjectParticipant(projectId);
+
+      // Allow DELETE if:
+      // 1. User is authenticated.
+      // 2. The corresponding expense document exists in Firestore and belongs to this project.
+      // 3. The user is either the creator of the expense OR the owner of the project.
+      allow delete: if request.auth != null &&
                        exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
                        get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
                        (
                          request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                         (
+                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                         )
                        );
-      // Updates are typically handled as delete then create new by client, so explicit update rule might not be needed
-      // or can be similar to create/delete if in-place modification is required.
-      // allow update: if false; // Or define specific update conditions
+      // Note: Updates are typically handled as delete old then create new.
+      // If you need specific update rules, they can be added.
     }
 
-    // Default deny all other paths
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
+    // Example rules for user profile pictures (if you implement this feature later)
+    // Path: user-avatars/{userId}/{fileName}
+    // match /user-avatars/{userId}/{fileName} {
+    //   // Allow CREATE (upload) if user is authenticated and uploading their own avatar.
+    //   allow create: if request.auth != null && request.auth.uid == userId &&
+    //                    request.resource.size < 2 * 1024 * 1024 && // e.g., 2MB limit
+    //                    request.resource.contentType.matches('image/.*');
+
+    //   // Allow READ by anyone (public profile pictures).
+    //   allow read;
+
+    //   // Allow DELETE if user is authenticated and deleting their own avatar.
+    //   allow delete: if request.auth != null && request.auth.uid == userId;
+    // }
   }
 }
