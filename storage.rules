@@ -1,77 +1,77 @@
+
 rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Match any files in a path like: receipts/{projectId}/{expenseId}/{fileName}
-    match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Helper function to check if the user is a participant (member or owner) of a project
-      function isProjectParticipant(projectId) {
-        let projectDocPath = /databases/$(database)/documents/projects/$(projectId);
-        return exists(projectDocPath) &&
-               (request.auth.uid == get(projectDocPath).data.ownerId ||
-                request.auth.uid in get(projectDocPath).data.members);
-      }
-      
-      // Helper function to check if the user is the creator of the expense
-      function isExpenseCreator(expenseId) {
-        let expenseDocPath = /databases/$(database)/documents/expenses/$(expenseId);
-        return exists(expenseDocPath) && request.auth.uid == get(expenseDocPath).data.createdBy;
-      }
 
-      // Helper function to check if the user is the project owner
-      function isProjectOwner(projectId) {
-        let projectDocPath = /databases/$(database)/documents/projects/$(projectId);
-        return exists(projectDocPath) && request.auth.uid == get(projectDocPath).data.ownerId;
-      }
-
-      // Allow create (upload) if:
-      // 1. User is authenticated.
-      // 2. File is an image and less than 5MB.
-      // 3. User is a participant of the project specified in the path.
-      // 4. The expenseId in the path matches an expense that is about to be (or was just) created by this user for this project.
-      //    (This rule is simplified; for more robust security, a Cloud Function might be better to verify after upload)
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 && // Max 5MB
-                       request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId);
-
-
-      // Allow read if user is a participant of the project.
-      allow read: if request.auth != null && isProjectParticipant(projectId);
-
-      // Allow delete if user created the expense OR is the project owner.
-      // Also check if the expense they are deleting the receipt for actually belongs to the project in the path.
-      allow delete: if request.auth != null &&
-                       isProjectParticipant(projectId) && // User must be part of the project
-                       (isExpenseCreator(expenseId) || isProjectOwner(projectId)) &&
-                       // Ensure the expense document being referenced exists and belongs to this project
-                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId;
-
-      // Updates are generally handled by deleting and re-uploading if needed.
-      // Direct updates of file content are often disallowed for simplicity unless specific versioning is needed.
-      allow update: if false; 
+    // Helper function to check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Example: Rules for user profile pictures
-    // Path could be: users/{userId}/profilePicture/{fileName}
-    match /users/{userId}/profilePicture/{fileName} {
-      // Allow create (upload) if user is authenticated and userId matches their own UID.
-      allow create: if request.auth != null && request.auth.uid == userId &&
+    // Helper function to check if the user is a participant (member or owner) of a project
+    // This requires Firestore access, ensure Firestore rules allow reading project data.
+    function isProjectParticipant(projectId) {
+      let projectDoc = get(/databases/$(database)/documents/projects/$(projectId)).data;
+      return isAuthenticated() && (
+        request.auth.uid == projectDoc.ownerId ||
+        request.auth.uid in projectDoc.members
+      );
+    }
+
+    // Rules for user avatar images (example, adjust path as needed)
+    // Path: /avatars/{userId}/{fileName}
+    match /avatars/{userId}/{fileName} {
+      // Anyone can read avatars
+      allow read: if true;
+      // Only the authenticated user can upload/update their own avatar
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+      // Ensure file is an image and not too large
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
                        request.resource.size < 2 * 1024 * 1024 && // Max 2MB
                        request.resource.contentType.matches('image/.*');
-      
-      // Allow anyone to read profile pictures (if public)
-      // Or restrict to authenticated users: if request.auth != null;
-      allow read: if true; 
+    }
 
-      // Allow update (replace) if user is authenticated and userId matches their own UID.
-      allow update: if request.auth != null && request.auth.uid == userId &&
-                       request.resource.size < 2 * 1024 * 1024 && 
-                       request.resource.contentType.matches('image/.*');
+    // Rules for expense receipts
+    // Path: /receipts/{projectId}/{expenseId}/{fileName}
+    match /receipts/{projectId}/{expenseId}/{fileName} {
+      // Allow create (upload) if:
+      // 1. User is authenticated.
+      // 2. File is an image and not too large (e.g., < 5MB).
+      // 3. The project for which the receipt is being uploaded exists.
+      // 4. The authenticated user is a participant (owner or member) of that project.
+      // Note: We don't check for the existence of the expense document here during CREATE,
+      // because the file is uploaded *before* the expense document is written to Firestore in the same operation.
+      // The client-side logic ensures the expenseId in the path will match the Firestore doc ID.
+      allow create: if isAuthenticated() &&
+                       request.resource.size < 5 * 1024 * 1024 && // Max 5MB
+                       request.resource.contentType.matches('image/.*') &&
+                       exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                       isProjectParticipant(projectId);
 
-      // Allow delete if user is authenticated and userId matches their own UID.
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      // Allow read if the user is a participant of the project.
+      allow read: if isAuthenticated() && isProjectParticipant(projectId);
+
+      // Allow delete if:
+      // 1. User is authenticated.
+      // 2. The expense document exists and belongs to the specified project.
+      // 3. The user is the creator of the expense OR the owner of the project.
+      // (Admin check could also be added here if needed based on Firestore user document)
+      allow delete: if isAuthenticated() &&
+                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
+                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
+                       (
+                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
+                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                       );
+      // Updates are typically handled as delete then create new by client, so explicit update rule might not be needed
+      // or can be similar to create/delete if in-place modification is required.
+      // allow update: if false; // Or define specific update conditions
+    }
+
+    // Default deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
