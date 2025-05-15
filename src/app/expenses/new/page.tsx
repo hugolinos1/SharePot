@@ -79,7 +79,7 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number,
+      amount: '' as unknown as number, // Keep as empty string for controlled input
       currency: 'EUR',
       projectId: '',
       paidById: '',
@@ -102,7 +102,7 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || ('' as unknown as number),
+        amount: form.getValues('amount') || ('' as unknown as number), // Ensure amount is reset correctly
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
@@ -111,7 +111,7 @@ export default function NewExpensePage() {
         receipt: form.getValues('receipt') || null,
       });
     }
-  }, [currentUser, form]);
+  }, [currentUser, form, authLoading]); // Added authLoading to dependencies
 
 
   const fetchProjects = useCallback(async () => {
@@ -119,6 +119,7 @@ export default function NewExpensePage() {
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
+      // Query projects where the current user is a member
       const q = query(projectsCollection, where("members", "array-contains", currentUser.uid));
       const projectSnapshot = await getDocs(q);
       const projectsList = projectSnapshot.docs.map(doc => ({
@@ -147,7 +148,8 @@ export default function NewExpensePage() {
   useEffect(() => {
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
       if (!currentUser || !projectId) {
-        setUsersForDropdown(userProfile ? [userProfile] : []);
+        // If no project selected, default to current user if profile exists
+        setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
         if (currentUser && !form.getValues('paidById')) {
             form.setValue('paidById', currentUser.uid);
         }
@@ -164,6 +166,7 @@ export default function NewExpensePage() {
           const memberUIDs = projectData.members || [];
 
           if (memberUIDs.length > 0) {
+            // Fetch profiles for each member UID
             const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
             const userDocs = await Promise.all(userPromises);
             fetchedProjectMembers = userDocs
@@ -173,30 +176,47 @@ export default function NewExpensePage() {
         } else {
           toast({ title: "Erreur", description: "Projet non trouvé pour charger les membres payeurs.", variant: "destructive" });
         }
+        
+        // Ensure unique members by ID and prioritize current user if present
+        const uniqueMemberMap = new Map<string, AppUserType>();
+        if (userProfile && fetchedProjectMembers.some(m => m.id === userProfile.id)) {
+            uniqueMemberMap.set(userProfile.id, userProfile);
+        } else if (userProfile) {
+             // If current user not in fetched members (but should be if they created the project/are a member)
+            // This case might indicate project.members array is not up-to-date or userProfile is out of sync
+            // For safety, add current user if they have a profile
+            // uniqueMemberMap.set(userProfile.id, userProfile);
+        } else if (currentUser && !userProfile && fetchedProjectMembers.some(m => m.id === currentUser.uid)) {
+            // If no full userProfile, but currentUser is a member, find their basic data
+            const currentMemberData = fetchedProjectMembers.find(m => m.id === currentUser.uid);
+            if(currentMemberData) uniqueMemberMap.set(currentUser.uid, currentMemberData);
 
-        let finalUsersList: AppUserType[] = [];
-        if (userProfile) {
-            finalUsersList = [userProfile, ...fetchedProjectMembers.filter(member => member.id !== userProfile.id)];
-        } else if (currentUser) {
-            const currentAuthUserAsProfile: AppUserType = {id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''};
-            finalUsersList = [currentAuthUserAsProfile, ...fetchedProjectMembers.filter(member => member.id !== currentUser.uid)];
-        } else {
-            finalUsersList = fetchedProjectMembers;
+        } else if (currentUser && !userProfile) {
+            // Fallback: create a very basic profile for current user if no profile and not in fetched members
+            // uniqueMemberMap.set(currentUser.uid, {id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''});
         }
 
-        finalUsersList = finalUsersList.filter((user, index, self) => index === self.findIndex(u => u.id === user.id));
+
+        fetchedProjectMembers.forEach(member => {
+            if(!uniqueMemberMap.has(member.id)) {
+                uniqueMemberMap.set(member.id, member);
+            }
+        });
+        const finalUsersList = Array.from(uniqueMemberMap.values());
         setUsersForDropdown(finalUsersList);
 
+
+        // Logic to set default paidById or validate existing one
         const currentPaidById = form.getValues('paidById');
-        const currentUserIsMember = finalUsersList.some(u => u.id === currentUser.uid);
+        const currentUserIsAmongFetched = finalUsersList.some(u => u.id === currentUser?.uid);
 
         if (!currentPaidById || !finalUsersList.some(u => u.id === currentPaidById)) {
-            if (currentUserIsMember) {
+            if (currentUserIsAmongFetched && currentUser) {
                 form.setValue('paidById', currentUser.uid);
             } else if (finalUsersList.length > 0 && finalUsersList[0]) {
                 form.setValue('paidById', finalUsersList[0].id);
             } else {
-                 form.setValue('paidById', '');
+                 form.setValue('paidById', ''); // Or handle empty list case
             }
         }
 
@@ -207,7 +227,7 @@ export default function NewExpensePage() {
           description: "Impossible de charger les membres du projet pour la sélection du payeur.",
           variant: "destructive",
         });
-        setUsersForDropdown(userProfile ? [userProfile] : []);
+        setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
          if (currentUser && !form.getValues('paidById')) {
             form.setValue('paidById', currentUser.uid);
         }
@@ -219,7 +239,8 @@ export default function NewExpensePage() {
     if (watchedProjectId) {
       fetchProjectMembersAndSetDropdown(watchedProjectId);
     } else {
-      setUsersForDropdown(userProfile ? [userProfile] : []);
+      // If no project is selected, clear users or set to current user only
+      setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
        if (currentUser && !form.getValues('paidById')) {
          form.setValue('paidById', currentUser.uid);
       }
@@ -234,7 +255,7 @@ export default function NewExpensePage() {
     console.log("[NewExpensePage onSubmit] Current currentUser from context:", currentUser);
 
 
-    if (!currentUser || !userProfile) {
+    if (!currentUser || !userProfile) { // Ensure userProfile is also loaded for name
         toast({ title: "Utilisateur non connecté ou profil incomplet", description: "Veuillez vous connecter et vous assurer que votre profil est chargé.", variant: "destructive" });
         setIsSubmitting(false);
         return;
@@ -254,12 +275,12 @@ export default function NewExpensePage() {
         return;
     }
     if (!payerProfile) {
-        toast({ title: "Erreur de données", description: `Payeur introuvable (ID: ${values.paidById}).`, variant: "destructive" });
+        toast({ title: "Erreur de données", description: `Payeur introuvable (ID: ${values.paidById}). Assurez-vous que le payeur est membre du projet.`, variant: "destructive" });
         setIsSubmitting(false);
         return;
     }
 
-    let receiptDownloadUrl: string | undefined = undefined;
+    let receiptDownloadUrl: string | undefined | null = undefined;
     if (values.receipt) {
       // TODO: Implement file upload to Firebase Storage
       // 1. Get a reference to Firebase Storage (import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";)
@@ -274,6 +295,7 @@ export default function NewExpensePage() {
         variant: "default",
         duration: 7000,
       });
+      // receiptDownloadUrl remains undefined as upload is not implemented
     }
 
     try {
@@ -283,22 +305,31 @@ export default function NewExpensePage() {
         currency: values.currency,
         projectId: values.projectId,
         projectName: selectedProject.name,
-        paidById: payerProfile.id,
-        paidByName: payerProfile.name,
+        paidById: payerProfile.id, // Use UID
+        paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu", // Use name from profile
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-        receiptUrl: receiptDownloadUrl, // This will be undefined for now
+        receiptUrl: receiptDownloadUrl === undefined ? null : receiptDownloadUrl, // Ensure null not undefined
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
       };
 
       console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
-      const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
+      // This will be the ID of the newly created expense document
+      // const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
 
-      const projectRef = doc(db, "projects", selectedProject.id);
+      // Transaction to add expense and update project
       await runTransaction(db, async (transaction) => {
-        const projectDoc = await transaction.get(projectRef);
+        // 1. Add the new expense document
+        const expenseCollectionRef = collection(db, "expenses");
+        const newExpenseRef = doc(expenseCollectionRef); // Create a new doc ref for expense
+        transaction.set(newExpenseRef, newExpenseDocData);
+
+
+        // 2. Update the project document
+        const projectRef = doc(db, "projects", selectedProject.id);
+        const projectDoc = await transaction.get(projectRef); // Get project doc within transaction
         if (!projectDoc.exists()) {
           throw "Project document does not exist!";
         }
@@ -310,20 +341,23 @@ export default function NewExpensePage() {
         const newTotalExpenses = currentTotalExpenses + expenseAmount;
 
         const recentExpenseSummary = {
-          id: expenseDocRef.id,
+          id: newExpenseRef.id, // Use the ID of the new expense document
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate),
           amount: expenseAmount,
-          payer: payerProfile.name,
+          payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
 
-        transaction.update(projectRef, {
-          totalExpenses: newTotalExpenses,
-          recentExpenses: arrayUnion(recentExpenseSummary),
-          lastActivity: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+        // Prepare project update object
+        const projectUpdateData: Partial<Project> = {
+            totalExpenses: newTotalExpenses,
+            recentExpenses: arrayUnion(recentExpenseSummary),
+            lastActivity: serverTimestamp(), // serverTimestamp() for atomic update
+            updatedAt: serverTimestamp(),   // serverTimestamp() for atomic update
+        };
+        transaction.update(projectRef, projectUpdateData);
       });
+
 
       toast({
         title: "Dépense ajoutée",
@@ -331,16 +365,17 @@ export default function NewExpensePage() {
       });
       form.reset({
          description: '',
-         amount: '' as unknown as number,
+         amount: '' as unknown as number, // Reset to empty string
          currency: 'EUR',
          projectId: '',
-         paidById: currentUser.uid || '',
+         paidById: currentUser?.uid || '', // Default to current user if available
          expenseDate: new Date(),
          tags: '',
          receipt: null
       });
-      setUsersForDropdown(userProfile ? [userProfile] : []);
-      router.push('/expenses');
+      // Reset usersForDropdown based on whether a project was selected
+      setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
+      router.push('/expenses'); // Or to project details page: /projects/${selectedProject.id}
     } catch (error: any) {
         console.error("Erreur lors de l'ajout de la dépense: ", error);
         toast({
@@ -353,7 +388,7 @@ export default function NewExpensePage() {
     }
   }
 
-  if (authLoading || !currentUser) {
+  if (authLoading || !currentUser) { // Also check for currentUser to avoid rendering form for logged out state
     return (
       <div className="flex h-screen items-center justify-center">
         <Icons.loader className="h-12 w-12 animate-spin text-primary" />
@@ -464,6 +499,9 @@ export default function NewExpensePage() {
                             {project.name}
                           </SelectItem>
                         ))}
+                         {projects.length === 0 && !isLoadingProjects && (
+                            <p className="p-2 text-sm text-muted-foreground">Aucun projet disponible. Créez-en un d'abord.</p>
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -479,7 +517,7 @@ export default function NewExpensePage() {
                     <FormLabel>Payé par</FormLabel>
                     <Select
                         onValueChange={field.onChange}
-                        value={field.value || ''}
+                        value={field.value || ''} // Ensure value is not undefined
                         disabled={isLoadingUsersForDropdown || !watchedProjectId}
                     >
                       <FormControl>
@@ -572,7 +610,7 @@ export default function NewExpensePage() {
               <FormField
                 control={form.control}
                 name="receipt"
-                render={({ field: { onChange, value, ...rest } }) => (
+                render={({ field: { onChange, value, ...rest } }) => ( // `value` is handled internally by file input
                   <FormItem>
                     <FormLabel>Justificatif (optionnel)</FormLabel>
                     <FormControl>
@@ -582,7 +620,7 @@ export default function NewExpensePage() {
                         onChange={(e) => onChange(e.target.files ? e.target.files[0] : null)}
                         className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                         data-ai-hint="receipt file upload"
-                        {...rest}
+                        {...rest} // Pass other field props like name, ref, onBlur etc.
                       />
                     </FormControl>
                      <FormDescription>

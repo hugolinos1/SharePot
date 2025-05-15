@@ -175,7 +175,7 @@ export default function EditExpensePage() {
         return;
     }
 
-    let newReceiptUrl: string | undefined = originalExpense.receiptUrl;
+    let newReceiptUrl: string | undefined | null = originalExpense.receiptUrl;
     if (values.receipt) {
       // TODO: Implement file upload to Firebase Storage
       // 1. If there's an old receiptUrl, delete the old file from Storage.
@@ -188,6 +188,7 @@ export default function EditExpensePage() {
         variant: "default",
         duration: 7000,
       });
+      // newReceiptUrl would be updated here if upload was implemented
     }
 
 
@@ -210,10 +211,10 @@ export default function EditExpensePage() {
           amount: values.amount,
           currency: values.currency,
           paidById: payerProfile.id,
-          paidByName: payerProfile.name,
+          paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          receiptUrl: newReceiptUrl,
+          receiptUrl: newReceiptUrl === undefined ? null : newReceiptUrl,
           // projectId, createdBy, createdAt remain unchanged
         };
         transaction.update(expenseRef, updatedExpenseData);
@@ -225,7 +226,7 @@ export default function EditExpensePage() {
               name: values.title,
               date: Timestamp.fromDate(values.expenseDate),
               amount: values.amount,
-              payer: payerProfile.name,
+              payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
             };
           }
           return expSummary;
