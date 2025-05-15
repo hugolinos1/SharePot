@@ -13,24 +13,29 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 
-// Static chartData removed, will rely on props
 
-const chartConfig = {
+const chartConfigBase = {
   Dépenses: {
     label: 'Dépenses (€)',
     color: 'hsl(var(--primary))',
   },
-  user: {
-    label: 'Utilisateur',
-  }
-} satisfies ChartConfig;
+};
 
 interface ExpenseAnalysisChartProps {
-  data: Array<{ user: string; Dépenses: number }> | undefined;
+  data: Array<{ [key: string]: string | number }> | undefined; // More generic data type
   isLoading: boolean;
+  yAxisDataKey: string; // To specify if it's "user" or "category"
 }
 
-export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysisChartProps) {
+export default function ExpenseAnalysisChart({ data, isLoading, yAxisDataKey }: ExpenseAnalysisChartProps) {
+  
+  const chartConfig = {
+    ...chartConfigBase,
+    [yAxisDataKey]: { // Dynamically add config for the yAxisDataKey
+        label: yAxisDataKey.charAt(0).toUpperCase() + yAxisDataKey.slice(1), // Capitalize (User or Category)
+    },
+  } satisfies ChartConfig;
+
   if (isLoading) {
     return (
       <div className="h-[350px] w-full flex items-center justify-center">
@@ -55,20 +60,20 @@ export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysi
     <ChartContainer config={chartConfig} className="h-[350px] w-full">
       <BarChart
         accessibilityLayer
-        data={data} // Use data from props
-        margin={{ top: 20, right: 0, left: 20, bottom: 5 }} // Increased left margin from -20 to 20 (or more if needed)
+        data={data}
+        margin={{ top: 20, right: 0, left: 20, bottom: 5 }} 
         layout="vertical"
       >
         <CartesianGrid horizontal={false} />
         <YAxis
-          dataKey="user"
+          dataKey={yAxisDataKey} // Use the prop here
           type="category"
           tickLine={false}
           tickMargin={10}
           axisLine={false}
-          tickFormatter={(value) => value}
+          tickFormatter={(value) => value as string} // Cast value as string
           className="text-xs"
-          width={80} // Optionally set a fixed width for the YAxis if names are consistently long
+          width={80} 
         />
         <XAxis dataKey="Dépenses" type="number" hide />
         <ChartTooltip
@@ -88,4 +93,3 @@ export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysi
     </ChartContainer>
   );
 }
-
