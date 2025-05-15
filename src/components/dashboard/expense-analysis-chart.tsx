@@ -56,7 +56,7 @@ export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysi
       <BarChart
         accessibilityLayer
         data={data} // Use data from props
-        margin={{ top: 20, right: 0, left: -20, bottom: 5 }}
+        margin={{ top: 20, right: 0, left: 20, bottom: 5 }} // Increased left margin from -20 to 20 (or more if needed)
         layout="vertical"
       >
         <CartesianGrid horizontal={false} />
@@ -68,6 +68,7 @@ export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysi
           axisLine={false}
           tickFormatter={(value) => value}
           className="text-xs"
+          width={80} // Optionally set a fixed width for the YAxis if names are consistently long
         />
         <XAxis dataKey="Dépenses" type="number" hide />
         <ChartTooltip
@@ -87,3 +88,4 @@ export default function ExpenseAnalysisChart({ data, isLoading }: ExpenseAnalysi
     </ChartContainer>
   );
 }
+
