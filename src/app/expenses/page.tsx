@@ -20,6 +20,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -34,6 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
+import Image from 'next/image';
 
 export interface ExpenseItem {
   id: string;
@@ -46,6 +54,7 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
+  receiptUrl?: string; // Added for receipt image URL
   createdAt?: Timestamp;
   createdBy: string; // UID of user who created the expense entry
 }
@@ -72,9 +81,16 @@ export default function ExpensesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
 
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+
 
   const fetchProjects = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setProjects([]);
+      setIsLoadingProjects(false); // Ensure loading state is false if no user
+      return;
+    }
     setIsLoadingProjects(true);
     try {
       const projectsCollectionRef = collection(db, "projects");
@@ -102,10 +118,12 @@ export default function ExpensesPage() {
   const fetchExpenses = useCallback(async () => {
     if(!currentUser) {
         console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
+        setAllExpenses([]);
+        setIsLoadingExpenses(false); // Ensure loading state is false
         return;
     }
     setIsLoadingExpenses(true);
-    console.log("ExpensesPage: fetchExpenses - Called. projects.length:", projects.length);
+    console.log("ExpensesPage: fetchExpenses - Called. projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
     try {
       const expensesCollectionRef = collection(db, "expenses");
 
@@ -115,7 +133,6 @@ export default function ExpensesPage() {
 
         if (projectIds.length > 0) {
           let expensesList: ExpenseItem[] = [];
-          // Firestore 'in' query limit is 30. Chunk if necessary.
           const chunkSize = 30;
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
@@ -130,7 +147,7 @@ export default function ExpensesPage() {
             console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e=>({id: e.id, title: e.title}))));
             setAllExpenses(expensesList);
         } else {
-            console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map (should not happen if projects.length > 0), setting empty expenses.");
+            console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map, setting empty expenses.");
             setAllExpenses([]);
         }
       } else {
@@ -149,7 +166,7 @@ export default function ExpensesPage() {
       setIsLoadingExpenses(false);
       console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, projects, toast]);
+  }, [currentUser, projects, toast, isLoadingProjects]); // Added isLoadingProjects as a dependency
 
   useEffect(() => {
     if (currentUser) {
@@ -175,8 +192,16 @@ export default function ExpensesPage() {
         setAllExpenses([]);
         setIsLoadingExpenses(false);
       }
+    } else if (currentUser && isLoadingProjects) {
+        console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
+        // Do nothing, wait for projects to load
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
+        // If not loading projects (e.g. no user) then ensure expenses are also cleared and not loading
+        if (!isLoadingProjects) {
+            setAllExpenses([]);
+            setIsLoadingExpenses(false);
+        }
     }
   }, [currentUser, projects, isLoadingProjects, fetchExpenses]);
 
@@ -184,7 +209,7 @@ export default function ExpensesPage() {
   const filteredExpenses = useMemo(() => {
     let expensesToFilter = allExpenses;
 
-    if (selectedProjectId !== 'all' && !isLoadingProjects) { // Ensure projects are loaded before filtering
+    if (selectedProjectId !== 'all' && !isLoadingProjects) { 
         expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
     }
 
@@ -198,7 +223,6 @@ export default function ExpensesPage() {
         expense.amount.toString().includes(lowerCaseSearch)
       );
     }
-    // Sort by creation date (most recent first), fallback to expenseDate if createdAt is missing
     return expensesToFilter.sort((a, b) =>
         (b.createdAt?.toMillis() || b.expenseDate?.toMillis() || 0) -
         (a.createdAt?.toMillis() || a.expenseDate?.toMillis() || 0)
@@ -257,6 +281,11 @@ export default function ExpensesPage() {
 
   const handleEditExpense = (expenseId: string) => {
     router.push(`/expenses/${expenseId}/edit`);
+  };
+
+  const openReceiptModal = (receiptUrl: string) => {
+    setSelectedReceiptUrl(receiptUrl);
+    setIsReceiptModalOpen(true);
   };
 
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
@@ -339,13 +368,14 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
+                  <TableHead>Justificatif</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && ( // Show loading if expenses are loading AND (projects exist OR projects are still loading)
+                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && ( 
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32">
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
@@ -367,6 +397,28 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
+                    <TableCell>
+                      {expense.receiptUrl ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => openReceiptModal(expense.receiptUrl!)}
+                          aria-label="Voir le justificatif"
+                        >
+                          <Image
+                            src={expense.receiptUrl}
+                            alt={`Justificatif pour ${expense.title}`}
+                            width={24}
+                            height={24}
+                            className="object-cover rounded-sm"
+                            data-ai-hint="receipt thumbnail"
+                          />
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Aucun</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -379,9 +431,9 @@ export default function ExpensesPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && ( // Condition for "no expenses" or "no projects"
+                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && ( 
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32">
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -410,9 +462,31 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
+        <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-4xl p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Visualisation du Justificatif</DialogTitle>
+          </DialogHeader>
+          <div className="p-4 max-h-[80vh] overflow-y-auto">
+            {selectedReceiptUrl ? (
+              <Image
+                src={selectedReceiptUrl}
+                alt="Justificatif en taille réelle"
+                width={1200} 
+                height={1600}
+                className="w-full h-auto object-contain rounded-md"
+                data-ai-hint="full receipt image"
+              />
+            ) : (
+              <p className="text-muted-foreground text-center py-10">Aucun justificatif à afficher.</p>
+            )}
+          </div>
+          <DialogClose asChild>
+            <Button variant="outline" className="m-4 mt-0">Fermer</Button>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-
-    

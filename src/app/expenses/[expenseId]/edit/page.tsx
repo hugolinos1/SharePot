@@ -41,7 +41,8 @@ import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ExpenseItem } from '@/app/expenses/page';
+import type { ExpenseItem } from '@/app/expenses/page'; // Assuming ExpenseItem is defined here
+import Image from 'next/image';
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
 
@@ -49,12 +50,14 @@ const editExpenseFormSchema = z.object({
   title: z.string().min(3, { message: "La description doit comporter au moins 3 caractères." }).max(100, { message: "La description ne doit pas dépasser 100 caractères." }),
   amount: z.coerce.number().positive({ message: "Le montant doit être un nombre positif." }),
   currency: z.string().min(1, { message: "Veuillez sélectionner une devise."}).default("EUR"),
-  projectId: z.string().min(1, { message: "Le projet est requis." }), // Should be disabled
+  projectId: z.string().min(1, { message: "Le projet est requis." }),
   paidById: z.string().min(1, { message: "Veuillez sélectionner qui a payé." }),
   expenseDate: z.date({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
+  receipt: z.instanceof(File).optional().nullable(), // For new/replacement file
+  currentReceiptUrl: z.string().optional().nullable(), // To display current receipt
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -66,8 +69,8 @@ export default function EditExpensePage() {
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading } = useAuth();
 
-  const [isLoading, setIsLoading] = useState(false); // For general loading states (fetching expense)
-  const [isUpdating, setIsUpdating] = useState(false); // For form submission
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [originalExpense, setOriginalExpense] = useState<ExpenseItem | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
@@ -83,6 +86,8 @@ export default function EditExpensePage() {
       paidById: '',
       expenseDate: new Date(),
       tags: '',
+      receipt: null,
+      currentReceiptUrl: null,
     },
   });
 
@@ -107,14 +112,12 @@ export default function EditExpensePage() {
       const expenseData = { id: expenseSnap.id, ...expenseSnap.data() } as ExpenseItem;
       setOriginalExpense(expenseData);
 
-      // Fetch associated project to get members for "Paid by" dropdown
       const projectDocRef = doc(db, "projects", expenseData.projectId);
       const projectSnap = await getDoc(projectDocRef);
       if (projectSnap.exists()) {
         const projectData = { id: projectSnap.id, ...projectSnap.data() } as Project;
         setProject(projectData);
 
-        // Fetch members for the project
         const memberUIDs = projectData.members || [];
         let fetchedProjectMembers: AppUserType[] = [];
         if (memberUIDs.length > 0) {
@@ -126,20 +129,20 @@ export default function EditExpensePage() {
         }
         setUsersForDropdown(fetchedProjectMembers);
 
-         // Reset form with fetched expense data
         form.reset({
           title: expenseData.title,
           amount: expenseData.amount,
           currency: expenseData.currency,
-          projectId: expenseData.projectId, // This will be disabled
+          projectId: expenseData.projectId,
           paidById: expenseData.paidById,
-          expenseDate: expenseData.expenseDate.toDate(), // Convert Timestamp to Date
+          expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
+          receipt: null, // New file input starts empty
+          currentReceiptUrl: expenseData.receiptUrl || null,
         });
 
       } else {
         toast({ title: "Erreur", description: "Projet associé non trouvé.", variant: "destructive" });
-        // Allow editing expense even if project is somehow missing, but Paid By might be limited
       }
     } catch (error) {
       console.error("Erreur lors de la récupération de la dépense: ", error);
@@ -172,24 +175,37 @@ export default function EditExpensePage() {
         return;
     }
 
+    let newReceiptUrl: string | undefined = originalExpense.receiptUrl;
+    if (values.receipt) {
+      // TODO: Implement file upload to Firebase Storage
+      // 1. If there's an old receiptUrl, delete the old file from Storage.
+      // 2. Upload the new file (values.receipt) to Storage.
+      // 3. Get the download URL and assign it to newReceiptUrl.
+      console.warn("File upload/replacement to Firebase Storage not implemented. Receipt URL will not be updated.");
+      toast({
+        title: "Téléversement non implémenté",
+        description: "Le justificatif n'a pas été mis à jour car le téléversement vers Firebase Storage n'est pas encore implémenté.",
+        variant: "default",
+        duration: 7000,
+      });
+    }
+
+
     try {
       await runTransaction(db, async (transaction) => {
         const expenseRef = doc(db, "expenses", originalExpense.id);
         const projectRef = doc(db, "projects", originalExpense.projectId);
 
-        // 1. Get current project data
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
         const projectData = projectDoc.data() as Project;
 
-        // 2. Calculate changes for project total
         const amountDifference = values.amount - originalExpense.amount;
         const newTotalExpenses = (projectData.totalExpenses || 0) + amountDifference;
 
-        // 3. Update expense document
-        const updatedExpenseData = {
+        const updatedExpenseData: Partial<ExpenseItem> = { // Use Partial for update
           title: values.title,
           amount: values.amount,
           currency: values.currency,
@@ -197,12 +213,11 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name,
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+          receiptUrl: newReceiptUrl,
           // projectId, createdBy, createdAt remain unchanged
         };
         transaction.update(expenseRef, updatedExpenseData);
 
-        // 4. Update project document
-        // Update the specific recent expense entry
         const updatedRecentExpenses = (projectData.recentExpenses || []).map(expSummary => {
           if (expSummary.id === originalExpense.id) {
             return {
@@ -215,7 +230,7 @@ export default function EditExpensePage() {
           }
           return expSummary;
         });
-        
+
         transaction.update(projectRef, {
           totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
           recentExpenses: updatedRecentExpenses,
@@ -450,6 +465,45 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="receipt"
+                render={({ field: { onChange, value, ...rest } }) => (
+                  <FormItem>
+                    <FormLabel>Justificatif</FormLabel>
+                    {form.getValues("currentReceiptUrl") && (
+                      <div className="mb-2">
+                        <p className="text-sm text-muted-foreground mb-1">Justificatif actuel :</p>
+                        <Image
+                           src={form.getValues("currentReceiptUrl")!}
+                           alt="Justificatif actuel"
+                           width={80}
+                           height={80}
+                           className="rounded-md border object-cover"
+                           data-ai-hint="current receipt thumbnail"
+                        />
+                      </div>
+                    )}
+                    <FormControl>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => onChange(e.target.files ? e.target.files[0] : null)}
+                        className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                        data-ai-hint="new receipt file upload"
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {form.getValues("currentReceiptUrl") ? "Choisissez un nouveau fichier pour remplacer le justificatif actuel." : "Choisissez un fichier pour ajouter un justificatif."}
+                      <br/>Le téléversement de fichiers vers Firebase Storage n'est pas encore implémenté.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
