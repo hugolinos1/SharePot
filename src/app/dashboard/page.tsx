@@ -49,11 +49,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { ChartConfig } from '@/components/ui/chart';
+
 import type { Project, User as AppUserType } from '@/data/mock-data';
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, Timestamp, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, Timestamp, query, where, orderBy, limit, doc, getDoc, type QueryConstraint } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -140,6 +140,9 @@ export default function DashboardPage() {
   const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true); 
   const { toast } = useToast();
 
+  const [expenseChartData, setExpenseChartData] = useState<Array<{ user: string; Dépenses: number }>>([]);
+  const [isLoadingExpenseChartData, setIsLoadingExpenseChartData] = useState(true);
+
   useEffect(() => {
     if (!authLoading && !currentUser) {
       router.replace('/login');
@@ -189,14 +192,12 @@ export default function DashboardPage() {
     setIsLoadingRecentExpenses(true);
     try {
         const expensesRef = collection(db, "expenses");
-        // For now, only fetch expenses created by the current user for the "Recent Global Expenses"
-        // or adjust query based on your app's logic (e.g., all expenses if admin, or expenses from user's projects)
         const q = query(expensesRef, where("createdBy", "==", currentUser.uid), orderBy("createdAt", "desc"), limit(5));
         const querySnapshot = await getDocs(q);
         const fetchedExpenses = querySnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            displayIcon: Icons.fileText, // Default icon
+            displayIcon: Icons.fileText, 
         } as DisplayExpenseItem));
         setRecentGlobalExpenses(fetchedExpenses);
     } catch (error) {
@@ -212,15 +213,12 @@ export default function DashboardPage() {
   }, [currentUser, toast]);
 
   const fetchAllUserProfiles = useCallback(async () => {
-    // This function is intended to be called only by admins or for specific, limited purposes.
-    // If !isAdmin, it will now set only the current user's profile or an empty array.
     if (!currentUser) {
-      console.warn("DashboardPage: fetchAllUserProfiles called without currentUser.");
-      setIsLoadingUserProfiles(false);
-      setAllUserProfiles([]);
-      return;
+        console.warn("DashboardPage: fetchAllUserProfiles called without currentUser.");
+        setIsLoadingUserProfiles(false);
+        setAllUserProfiles([]);
+        return;
     }
-
     if (!isAdmin) {
       console.log("DashboardPage: fetchAllUserProfiles - Not admin. Setting minimal profiles (self or empty).");
       setIsLoadingUserProfiles(false);
@@ -318,6 +316,73 @@ export default function DashboardPage() {
     }
   }, [currentUser, userProfile, toast]);
 
+  const fetchAndProcessExpensesForChart = useCallback(async () => {
+    console.log("Chart: fetchAndProcessExpensesForChart called. SelectedProjectId:", selectedProjectId, "isLoadingUserProfiles:", isLoadingUserProfiles);
+    if (!currentUser || isLoadingUserProfiles || projects.length === 0 && selectedProjectId === 'all') { // Wait for profiles if they are needed
+      console.log("Chart: Bailing early. currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles);
+      if(projects.length === 0 && selectedProjectId === 'all' && !isLoadingProjects) {
+        setExpenseChartData([]); // No projects, so no chart data
+        setIsLoadingExpenseChartData(false);
+      }
+      return;
+    }
+    setIsLoadingExpenseChartData(true);
+
+    let projectIdsToQuery: string[] = [];
+    if (selectedProjectId === 'all') {
+      projectIdsToQuery = projects.map(p => p.id);
+    } else {
+      projectIdsToQuery = [selectedProjectId];
+    }
+    console.log("Chart: projectIdsToQuery:", projectIdsToQuery);
+
+    if (projectIdsToQuery.length === 0) {
+      setExpenseChartData([]);
+      setIsLoadingExpenseChartData(false);
+      console.log("Chart: No project IDs to query. Setting empty chart data.");
+      return;
+    }
+
+    try {
+      const expensesRef = collection(db, "expenses");
+      const expenseQueries: QueryConstraint[] = [where("projectId", "in", projectIdsToQuery)];
+      const q = query(expensesRef, ...expenseQueries);
+
+      const querySnapshot = await getDocs(q);
+      const fetchedExpenses = querySnapshot.docs.map(doc => doc.data() as ExpenseItem);
+      console.log("Chart: Fetched expenses for chart:", fetchedExpenses.length, "items");
+
+      const aggregatedExpenses: { [paidById: string]: number } = {};
+      fetchedExpenses.forEach(expense => {
+        if (expense.paidById) { // Ensure paidById exists
+            aggregatedExpenses[expense.paidById] = (aggregatedExpenses[expense.paidById] || 0) + expense.amount;
+        }
+      });
+      console.log("Chart: Aggregated expenses by paidById (UID):", aggregatedExpenses);
+
+      const formattedChartData = Object.entries(aggregatedExpenses).map(([paidById, totalAmount]) => {
+        const user = allUserProfiles.find(u => u.id === paidById);
+        const userName = user?.name || paidById; // Fallback to UID if name not found
+        return {
+          user: userName,
+          Dépenses: totalAmount * 100, // Convert to cents for chart display
+        };
+      });
+      console.log("Chart: Final formattedChartData:", formattedChartData);
+      setExpenseChartData(formattedChartData);
+    } catch (error) {
+      console.error("Erreur lors du traitement des dépenses pour le graphique: ", error);
+      toast({
+        title: "Erreur graphique",
+        description: "Impossible de charger les données pour l'analyse des dépenses.",
+        variant: "destructive",
+      });
+      setExpenseChartData([]);
+    } finally {
+      setIsLoadingExpenseChartData(false);
+    }
+  }, [currentUser, projects, selectedProjectId, allUserProfiles, isLoadingUserProfiles, toast, isLoadingProjects]);
+
 
   useEffect(() => {
     if (currentUser) {
@@ -344,20 +409,27 @@ export default function DashboardPage() {
          setAllUserProfiles([]);
          setIsLoadingUserProfiles(false); 
     }
-  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]); 
+  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles, fetchSelectedProjectMembersProfiles]); 
 
   useEffect(() => {
-    if (currentUser && !isAdmin && selectedProjectId) { 
-      if (selectedProjectId === 'all') {
-        console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to 'all'. Setting minimal profiles (self).`);
-        setIsLoadingUserProfiles(false);
-        setAllUserProfiles(userProfile ? [userProfile] : []);
-      } else {
+    // This effect handles fetching project members when a non-admin selects a specific project.
+    if (currentUser && !isAdmin && selectedProjectId && selectedProjectId !== 'all') { 
         console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to: ${selectedProjectId}. Fetching its members.`);
         fetchSelectedProjectMembersProfiles(selectedProjectId);
-      }
+    } else if (currentUser && !isAdmin && selectedProjectId === 'all') {
+        console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to 'all'. Setting minimal profiles (self).`);
+        setIsLoadingUserProfiles(false); // Ensure loading state is reset
+        setAllUserProfiles(userProfile ? [userProfile] : []);
     }
   }, [selectedProjectId, currentUser, isAdmin, userProfile, fetchSelectedProjectMembersProfiles]);
+
+  useEffect(() => {
+    // This effect is dedicated to fetching and processing chart data.
+    // It runs when selectedProjectId changes or when fetchAndProcessExpensesForChart itself changes (due to its dependencies like allUserProfiles).
+    if (currentUser && !isLoadingProjects) { // Ensure projects are loaded before attempting to process chart data
+        fetchAndProcessExpensesForChart();
+    }
+  }, [selectedProjectId, fetchAndProcessExpensesForChart, currentUser, isLoadingProjects]);
 
 
   const handleLogout = async () => {
@@ -370,14 +442,6 @@ export default function DashboardPage() {
       toast({ title: "Erreur de déconnexion", variant: "destructive" });
     }
   };
-
-  const chartConfig = {
-    Dépenses: { label: "Dépenses (€)", color: "hsl(var(--primary))" },
-    JeanD: { label: "Jean D.", color: "hsl(var(--chart-1))" },
-    SophieL: { label: "Sophie L.", color: "hsl(var(--chart-2))" },
-    LucM: { label: "Luc M.", color: "hsl(var(--chart-3))" },
-    MarieP: { label: "Marie P.", color: "hsl(var(--chart-4))" },
-  } satisfies ChartConfig;
 
   const selectedProject = useMemo(() => {
     if (selectedProjectId === 'all' || isLoadingProjects) return null;
@@ -502,7 +566,7 @@ export default function DashboardPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
-                  <AvatarImage 
+                   <AvatarImage 
                     src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'U')}&background=random&color=fff&size=32`} 
                     alt={userProfile?.name || currentUser?.email || "User"} 
                     data-ai-hint="user avatar"
@@ -589,7 +653,7 @@ export default function DashboardPage() {
                     <TabsTrigger value="category">Par catégorie</TabsTrigger>
                   </TabsList>
                   <TabsContent value="user">
-                    <ExpenseAnalysisChart /> 
+                     <ExpenseAnalysisChart data={expenseChartData} isLoading={isLoadingExpenseChartData} />
                   </TabsContent>
                   <TabsContent value="category">
                     <p className="text-muted-foreground text-center py-8">Analyse par catégorie bientôt disponible.</p>
@@ -644,5 +708,3 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
-
-    
