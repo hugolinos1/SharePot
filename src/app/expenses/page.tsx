@@ -18,7 +18,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
+  // AlertDialogTrigger, // No longer needed here for the table button
 } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -364,12 +364,10 @@ export default function ExpensesPage() {
                             <Icons.edit className="h-4 w-4" />
                             <span className="sr-only">Modifier</span>
                         </Button>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
-                                <Icons.trash className="h-4 w-4" />
-                                <span className="sr-only">Supprimer</span>
-                            </Button>
-                        </AlertDialogTrigger>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
+                            <Icons.trash className="h-4 w-4" />
+                            <span className="sr-only">Supprimer</span>
+                        </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -407,3 +405,4 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
