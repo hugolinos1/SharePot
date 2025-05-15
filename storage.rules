@@ -4,63 +4,57 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is a participant (member or owner) of a project
-    // It expects projectId as a string argument.
+    // Helper function to check if the user is the owner or a member of a project
     function isProjectParticipant(projectId) {
-      let projectDocumentPath = /databases/$(database)/documents/projects/$(projectId);
-      // Ensure the project document exists before trying to access its data
-      return exists(projectDocumentPath) &&
+      // Path to the project document in Firestore
+      let projectPath = /databases/$(database)/documents/projects/$(projectId);
+      // Check if the project document exists
+      return exists(projectPath) &&
              (
-               request.auth.uid == get(projectDocumentPath).data.ownerId ||
-               (request.auth.uid in get(projectDocumentPath).data.members)
+               // User is the owner of the project
+               request.auth.uid == get(projectPath).data.ownerId ||
+               // User is in the members array of the project
+               request.auth.uid in get(projectPath).data.members
              );
     }
 
-    // Rules for user profile pictures (example, if you implement this later)
-    // Path: /user-avatars/{userId}/{fileName}
-    match /user-avatars/{userId}/{fileName} {
-      allow read: if true; // Or if request.auth != null; for authenticated users only
+    // Rules for user profile pictures (example, adapt if needed)
+    match /userProfilePictures/{userId}/{fileName} {
+      allow read: if true; // Allow public read for profile pictures
       allow write: if request.auth != null && request.auth.uid == userId &&
-                      request.resource.size < 1 * 1024 * 1024 && // Max 1MB
+                      request.resource.size < 2 * 1024 * 1024 && // Max 2MB
                       request.resource.contentType.matches('image/.*');
     }
 
     // Rules for expense receipts
-    // Path: receipts/{projectId}/{expenseId}/{fileName}
+    // Receipts are stored in a path like: receipts/{projectId}/{expenseId}/{fileName}
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Allow create (upload) if:
-      // 1. User is authenticated.
-      // 2. File is an image and less than 5MB.
-      // 3. User is a participant (owner or member) of the project.
       allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 &&
-                       request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId);
+                       request.resource.size < 5 * 1024 * 1024 && // Max 5MB
+                       request.resource.contentType.matches('image/.*') && // Only images
+                       isProjectParticipant(projectId); // User must be a participant of the project
 
-      // Allow read if:
-      // 1. User is authenticated.
-      // 2. User is a participant (owner or member) of the project.
       allow read: if request.auth != null && isProjectParticipant(projectId);
 
-      // Allow delete if:
-      // 1. User is authenticated.
-      // 2. The corresponding expense document exists in Firestore and belongs to the project.
-      // 3. The user is either the creator of the expense OR the owner of the project.
       allow delete: if request.auth != null &&
+                       // Ensure the expense document exists and belongs to the project
                        exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
                        get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
                        (
+                         // User who created the expense can delete its receipt
                          request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         ( // Or if the user is the project owner
+                         // Project owner can delete any receipt in their project
+                         (
                            exists(/databases/$(database)/documents/projects/$(projectId)) &&
                            request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
                          )
                        );
-      // Updates are typically handled as delete then create.
-      // allow update: if false; // Or define specific update rules if needed
+      // Updates are generally handled as delete then create new.
+      // If you need specific update rules (e.g., for metadata), add them here.
+      // allow update: if ... ;
     }
 
-    // Fallback rule: Deny all other accesses by default
+    // Default deny all other paths to ensure security
     match /{allPaths=**} {
       allow read, write: if false;
     }
