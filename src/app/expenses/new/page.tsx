@@ -41,7 +41,7 @@ import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, runTransaction, getDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, runTransaction, getDoc, query, where } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 
@@ -299,41 +299,38 @@ export default function NewExpensePage() {
     }
 
     try {
+      const expenseCollectionRef = collection(db, "expenses");
+      const newExpenseRef = doc(expenseCollectionRef); // Generate a new ID for the expense
+
       const newExpenseDocData = {
+        id: newExpenseRef.id, // Store the generated ID within the document
         title: values.description,
         amount: values.amount,
         currency: values.currency,
         projectId: values.projectId,
         projectName: selectedProject.name,
-        paidById: payerProfile.id, // Use UID
-        paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu", // Use name from profile
+        paidById: payerProfile.id, 
+        paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu", 
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-        receiptUrl: receiptDownloadUrl === undefined ? null : receiptDownloadUrl, // Ensure null not undefined
+        receiptUrl: receiptDownloadUrl === undefined ? null : receiptDownloadUrl,
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
       };
 
       console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
-      // This will be the ID of the newly created expense document
-      // const expenseDocRef = await addDoc(collection(db, "expenses"), newExpenseDocData);
-
-      // Transaction to add expense and update project
       await runTransaction(db, async (transaction) => {
-        // 1. Add the new expense document
-        const expenseCollectionRef = collection(db, "expenses");
-        const newExpenseRef = doc(expenseCollectionRef); // Create a new doc ref for expense
-        transaction.set(newExpenseRef, newExpenseDocData);
-
-
-        // 2. Update the project document
+        // 1. READ the project document FIRST
         const projectRef = doc(db, "projects", selectedProject.id);
-        const projectDoc = await transaction.get(projectRef); // Get project doc within transaction
+        const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw "Project document does not exist!";
         }
-        const currentTotalExpenses = projectDoc.data().totalExpenses || 0;
+        const projectData = projectDoc.data() as Project;
+
+        // 2. Prepare project update data based on the read data
+        const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
         if (isNaN(expenseAmount)) {
             throw "Invalid expense amount for project total calculation.";
@@ -341,20 +338,27 @@ export default function NewExpensePage() {
         const newTotalExpenses = currentTotalExpenses + expenseAmount;
 
         const recentExpenseSummary = {
-          id: newExpenseRef.id, // Use the ID of the new expense document
+          id: newExpenseRef.id, 
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate),
           amount: expenseAmount,
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
+        
+        const updatedRecentExpenses = [...(projectData.recentExpenses || []), recentExpenseSummary];
 
-        // Prepare project update object
+
         const projectUpdateData: Partial<Project> = {
             totalExpenses: newTotalExpenses,
-            recentExpenses: arrayUnion(recentExpenseSummary),
-            lastActivity: serverTimestamp(), // serverTimestamp() for atomic update
-            updatedAt: serverTimestamp(),   // serverTimestamp() for atomic update
+            recentExpenses: updatedRecentExpenses,
+            lastActivity: serverTimestamp(),
+            updatedAt: serverTimestamp(),
         };
+
+        // 3. WRITE the new expense document
+        transaction.set(newExpenseRef, newExpenseDocData);
+        
+        // 4. UPDATE the project document
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -656,3 +660,4 @@ export default function NewExpensePage() {
     </div>
   );
 }
+
