@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -18,7 +19,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  // AlertDialogTrigger, // No longer needed here for the table button
 } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,7 @@ const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
 
 export default function ExpensesPage() {
   const { currentUser, loading: authLoading } = useAuth();
+  const router = useRouter(); // Initialize useRouter
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [allExpenses, setAllExpenses] = useState<ExpenseItem[]>([]);
@@ -101,28 +102,12 @@ export default function ExpensesPage() {
     setIsLoadingExpenses(true);
     try {
       const expensesCollectionRef = collection(db, "expenses");
-      // Fetch expenses related to projects the user is a member of
-      // This requires knowing which projects the user is part of.
-      // For simplicity, if projects are already loaded, we can filter by those project IDs.
-      // A more robust solution might involve querying expenses where createdBy is user.uid OR projectId is in user's project list.
-      // For now, let's fetch all expenses and filter client-side based on projects loaded for the user.
-      // This is not ideal for large datasets but works for smaller ones.
-      // A better way: fetch projects, then make specific queries for expenses for those projects.
-      // Or if rules allow, query where 'memberIds' (if such field existed in expense) contains user.uid
       
-      // Fetching all expenses if user is admin, otherwise filter.
-      // This logic might need adjustment based on final data access patterns for expenses.
-      // For now, let's assume a user can see all expenses of projects they are part of.
-      // This means we first need to know the user's projects.
-      
-      // If projects are not loaded yet, or no projects, this will fetch nothing or all (if rules permit)
       if (projects.length > 0) {
         const projectIds = projects.map(p => p.id);
         if (projectIds.length > 0) {
-          // Firestore 'in' query is limited to 30 items in the array.
-          // If a user is part of more than 30 projects, this needs chunking.
           const expenseQueries = [];
-          const chunkSize = 30; // Firestore 'in' query limit
+          const chunkSize = 30; 
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
                 expenseQueries.push(getDocs(query(expensesCollectionRef, where("projectId", "in", chunk))));
@@ -137,21 +122,10 @@ export default function ExpensesPage() {
             setAllExpenses(expensesList);
 
         } else {
-            setAllExpenses([]); // No projects, so no expenses to show based on project membership
+            setAllExpenses([]); 
         }
-      } else if (!isLoadingProjects) { // Projects loaded, but user has none
+      } else if (!isLoadingProjects) { 
          setAllExpenses([]);
-      } else {
-        // Fallback: if projects are still loading, perhaps fetch expenses created by user?
-        // Or wait for projects to load. For now, an empty list until projects are clear.
-        // const q = query(expensesCollectionRef, where("createdBy", "==", currentUser.uid));
-        // const expenseSnapshot = await getDocs(q);
-        // const expensesList = expenseSnapshot.docs.map(doc => ({
-        //   id: doc.id, ...doc.data(),
-        // } as ExpenseItem));
-        // setAllExpenses(expensesList);
-        // This part can be refined based on desired behavior when projects are loading.
-        // For now, we'll rely on the projects list to define which expenses to fetch.
       }
 
 
@@ -177,7 +151,6 @@ export default function ExpensesPage() {
     if (currentUser && projects.length > 0 && !isLoadingProjects) {
       fetchExpenses();
     } else if (currentUser && !isLoadingProjects && projects.length === 0) {
-      // User has no projects, so no expenses to fetch based on project membership
       setAllExpenses([]);
       setIsLoadingExpenses(false);
     }
@@ -225,7 +198,7 @@ export default function ExpensesPage() {
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
-          totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses, // Ensure it doesn't go negative
+          totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
           recentExpenses: updatedRecentExpenses,
           lastActivity: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -252,6 +225,10 @@ export default function ExpensesPage() {
   
   const openDeleteConfirmDialog = (expenseItem: ExpenseItem) => {
     setExpenseToDelete(expenseItem);
+  };
+
+  const handleEditExpense = (expenseId: string) => {
+    router.push(`/expenses/${expenseId}/edit`);
   };
 
   if (authLoading || !currentUser) {
@@ -360,7 +337,7 @@ export default function ExpensesPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => toast({ title: "Fonctionnalité à venir", description: "La modification des dépenses sera bientôt disponible."})}>
+                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
                             <span className="sr-only">Modifier</span>
                         </Button>
@@ -405,4 +382,3 @@ export default function ExpensesPage() {
     </div>
   );
 }
-
