@@ -45,32 +45,31 @@ service cloud.firestore {
     match /projects/{projectId} {
       // ANY authenticated user can create a project.
       // The creator (request.auth.uid) MUST be the ownerId and a member.
-      // Required fields: name, ownerId, members, status, createdAt, updatedAt.
+      // Required fields: name, ownerId, members, status, createdAt, updatedAt, lastActivity.
       allow create: if request.auth != null &&
                        request.resource.data.ownerId == request.auth.uid &&
                        request.auth.uid in request.resource.data.members &&
                        request.resource.data.name is string && !request.resource.data.name.isEmpty() &&
                        request.resource.data.status is string &&
                        request.resource.data.createdAt == request.time &&
-                       request.resource.data.updatedAt == request.time;
+                       request.resource.data.updatedAt == request.time &&
+                       request.resource.data.lastActivity == request.time; // Added lastActivity check
 
       // Admin can read any project.
       // A user can read a project if they are an owner or a member.
       allow read: if isAdmin() || isProjectParticipant(projectId);
 
-      // Admin can update any project.
-      // The project owner can update the project.
-      // A project participant can update specific fields related to expense tracking.
+      // Update rules for projects
       allow update: if request.auth != null && (
-                        isAdmin() ||
-                        ( // Owner can update most fields
+                        isAdmin() || // Admin can update anything (respecting updatedAt)
+                        ( // Owner can update more fields
                           request.auth.uid == resource.data.ownerId &&
                           request.resource.data.updatedAt == request.time &&
-                          // ownerId and createdAt cannot be changed by the owner after creation
-                          request.resource.data.ownerId == resource.data.ownerId &&
-                          request.resource.data.createdAt == resource.data.createdAt
+                          // Owner cannot change ownerId or createdAt
+                          (!request.resource.data.keys().has('ownerId') || request.resource.data.ownerId == resource.data.ownerId) &&
+                          (!request.resource.data.keys().has('createdAt') || request.resource.data.createdAt == resource.data.createdAt)
                         ) ||
-                        ( // Project participant can ONLY update expense tracking fields when adding an expense
+                        ( // Project participant can ONLY update expense tracking fields and their own specific data
                           isProjectParticipant(projectId) &&
                           request.resource.data.updatedAt == request.time && // Timestamps must be server-set
                           request.resource.data.lastActivity == request.time && // Timestamps must be server-set
@@ -84,7 +83,7 @@ service cloud.firestore {
                           request.resource.data.members == resource.data.members &&
                           request.resource.data.tags == resource.data.tags &&
                           request.resource.data.notes == resource.data.notes
-                          // totalExpenses and recentExpenses are implicitly allowed to change by not being checked for equality here.
+                          // totalExpenses and recentExpenses are implicitly allowed to change if not listed above
                         )
                       );
 
