@@ -318,10 +318,12 @@ export default function DashboardPage() {
 
   const fetchAndProcessExpensesForChart = useCallback(async () => {
     console.log("Chart: fetchAndProcessExpensesForChart called. SelectedProjectId:", selectedProjectId, "isLoadingUserProfiles:", isLoadingUserProfiles);
-    if (!currentUser || isLoadingUserProfiles || projects.length === 0 && selectedProjectId === 'all') { // Wait for profiles if they are needed
-      console.log("Chart: Bailing early. currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles);
+    console.log("Chart: Current allUserProfiles:", JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
+
+    if (!currentUser || isLoadingUserProfiles || (projects.length === 0 && selectedProjectId === 'all' && !isLoadingProjects)) {
+      console.log("Chart: Bailing early. currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles, "projects.length === 0 && selectedProjectId === 'all' && !isLoadingProjects:", (projects.length === 0 && selectedProjectId === 'all' && !isLoadingProjects));
       if(projects.length === 0 && selectedProjectId === 'all' && !isLoadingProjects) {
-        setExpenseChartData([]); // No projects, so no chart data
+        setExpenseChartData([]);
         setIsLoadingExpenseChartData(false);
       }
       return;
@@ -354,7 +356,7 @@ export default function DashboardPage() {
 
       const aggregatedExpenses: { [paidById: string]: number } = {};
       fetchedExpenses.forEach(expense => {
-        if (expense.paidById) { // Ensure paidById exists
+        if (expense.paidById) { 
             aggregatedExpenses[expense.paidById] = (aggregatedExpenses[expense.paidById] || 0) + expense.amount;
         }
       });
@@ -362,10 +364,11 @@ export default function DashboardPage() {
 
       const formattedChartData = Object.entries(aggregatedExpenses).map(([paidById, totalAmount]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
-        const userName = user?.name || paidById; // Fallback to UID if name not found
+        const userName = user?.name || paidById; 
+        console.log(`Chart: Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}`);
         return {
           user: userName,
-          Dépenses: totalAmount * 100, // Convert to cents for chart display
+          Dépenses: totalAmount * 100, 
         };
       });
       console.log("Chart: Final formattedChartData:", formattedChartData);
@@ -409,7 +412,7 @@ export default function DashboardPage() {
          setAllUserProfiles([]);
          setIsLoadingUserProfiles(false); 
     }
-  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles, fetchSelectedProjectMembersProfiles]); 
+  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles, fetchSelectedProjectMembersProfiles, selectedProjectId]); // Added selectedProjectId
 
   useEffect(() => {
     // This effect handles fetching project members when a non-admin selects a specific project.
@@ -418,18 +421,20 @@ export default function DashboardPage() {
         fetchSelectedProjectMembersProfiles(selectedProjectId);
     } else if (currentUser && !isAdmin && selectedProjectId === 'all') {
         console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to 'all'. Setting minimal profiles (self).`);
-        setIsLoadingUserProfiles(false); // Ensure loading state is reset
+        setIsLoadingUserProfiles(false); 
         setAllUserProfiles(userProfile ? [userProfile] : []);
     }
   }, [selectedProjectId, currentUser, isAdmin, userProfile, fetchSelectedProjectMembersProfiles]);
 
   useEffect(() => {
     // This effect is dedicated to fetching and processing chart data.
-    // It runs when selectedProjectId changes or when fetchAndProcessExpensesForChart itself changes (due to its dependencies like allUserProfiles).
-    if (currentUser && !isLoadingProjects) { // Ensure projects are loaded before attempting to process chart data
+    if (currentUser && !isLoadingProjects && !isLoadingUserProfiles) { 
+        console.log("DashboardPage: useEffect (chart data) - Conditions met. Calling fetchAndProcessExpensesForChart.");
         fetchAndProcessExpensesForChart();
+    } else {
+        console.log("DashboardPage: useEffect (chart data) - Conditions NOT met. currentUser:", !!currentUser, "isLoadingProjects:", isLoadingProjects, "isLoadingUserProfiles:", isLoadingUserProfiles);
     }
-  }, [selectedProjectId, fetchAndProcessExpensesForChart, currentUser, isLoadingProjects]);
+  }, [selectedProjectId, fetchAndProcessExpensesForChart, currentUser, isLoadingProjects, isLoadingUserProfiles, allUserProfiles]); // Added allUserProfiles
 
 
   const handleLogout = async () => {
