@@ -53,7 +53,7 @@ import type { ChartConfig } from '@/components/ui/chart';
 import type { Project, User as AppUserType } from '@/data/mock-data';
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, Timestamp, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, Timestamp, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -88,10 +88,6 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
 interface DisplayExpenseItem extends ExpenseItem {
   displayIcon: React.ElementType;
 }
-
-const SidebarGroupContent: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  return <div className="space-y-2">{children}</div>;
-};
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
   if (!timestamp) return 'N/A';
@@ -140,8 +136,8 @@ export default function DashboardPage() {
   const [recentGlobalExpenses, setRecentGlobalExpenses] = useState<DisplayExpenseItem[]>([]);
   const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
-  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]);
-  const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true);
+  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]); 
+  const [isLoadingUserProfiles, setIsLoadingUserProfiles] = useState(true); 
   const { toast } = useToast();
 
   useEffect(() => {
@@ -193,12 +189,14 @@ export default function DashboardPage() {
     setIsLoadingRecentExpenses(true);
     try {
         const expensesRef = collection(db, "expenses");
-        const q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
+        // For now, only fetch expenses created by the current user for the "Recent Global Expenses"
+        // or adjust query based on your app's logic (e.g., all expenses if admin, or expenses from user's projects)
+        const q = query(expensesRef, where("createdBy", "==", currentUser.uid), orderBy("createdAt", "desc"), limit(5));
         const querySnapshot = await getDocs(q);
         const fetchedExpenses = querySnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            displayIcon: Icons.fileText,
+            displayIcon: Icons.fileText, // Default icon
         } as DisplayExpenseItem));
         setRecentGlobalExpenses(fetchedExpenses);
     } catch (error) {
@@ -214,15 +212,25 @@ export default function DashboardPage() {
   }, [currentUser, toast]);
 
   const fetchAllUserProfiles = useCallback(async () => {
+    // This function is intended to be called only by admins or for specific, limited purposes.
+    // If !isAdmin, it will now set only the current user's profile or an empty array.
     if (!currentUser) {
       console.warn("DashboardPage: fetchAllUserProfiles called without currentUser.");
       setIsLoadingUserProfiles(false);
       setAllUserProfiles([]);
       return;
     }
+
+    if (!isAdmin) {
+      console.log("DashboardPage: fetchAllUserProfiles - Not admin. Setting minimal profiles (self or empty).");
+      setIsLoadingUserProfiles(false);
+      setAllUserProfiles(userProfile ? [userProfile] : []);
+      return;
+    }
+    
     setIsLoadingUserProfiles(true);
+    console.log("DashboardPage: fetchAllUserProfiles - Admin is fetching all user profiles.");
     try {
-      console.log("DashboardPage: Fetching all user profiles.");
       const usersCollectionRef = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
@@ -230,41 +238,127 @@ export default function DashboardPage() {
         ...docSnap.data(),
       } as AppUserType));
       setAllUserProfiles(usersList);
-      console.log("DashboardPage: Successfully fetched allUserProfiles:", JSON.stringify(usersList.map(u => ({id: u.id, name: u.name}))));
+      console.log("DashboardPage: Successfully fetched allUserProfiles (Admin):", JSON.stringify(usersList.map(u => ({id: u.id, name: u.name}))));
     } catch (error) {
-      console.error("Erreur lors de la récupération des profils utilisateurs (Dashboard): ", error);
+      console.error("Erreur lors de la récupération de tous les profils utilisateurs (Dashboard - Admin): ", error);
       toast({
-        title: "Erreur de chargement",
-        description: "Impossible de charger les profils utilisateurs pour les balances.",
+        title: "Erreur de chargement (Admin)",
+        description: "Impossible de charger tous les profils utilisateurs.",
         variant: "destructive",
       });
       setAllUserProfiles([]); 
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, isAdmin, userProfile, toast]);
+
+  const fetchSelectedProjectMembersProfiles = useCallback(async (projectId: string) => {
+    if (!currentUser || !projectId || projectId === 'all') {
+      console.warn("DashboardPage: fetchSelectedProjectMembersProfiles called with invalid projectId or no currentUser.");
+      setIsLoadingUserProfiles(false);
+      setAllUserProfiles(userProfile ? [userProfile] : []); 
+      return;
+    }
+    setIsLoadingUserProfiles(true);
+    console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Fetching members for project ID: ${projectId}`);
+    try {
+      const projectRef = doc(db, "projects", projectId);
+      const projectSnap = await getDoc(projectRef);
+
+      if (!projectSnap.exists()) {
+        console.warn(`DashboardPage: fetchSelectedProjectMembersProfiles - Project with ID ${projectId} not found.`);
+        toast({ title: "Erreur", description: `Projet ${projectId} non trouvé.`, variant: "destructive" });
+        setAllUserProfiles(userProfile ? [userProfile] : []); 
+        setIsLoadingUserProfiles(false);
+        return;
+      }
+
+      const projectData = projectSnap.data() as Project;
+      const memberUIDs = projectData.members || [];
+      console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Project "${projectData.name}" members UIDs: ${memberUIDs.join(', ')}`);
+
+      if (memberUIDs.length === 0) {
+        console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Project "${projectData.name}" has no members. Setting user profiles accordingly.`);
+        setAllUserProfiles(userProfile && memberUIDs.includes(userProfile.id) ? [userProfile] : []);
+        setIsLoadingUserProfiles(false);
+        return;
+      }
+
+      const fetchedMemberProfiles: AppUserType[] = [];
+      for (const uid of memberUIDs) {
+        console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Attempting to fetch profile for UID: ${uid}`);
+        try {
+          const userDocRef = doc(db, "users", uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            const profileData = { id: userDocSnap.id, ...userDocSnap.data() } as AppUserType;
+            fetchedMemberProfiles.push(profileData);
+            console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Profile fetched for UID ${uid}:`, JSON.stringify(profileData));
+          } else {
+            console.warn(`DashboardPage: fetchSelectedProjectMembersProfiles - Profile for UID ${uid} not found in 'users' collection.`);
+          }
+        } catch (profileError) {
+            console.error(`DashboardPage: fetchSelectedProjectMembersProfiles - Error fetching profile for UID ${uid}:`, profileError);
+        }
+      }
+      
+      setAllUserProfiles(fetchedMemberProfiles);
+      console.log(`DashboardPage: Successfully fetched ${fetchedMemberProfiles.length} member profiles for selected project "${projectData.name}":`, JSON.stringify(fetchedMemberProfiles.map(u => ({id: u.id, name: u.name}))));
+
+    } catch (error) {
+      console.error("Erreur lors de la récupération des profils des membres du projet sélectionné (Dashboard): ", error);
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les profils des membres du projet sélectionné.",
+        variant: "destructive",
+      });
+      setAllUserProfiles(userProfile ? [userProfile] : []); 
+    } finally {
+      setIsLoadingUserProfiles(false);
+    }
+  }, [currentUser, userProfile, toast]);
+
 
   useEffect(() => {
     if (currentUser) {
+      console.log("DashboardPage: useEffect (main) - currentUser exists. isAdmin from context:", isAdmin);
       fetchProjects();
       fetchRecentGlobalExpenses();
-      console.log(`DashboardPage: useEffect - currentUser exists. isAdmin: ${isAdmin}`);
+
       if (isAdmin) {
-        console.log("DashboardPage: useEffect - Calling fetchAllUserProfiles because isAdmin is true.");
-        fetchAllUserProfiles();
-      } else {
-        console.log("DashboardPage: useEffect - Not admin or isAdmin status pending. Providing minimal profiles.");
-        if (userProfile) {
-          setAllUserProfiles([userProfile]);
-           console.log("DashboardPage: useEffect - Set allUserProfiles for non-admin with userProfile:", JSON.stringify([userProfile].map(u => ({id: u.id, name: u.name}))));
-        } else {
-          setAllUserProfiles([]);
-          console.log("DashboardPage: useEffect - Set allUserProfiles to empty for non-admin (no userProfile).");
+        console.log("DashboardPage: useEffect (main) - Admin is fetching all user profiles.");
+        fetchAllUserProfiles(); 
+      } else { 
+        console.log("DashboardPage: useEffect (main) - Not admin. Profile handling based on selectedProjectId.");
+        if (!selectedProjectId || selectedProjectId === 'all') {
+          console.log("DashboardPage: useEffect (main) - Non-admin, 'All Projects' or no project selected. Setting minimal profiles (self).");
+          setIsLoadingUserProfiles(false);
+          setAllUserProfiles(userProfile ? [userProfile] : []); 
+        } else { 
+           console.log(`DashboardPage: useEffect (main) - Non-admin, specific project "${selectedProjectId}" is initially selected. Triggering member profile fetch.`);
+           fetchSelectedProjectMembersProfiles(selectedProjectId);
         }
+      }
+    } else {
+         console.log("DashboardPage: useEffect (main) - currentUser is null. Clearing profiles.");
+         setAllUserProfiles([]);
+         setIsLoadingUserProfiles(false); 
+    }
+  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]); 
+
+  useEffect(() => {
+    if (currentUser && !isAdmin && selectedProjectId) { 
+      if (selectedProjectId === 'all') {
+        console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to 'all'. Setting minimal profiles (self).`);
         setIsLoadingUserProfiles(false);
+        setAllUserProfiles(userProfile ? [userProfile] : []);
+      } else {
+        console.log(`DashboardPage: useEffect (selectedProjectId change) - Non-admin, selectedProjectId changed to: ${selectedProjectId}. Fetching its members.`);
+        fetchSelectedProjectMembersProfiles(selectedProjectId);
       }
     }
-  }, [currentUser, userProfile, isAdmin, fetchProjects, fetchRecentGlobalExpenses, fetchAllUserProfiles]);
+  }, [selectedProjectId, currentUser, isAdmin, userProfile, fetchSelectedProjectMembersProfiles]);
+
 
   const handleLogout = async () => {
     try {
@@ -370,20 +464,18 @@ export default function DashboardPage() {
               <Separator className="my-4" />
               <SidebarGroup>
                 <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                <SidebarMenu>
+                    <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
                         <Link href="/users"><Icons.users /> Utilisateurs</Link>
-                      </SidebarMenuButton>
+                    </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
+                    <SidebarMenuButton asChild>
                         <Link href="/admin"><Icons.settings /> Gestion Projets (Admin)</Link>
-                      </SidebarMenuButton>
+                    </SidebarMenuButton>
                     </SidebarMenuItem>
-                  </SidebarMenu>
-                </SidebarGroupContent>
+                </SidebarMenu>
               </SidebarGroup>
             </>
           )}
@@ -400,7 +492,7 @@ export default function DashboardPage() {
           <SidebarTrigger><Icons.chevronsLeft /></SidebarTrigger>
           <div className="relative flex-1">
             <Icons.search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Rechercher..." className="pl-10 w-full md:w-1/3 lg:w-1/4" />
+            <Input placeholder="Rechercher..." className="pl-10 w-full md:w-1/3 lg:w-1/4" data-ai-hint="search input"/>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" className="rounded-full">
@@ -454,7 +546,7 @@ export default function DashboardPage() {
             <div className="w-full sm:w-auto sm:min-w-[250px] md:min-w-[300px] space-y-1.5 bg-card p-4 rounded-lg shadow">
              <Label htmlFor="project-filter-select" className="text-sm font-medium text-card-foreground/80">Filtrer par projet</Label>
               <Select value={selectedProjectId} onValueChange={setSelectedProjectId} disabled={isLoadingProjects}>
-                <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base bg-background">
+                <SelectTrigger id="project-filter-select" className="w-full py-2.5 text-base bg-background" data-ai-hint="project filter">
                   <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Sélectionner un projet"} />
                 </SelectTrigger>
                 <SelectContent>
@@ -554,4 +646,3 @@ export default function DashboardPage() {
 }
 
     
-
