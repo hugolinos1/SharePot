@@ -55,11 +55,11 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
-  receiptUrl?: string | null; // Can be null
-  receiptStoragePath?: string | null; // Store the full path in Storage
+  receiptUrl?: string | null; 
+  receiptStoragePath?: string | null; 
   createdAt?: Timestamp;
   createdBy: string;
-  updatedAt?: Timestamp; // Added for edit page
+  updatedAt?: Timestamp; 
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
@@ -90,8 +90,11 @@ export default function ExpensesPage() {
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
+      console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
-      setIsLoadingProjects(false);
+      setAllExpenses([]);
+      setIsLoadingProjects(true); 
+      setIsLoadingExpenses(true);
       return;
     }
     setIsLoadingProjects(true);
@@ -136,7 +139,7 @@ export default function ExpensesPage() {
 
         if (projectIds.length > 0) {
           let expensesList: ExpenseItem[] = [];
-          const chunkSize = 30;
+          const chunkSize = 30; // Firestore 'in' query limit is 30
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
                 if (chunk.length > 0) {
@@ -169,7 +172,7 @@ export default function ExpensesPage() {
       setIsLoadingExpenses(false);
       console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, projects, toast, isLoadingProjects]); 
+  }, [currentUser, projects, toast]); 
 
   useEffect(() => {
     if (currentUser) {
@@ -199,7 +202,7 @@ export default function ExpensesPage() {
         console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        if (!isLoadingProjects) {
+        if (!isLoadingProjects && !currentUser) { // Ensure data is cleared if user logs out and projects were loaded
             setAllExpenses([]);
             setIsLoadingExpenses(false);
         }
@@ -237,7 +240,6 @@ export default function ExpensesPage() {
       const expenseRef = doc(db, "expenses", expenseToDelete.id);
       const projectRef = doc(db, "projects", expenseToDelete.projectId);
 
-      // Delete receipt from Storage if path exists
       if (expenseToDelete.receiptStoragePath) {
         try {
           const receiptFileRef = ref(storage, expenseToDelete.receiptStoragePath);
@@ -245,7 +247,6 @@ export default function ExpensesPage() {
           console.log("Justificatif supprimé de Firebase Storage.");
         } catch (storageError: any) {
           console.warn("Erreur lors de la suppression du justificatif de Storage: ", storageError.code, storageError.message);
-          // Continue with Firestore deletion even if storage deletion fails
         }
       }
 
@@ -259,7 +260,7 @@ export default function ExpensesPage() {
 
         const updatedRecentExpenses = (projectData.recentExpenses || []).filter(
           (expSummary) => expSummary.id !== expenseToDelete.id
-        ).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5); // Sort and keep last 5
+        ).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5);
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
@@ -394,7 +395,9 @@ export default function ExpensesPage() {
                         </TableCell>
                     </TableRow>
                 )}
-                {!isLoadingExpenses && filteredExpenses.map((expense) => (
+                {!isLoadingExpenses && filteredExpenses.map((expense) => {
+                  console.log("Rendering expense in table:", JSON.stringify(expense, null, 2)); // ADDED LOG
+                  return (
                   <TableRow key={expense.id}>
                     <TableCell className="font-medium">{expense.title}</TableCell>
                     <TableCell className="text-muted-foreground">{expense.projectName}</TableCell>
@@ -443,7 +446,7 @@ export default function ExpensesPage() {
                           </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                )})}
                 {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && ( 
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32">
