@@ -54,12 +54,16 @@ export default function ProjectCreatePage() {
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    console.log("[ProjectCreatePage onSubmit] currentUser:", currentUser);
+    console.log("[ProjectCreatePage onSubmit] Form values:", values);
+
     if (!currentUser) {
       toast({
         title: "Erreur d'authentification",
         description: "Vous devez être connecté pour créer un projet.",
         variant: "destructive",
       });
+      setIsLoading(false); // Assurez-vous de réinitialiser isLoading
       return;
     }
     setIsLoading(true);
@@ -68,17 +72,26 @@ export default function ProjectCreatePage() {
         name: values.name,
         description: values.description || "",
         budget: values.budget || 0,
-        status: 'Actif', 
+        status: 'Actif',
         totalExpenses: 0,
-        lastActivity: serverTimestamp(), // Initialisation de la dernière activité
-        members: [currentUser.uid], // L'utilisateur connecté est le premier membre (avec son UID)
-        ownerId: currentUser.uid, 
+        lastActivity: serverTimestamp(),
+        members: [currentUser.uid],
+        ownerId: currentUser.uid,
         recentExpenses: [],
         notes: '',
-        tags: [], 
+        tags: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+
+      console.log("[ProjectCreatePage onSubmit] Data to be saved to Firestore:", newProjectData);
+      console.log("[ProjectCreatePage onSubmit] Checking conditions for Firestore rules:");
+      console.log(`  - request.auth.uid == newProjectData.ownerId: ${currentUser.uid === newProjectData.ownerId}`);
+      console.log(`  - request.auth.uid in newProjectData.members: ${newProjectData.members.includes(currentUser.uid)}`);
+      console.log(`  - newProjectData.name is string and not empty: ${typeof newProjectData.name === 'string' && newProjectData.name.length > 0}`);
+      console.log(`  - newProjectData.status is string: ${typeof newProjectData.status === 'string'}`);
+
+
       await addDoc(collection(db, "projects"), newProjectData);
       toast({
         title: "Projet créé",
@@ -154,10 +167,10 @@ export default function ProjectCreatePage() {
               <FormItem>
                 <FormLabel>Budget (€)</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="number" 
-                    placeholder="0.00" 
-                    {...field} 
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    {...field}
                     step="0.01"
                     data-ai-hint="project budget" />
                 </FormControl>
