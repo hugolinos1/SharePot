@@ -3,58 +3,13 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Helper function to check if the user is a participant (member or owner) of a project
-    // It checks Firestore for project membership.
-    function isProjectParticipant(projectId) {
-      let projectPath = /databases/$(database)/documents/projects/$(projectId);
-      // Ensure the project document exists and the user is either the owner or in the members array.
-      return exists(projectPath) &&
-             (request.auth.uid == get(projectPath).data.ownerId ||
-              request.auth.uid in get(projectPath).data.members);
-    }
-
-    // Rules for receipt files
-    // Receipts are stored under: receipts/{projectId}/{expenseId}/{fileName}
-    match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Allow create (upload) if:
-      // 1. User is authenticated.
-      // 2. File is an image.
-      // 3. File size is less than 5MB.
-      // 4. User is a participant of the project specified in the path.
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 &&
-                       request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId);
-
-      // Allow read if:
-      // 1. User is authenticated.
-      // 2. User is a participant of the project.
-      allow read: if request.auth != null && isProjectParticipant(projectId);
-
-      // Allow delete if:
-      // 1. User is authenticated.
-      // 2. The corresponding expense document exists in Firestore.
-      // 3. The expense document's projectId matches the projectId in the Storage path.
-      // 4. The user is either the creator of the expense OR the owner of the project.
-      allow delete: if request.auth != null &&
-                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
-                       (
-                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         (
-                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
-                         )
-                       );
-
-      // Updates are generally handled as delete then create, so explicit update rules are often not needed
-      // unless you want to allow metadata changes without re-uploading.
-      allow update: if false; // Disallow direct updates for simplicity, users re-upload.
-    }
-
-    // Default rule: Deny all other reads and writes if not explicitly allowed.
+    // TEST: Autoriser toutes les lectures et écritures par n'importe quel utilisateur authentifié
+    // pour des images de moins de 5Mo.
+    // ATTENTION : RÈGLES TRÈS PERMISSIVES POUR DIAGNOSTIC UNIQUEMENT.
     match /{allPaths=**} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null &&
+                           request.resource.size < 5 * 1024 * 1024 &&
+                           request.resource.contentType.matches('image/.*');
     }
   }
 }
