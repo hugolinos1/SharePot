@@ -10,6 +10,7 @@ import * as z from 'zod';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"; // Firebase Storage
 
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +23,6 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-// import { Textarea } from '@/components/ui/textarea'; // No longer used for description, using Input
 import {
   Select,
   SelectContent,
@@ -40,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase'; // Import storage
 import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, runTransaction, getDoc, query, where } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
@@ -58,7 +58,7 @@ const expenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  receipt: z.instanceof(File).optional().nullable(), // Updated for single file
+  receipt: z.instanceof(File).optional().nullable(),
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -79,7 +79,7 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number, // Keep as empty string for controlled input
+      amount: '' as unknown as number,
       currency: 'EUR',
       projectId: '',
       paidById: '',
@@ -102,7 +102,7 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || ('' as unknown as number), // Ensure amount is reset correctly
+        amount: form.getValues('amount') || ('' as unknown as number),
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
@@ -111,7 +111,7 @@ export default function NewExpensePage() {
         receipt: form.getValues('receipt') || null,
       });
     }
-  }, [currentUser, form, authLoading]); // Added authLoading to dependencies
+  }, [currentUser, form, authLoading]);
 
 
   const fetchProjects = useCallback(async () => {
@@ -119,7 +119,6 @@ export default function NewExpensePage() {
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
-      // Query projects where the current user is a member
       const q = query(projectsCollection, where("members", "array-contains", currentUser.uid));
       const projectSnapshot = await getDocs(q);
       const projectsList = projectSnapshot.docs.map(doc => ({
@@ -148,7 +147,6 @@ export default function NewExpensePage() {
   useEffect(() => {
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
       if (!currentUser || !projectId) {
-        // If no project selected, default to current user if profile exists
         setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
         if (currentUser && !form.getValues('paidById')) {
             form.setValue('paidById', currentUser.uid);
@@ -166,7 +164,6 @@ export default function NewExpensePage() {
           const memberUIDs = projectData.members || [];
 
           if (memberUIDs.length > 0) {
-            // Fetch profiles for each member UID
             const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
             const userDocs = await Promise.all(userPromises);
             fetchedProjectMembers = userDocs
@@ -177,36 +174,27 @@ export default function NewExpensePage() {
           toast({ title: "Erreur", description: "Projet non trouvé pour charger les membres payeurs.", variant: "destructive" });
         }
         
-        // Ensure unique members by ID and prioritize current user if present
         const uniqueMemberMap = new Map<string, AppUserType>();
-        if (userProfile && fetchedProjectMembers.some(m => m.id === userProfile.id)) {
-            uniqueMemberMap.set(userProfile.id, userProfile);
-        } else if (userProfile) {
-             // If current user not in fetched members (but should be if they created the project/are a member)
-            // This case might indicate project.members array is not up-to-date or userProfile is out of sync
-            // For safety, add current user if they have a profile
-            // uniqueMemberMap.set(userProfile.id, userProfile);
-        } else if (currentUser && !userProfile && fetchedProjectMembers.some(m => m.id === currentUser.uid)) {
-            // If no full userProfile, but currentUser is a member, find their basic data
-            const currentMemberData = fetchedProjectMembers.find(m => m.id === currentUser.uid);
-            if(currentMemberData) uniqueMemberMap.set(currentUser.uid, currentMemberData);
-
-        } else if (currentUser && !userProfile) {
-            // Fallback: create a very basic profile for current user if no profile and not in fetched members
-            // uniqueMemberMap.set(currentUser.uid, {id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''});
-        }
-
-
         fetchedProjectMembers.forEach(member => {
             if(!uniqueMemberMap.has(member.id)) {
                 uniqueMemberMap.set(member.id, member);
             }
         });
+         // Ensure current user is in the list if they are a member of the project
+        if (currentUser && fetchedProjectMembers.some(m => m.id === currentUser.uid) && !uniqueMemberMap.has(currentUser.uid)) {
+            const currentUserProfileForDropdown = userProfile || { id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || '' };
+            uniqueMemberMap.set(currentUser.uid, currentUserProfileForDropdown);
+        } else if (currentUser && !fetchedProjectMembers.some(m => m.id === currentUser.uid) && userProfile && projectId) {
+            // if current user is not in fetched members, but a project is selected (and they should be a member if they can select it)
+            // add them. This might happen if userProfile is loaded but project.members hasn't updated in cache yet.
+            // This is more of a fallback.
+             uniqueMemberMap.set(currentUser.uid, userProfile);
+        }
+
+
         const finalUsersList = Array.from(uniqueMemberMap.values());
         setUsersForDropdown(finalUsersList);
 
-
-        // Logic to set default paidById or validate existing one
         const currentPaidById = form.getValues('paidById');
         const currentUserIsAmongFetched = finalUsersList.some(u => u.id === currentUser?.uid);
 
@@ -216,7 +204,7 @@ export default function NewExpensePage() {
             } else if (finalUsersList.length > 0 && finalUsersList[0]) {
                 form.setValue('paidById', finalUsersList[0].id);
             } else {
-                 form.setValue('paidById', ''); // Or handle empty list case
+                 form.setValue('paidById', currentUser?.uid || ''); 
             }
         }
 
@@ -239,7 +227,6 @@ export default function NewExpensePage() {
     if (watchedProjectId) {
       fetchProjectMembersAndSetDropdown(watchedProjectId);
     } else {
-      // If no project is selected, clear users or set to current user only
       setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
        if (currentUser && !form.getValues('paidById')) {
          form.setValue('paidById', currentUser.uid);
@@ -254,8 +241,7 @@ export default function NewExpensePage() {
     console.log("[NewExpensePage onSubmit] Current userProfile from context:", userProfile);
     console.log("[NewExpensePage onSubmit] Current currentUser from context:", currentUser);
 
-
-    if (!currentUser || !userProfile) { // Ensure userProfile is also loaded for name
+    if (!currentUser || !userProfile) {
         toast({ title: "Utilisateur non connecté ou profil incomplet", description: "Veuillez vous connecter et vous assurer que votre profil est chargé.", variant: "destructive" });
         setIsSubmitting(false);
         return;
@@ -268,7 +254,6 @@ export default function NewExpensePage() {
     console.log("[NewExpensePage onSubmit] Selected Project:", selectedProject);
     console.log("[NewExpensePage onSubmit] Found Payer Profile (from usersForDropdown):", payerProfile);
 
-
     if (!selectedProject) {
         toast({ title: "Erreur de données", description: "Projet introuvable.", variant: "destructive" });
         setIsSubmitting(false);
@@ -280,30 +265,34 @@ export default function NewExpensePage() {
         return;
     }
 
-    let receiptDownloadUrl: string | undefined | null = undefined;
+    let receiptDownloadUrl: string | null = null;
+    const expenseCollectionRef = collection(db, "expenses");
+    const newExpenseRef = doc(expenseCollectionRef); // Generate a new ID for the expense
+
     if (values.receipt) {
-      // TODO: Implement file upload to Firebase Storage
-      // 1. Get a reference to Firebase Storage (import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";)
-      // 2. Create a storage reference (e.g., `receipts/${currentUser.uid}/${selectedProject.id}/${values.receipt.name}`)
-      // 3. Upload the file using `uploadBytes(storageRef, values.receipt)`
-      // 4. Get the download URL using `getDownloadURL(uploadTask.snapshot.ref)`
-      // 5. Assign it to `receiptDownloadUrl`
-      console.warn("File upload to Firebase Storage not implemented. Receipt will not be saved.");
-      toast({
-        title: "Téléversement non implémenté",
-        description: "Le justificatif n'a pas été sauvegardé car le téléversement vers Firebase Storage n'est pas encore implémenté.",
-        variant: "default",
-        duration: 7000,
-      });
-      // receiptDownloadUrl remains undefined as upload is not implemented
+      console.log("[NewExpensePage onSubmit] Receipt file selected:", values.receipt.name);
+      const fileName = `${Date.now()}-${values.receipt.name}`;
+      const storageRef = ref(storage, `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`);
+      try {
+        const uploadTask = await uploadBytes(storageRef, values.receipt);
+        receiptDownloadUrl = await getDownloadURL(uploadTask.ref);
+        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl);
+      } catch (uploadError) {
+        console.error("Erreur lors du téléversement du justificatif: ", uploadError);
+        toast({
+          title: "Erreur de téléversement",
+          description: "Impossible de sauvegarder le justificatif. La dépense sera créée sans.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      console.log("[NewExpensePage onSubmit] No receipt file selected.");
     }
 
-    try {
-      const expenseCollectionRef = collection(db, "expenses");
-      const newExpenseRef = doc(expenseCollectionRef); // Generate a new ID for the expense
 
+    try {
       const newExpenseDocData = {
-        id: newExpenseRef.id, // Store the generated ID within the document
+        id: newExpenseRef.id,
         title: values.description,
         amount: values.amount,
         currency: values.currency,
@@ -313,7 +302,7 @@ export default function NewExpensePage() {
         paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu", 
         expenseDate: Timestamp.fromDate(values.expenseDate),
         tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-        receiptUrl: receiptDownloadUrl === undefined ? null : receiptDownloadUrl,
+        receiptUrl: receiptDownloadUrl, // Use the URL from storage or null
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
       };
@@ -321,7 +310,6 @@ export default function NewExpensePage() {
       console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
       await runTransaction(db, async (transaction) => {
-        // 1. READ the project document FIRST
         const projectRef = doc(db, "projects", selectedProject.id);
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
@@ -329,7 +317,6 @@ export default function NewExpensePage() {
         }
         const projectData = projectDoc.data() as Project;
 
-        // 2. Prepare project update data based on the read data
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
         if (isNaN(expenseAmount)) {
@@ -345,7 +332,7 @@ export default function NewExpensePage() {
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
         
-        const updatedRecentExpenses = [...(projectData.recentExpenses || []), recentExpenseSummary];
+        const updatedRecentExpenses = [...(projectData.recentExpenses || []), recentExpenseSummary].slice(-5); // Keep only last 5
 
 
         const projectUpdateData: Partial<Project> = {
@@ -354,11 +341,8 @@ export default function NewExpensePage() {
             lastActivity: serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
-
-        // 3. WRITE the new expense document
-        transaction.set(newExpenseRef, newExpenseDocData);
         
-        // 4. UPDATE the project document
+        transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -369,17 +353,16 @@ export default function NewExpensePage() {
       });
       form.reset({
          description: '',
-         amount: '' as unknown as number, // Reset to empty string
+         amount: '' as unknown as number,
          currency: 'EUR',
          projectId: '',
-         paidById: currentUser?.uid || '', // Default to current user if available
+         paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
          receipt: null
       });
-      // Reset usersForDropdown based on whether a project was selected
       setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
-      router.push('/expenses'); // Or to project details page: /projects/${selectedProject.id}
+      router.push('/expenses');
     } catch (error: any) {
         console.error("Erreur lors de l'ajout de la dépense: ", error);
         toast({
@@ -392,7 +375,7 @@ export default function NewExpensePage() {
     }
   }
 
-  if (authLoading || !currentUser) { // Also check for currentUser to avoid rendering form for logged out state
+  if (authLoading || !currentUser) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Icons.loader className="h-12 w-12 animate-spin text-primary" />
@@ -521,7 +504,7 @@ export default function NewExpensePage() {
                     <FormLabel>Payé par</FormLabel>
                     <Select
                         onValueChange={field.onChange}
-                        value={field.value || ''} // Ensure value is not undefined
+                        value={field.value || ''}
                         disabled={isLoadingUsersForDropdown || !watchedProjectId}
                     >
                       <FormControl>
@@ -614,22 +597,19 @@ export default function NewExpensePage() {
               <FormField
                 control={form.control}
                 name="receipt"
-                render={({ field: { onChange, value, ...rest } }) => ( // `value` is handled internally by file input
+                render={({ field: { onChange, value, ...rest } }) => ( 
                   <FormItem>
                     <FormLabel>Justificatif (optionnel)</FormLabel>
                     <FormControl>
                       <Input
                         type="file"
-                        accept="image/*" // Accept only image files
+                        accept="image/*" 
                         onChange={(e) => onChange(e.target.files ? e.target.files[0] : null)}
                         className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                         data-ai-hint="receipt file upload"
-                        {...rest} // Pass other field props like name, ref, onBlur etc.
+                        {...rest} 
                       />
                     </FormControl>
-                     <FormDescription>
-                      Le téléversement de fichiers vers Firebase Storage n'est pas encore implémenté.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

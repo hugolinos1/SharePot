@@ -7,9 +7,10 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns"; // Removed parseISO as it's not used here
 import { fr } from "date-fns/locale";
 import { Timestamp, doc, getDoc, updateDoc, runTransaction, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"; // Firebase Storage
 
 import { Button } from '@/components/ui/button';
 import {
@@ -39,9 +40,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase'; // Import storage
 import { useAuth } from '@/contexts/AuthContext';
-import type { ExpenseItem } from '@/app/expenses/page'; // Assuming ExpenseItem is defined here
+import type { ExpenseItem } from '@/app/expenses/page';
 import Image from 'next/image';
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -56,8 +57,9 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  receipt: z.instanceof(File).optional().nullable(), // For new/replacement file
-  currentReceiptUrl: z.string().optional().nullable(), // To display current receipt
+  receipt: z.instanceof(File).optional().nullable(),
+  currentReceiptUrl: z.string().optional().nullable(),
+  currentReceiptStoragePath: z.string().optional().nullable(), // To store the full storage path for deletion
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -67,7 +69,7 @@ export default function EditExpensePage() {
   const params = useParams();
   const expenseId = params.expenseId as string;
   const { toast } = useToast();
-  const { currentUser, userProfile, loading: authLoading } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth(); // Removed userProfile as it's not directly used here
 
   const [isLoading, setIsLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -88,6 +90,7 @@ export default function EditExpensePage() {
       tags: '',
       receipt: null,
       currentReceiptUrl: null,
+      currentReceiptStoragePath: null,
     },
   });
 
@@ -137,8 +140,9 @@ export default function EditExpensePage() {
           paidById: expenseData.paidById,
           expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
-          receipt: null, // New file input starts empty
+          receipt: null,
           currentReceiptUrl: expenseData.receiptUrl || null,
+          currentReceiptStoragePath: expenseData.receiptStoragePath || null, // Populate storage path
         });
 
       } else {
@@ -175,20 +179,43 @@ export default function EditExpensePage() {
         return;
     }
 
-    let newReceiptUrl: string | undefined | null = originalExpense.receiptUrl;
-    if (values.receipt) {
-      // TODO: Implement file upload to Firebase Storage
-      // 1. If there's an old receiptUrl, delete the old file from Storage.
-      // 2. Upload the new file (values.receipt) to Storage.
-      // 3. Get the download URL and assign it to newReceiptUrl.
-      console.warn("File upload/replacement to Firebase Storage not implemented. Receipt URL will not be updated.");
-      toast({
-        title: "Téléversement non implémenté",
-        description: "Le justificatif n'a pas été mis à jour car le téléversement vers Firebase Storage n'est pas encore implémenté.",
-        variant: "default",
-        duration: 7000,
-      });
-      // newReceiptUrl would be updated here if upload was implemented
+    let newReceiptUrl: string | null = originalExpense.receiptUrl || null;
+    let newReceiptStoragePath: string | null = originalExpense.receiptStoragePath || null;
+
+    if (values.receipt) { // If a new file is uploaded
+      console.log("[EditExpensePage onSubmit] New receipt file selected:", values.receipt.name);
+      // Delete old file if it exists and we have its storage path
+      if (originalExpense.receiptStoragePath) {
+        try {
+          const oldFileRef = ref(storage, originalExpense.receiptStoragePath);
+          await deleteObject(oldFileRef);
+          console.log("[EditExpensePage onSubmit] Old receipt deleted from Storage.");
+        } catch (deleteError: any) {
+          // Log error but continue, as new file might still be uploaded
+          console.warn("Erreur lors de la suppression de l'ancien justificatif: ", deleteError.code, deleteError.message);
+          // Optionally, inform user that old file couldn't be deleted but new one will be uploaded
+        }
+      }
+
+      const fileName = `${Date.now()}-${values.receipt.name}`;
+      const storageRefPath = `receipts/${project.id}/${originalExpense.id}/${fileName}`; // Use originalExpense.id
+      const newFileStorageRef = ref(storage, storageRefPath);
+      try {
+        const uploadTask = await uploadBytes(newFileStorageRef, values.receipt);
+        newReceiptUrl = await getDownloadURL(uploadTask.ref);
+        newReceiptStoragePath = storageRefPath; // Store the path
+        console.log("[EditExpensePage onSubmit] New receipt uploaded. URL:", newReceiptUrl, "Path:", newReceiptStoragePath);
+      } catch (uploadError) {
+        console.error("Erreur lors du téléversement du nouveau justificatif: ", uploadError);
+        toast({
+          title: "Erreur de téléversement",
+          description: "Impossible de sauvegarder le nouveau justificatif. Les modifications de la dépense (hors justificatif) seront tentées.",
+          variant: "destructive",
+        });
+        // Keep original receipt if new upload fails
+        newReceiptUrl = originalExpense.receiptUrl || null;
+        newReceiptStoragePath = originalExpense.receiptStoragePath || null;
+      }
     }
 
 
@@ -206,7 +233,7 @@ export default function EditExpensePage() {
         const amountDifference = values.amount - originalExpense.amount;
         const newTotalExpenses = (projectData.totalExpenses || 0) + amountDifference;
 
-        const updatedExpenseData: Partial<ExpenseItem> = { // Use Partial for update
+        const updatedExpenseData: Partial<ExpenseItem> = {
           title: values.title,
           amount: values.amount,
           currency: values.currency,
@@ -214,8 +241,9 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          receiptUrl: newReceiptUrl === undefined ? null : newReceiptUrl,
-          // projectId, createdBy, createdAt remain unchanged
+          receiptUrl: newReceiptUrl,
+          receiptStoragePath: newReceiptStoragePath, // Save the new storage path
+          updatedAt: serverTimestamp(), // Add updatedAt for expense
         };
         transaction.update(expenseRef, updatedExpenseData);
 
@@ -230,7 +258,7 @@ export default function EditExpensePage() {
             };
           }
           return expSummary;
-        });
+        }).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5); // Sort and keep last 5
 
         transaction.update(projectRef, {
           totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
@@ -498,7 +526,6 @@ export default function EditExpensePage() {
                     </FormControl>
                     <FormDescription>
                       {form.getValues("currentReceiptUrl") ? "Choisissez un nouveau fichier pour remplacer le justificatif actuel." : "Choisissez un fichier pour ajouter un justificatif."}
-                      <br/>Le téléversement de fichiers vers Firebase Storage n'est pas encore implémenté.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

@@ -35,8 +35,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, type DocumentData, deleteDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase'; // Import storage
+import { collection, getDocs, query, where, Timestamp, deleteDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { ref, deleteObject } from "firebase/storage"; // Import for deleting from storage
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -54,9 +55,11 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
-  receiptUrl?: string; // Added for receipt image URL
+  receiptUrl?: string | null; // Can be null
+  receiptStoragePath?: string | null; // Store the full path in Storage
   createdAt?: Timestamp;
-  createdBy: string; // UID of user who created the expense entry
+  createdBy: string;
+  updatedAt?: Timestamp; // Added for edit page
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
@@ -88,7 +91,7 @@ export default function ExpensesPage() {
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
       setProjects([]);
-      setIsLoadingProjects(false); // Ensure loading state is false if no user
+      setIsLoadingProjects(false);
       return;
     }
     setIsLoadingProjects(true);
@@ -119,7 +122,7 @@ export default function ExpensesPage() {
     if(!currentUser) {
         console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
         setAllExpenses([]);
-        setIsLoadingExpenses(false); // Ensure loading state is false
+        setIsLoadingExpenses(false);
         return;
     }
     setIsLoadingExpenses(true);
@@ -166,7 +169,7 @@ export default function ExpensesPage() {
       setIsLoadingExpenses(false);
       console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, projects, toast, isLoadingProjects]); // Added isLoadingProjects as a dependency
+  }, [currentUser, projects, toast, isLoadingProjects]); 
 
   useEffect(() => {
     if (currentUser) {
@@ -176,7 +179,7 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: useEffect for fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); // Reset loading states
+      setIsLoadingProjects(true); 
       setIsLoadingExpenses(true);
     }
   }, [currentUser, fetchProjects]);
@@ -194,10 +197,8 @@ export default function ExpensesPage() {
       }
     } else if (currentUser && isLoadingProjects) {
         console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
-        // Do nothing, wait for projects to load
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        // If not loading projects (e.g. no user) then ensure expenses are also cleared and not loading
         if (!isLoadingProjects) {
             setAllExpenses([]);
             setIsLoadingExpenses(false);
@@ -236,6 +237,18 @@ export default function ExpensesPage() {
       const expenseRef = doc(db, "expenses", expenseToDelete.id);
       const projectRef = doc(db, "projects", expenseToDelete.projectId);
 
+      // Delete receipt from Storage if path exists
+      if (expenseToDelete.receiptStoragePath) {
+        try {
+          const receiptFileRef = ref(storage, expenseToDelete.receiptStoragePath);
+          await deleteObject(receiptFileRef);
+          console.log("Justificatif supprimé de Firebase Storage.");
+        } catch (storageError: any) {
+          console.warn("Erreur lors de la suppression du justificatif de Storage: ", storageError.code, storageError.message);
+          // Continue with Firestore deletion even if storage deletion fails
+        }
+      }
+
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
@@ -246,7 +259,7 @@ export default function ExpensesPage() {
 
         const updatedRecentExpenses = (projectData.recentExpenses || []).filter(
           (expSummary) => expSummary.id !== expenseToDelete.id
-        );
+        ).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5); // Sort and keep last 5
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
@@ -424,10 +437,10 @@ export default function ExpensesPage() {
                             <Icons.edit className="h-4 w-4" />
                             <span className="sr-only">Modifier</span>
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
-                            <Icons.trash className="h-4 w-4" />
-                            <span className="sr-only">Supprimer</span>
-                        </Button>
+                         <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
+                              <Icons.trash className="h-4 w-4" />
+                              <span className="sr-only">Supprimer</span>
+                          </Button>
                     </TableCell>
                   </TableRow>
                 ))}

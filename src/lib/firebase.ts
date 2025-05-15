@@ -1,6 +1,7 @@
 import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage'; // Added
 import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig = {
@@ -23,6 +24,7 @@ if (!getApps().length) {
 
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
+const storage: FirebaseStorage = getStorage(app); // Added
 let analytics: Analytics | null = null;
 
 // Check if window is defined (running in browser) and if analytics is supported
@@ -34,4 +36,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export { app, auth, db, analytics };
+export { app, auth, db, storage, analytics }; // Added storage
