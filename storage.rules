@@ -4,57 +4,31 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is the owner or a member of a project
-    function isProjectParticipant(projectId) {
-      // Path to the project document in Firestore
-      let projectPath = /databases/$(database)/documents/projects/$(projectId);
-      // Check if the project document exists
-      return exists(projectPath) &&
-             (
-               // User is the owner of the project
-               request.auth.uid == get(projectPath).data.ownerId ||
-               // User is in the members array of the project
-               request.auth.uid in get(projectPath).data.members
-             );
-    }
-
-    // Rules for user profile pictures (example, adapt if needed)
-    match /userProfilePictures/{userId}/{fileName} {
-      allow read: if true; // Allow public read for profile pictures
-      allow write: if request.auth != null && request.auth.uid == userId &&
-                      request.resource.size < 2 * 1024 * 1024 && // Max 2MB
-                      request.resource.contentType.matches('image/.*');
-    }
-
-    // Rules for expense receipts
-    // Receipts are stored in a path like: receipts/{projectId}/{expenseId}/{fileName}
+    // Règles pour le chemin des justificatifs
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 && // Max 5MB
-                       request.resource.contentType.matches('image/.*') && // Only images
-                       isProjectParticipant(projectId); // User must be a participant of the project
+      // TEST 1: Permettre l'écriture si l'utilisateur est authentifié
+      // et que l'UID correspond à celui de COP2 (9iy2uBlAxabnzrbM5CIfidOsbLt1)
+      // ET que le projectId dans le chemin est Z4Yayp96ZtWk5IlwyLdC
+      allow create: if request.auth != null && 
+                       request.auth.uid == '9iy2uBlAxabnzrbM5CIfidOsbLt1' && 
+                       projectId == 'Z4Yayp96ZtWk5IlwyLdC' && 
+                       request.resource.size < 5 * 1024 * 1024 && 
+                       request.resource.contentType.matches('image/.*');
 
-      allow read: if request.auth != null && isProjectParticipant(projectId);
-
-      allow delete: if request.auth != null &&
-                       // Ensure the expense document exists and belongs to the project
-                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
-                       (
-                         // User who created the expense can delete its receipt
-                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         // Project owner can delete any receipt in their project
-                         (
-                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
-                         )
-                       );
-      // Updates are generally handled as delete then create new.
-      // If you need specific update rules (e.g., for metadata), add them here.
-      // allow update: if ... ;
+      // Pour les tests, simplifions aussi la lecture et la suppression
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null && request.auth.uid == '9iy2uBlAxabnzrbM5CIfidOsbLt1';
     }
 
-    // Default deny all other paths to ensure security
+    // Si vous avez d'autres chemins de stockage (ex: photos de profil)
+    // ajoutez leurs règles ici. Par exemple :
+    // match /profilePictures/{userId}/{fileName} {
+    //   allow read: if request.auth != null;
+    //   allow write: if request.auth != null && request.auth.uid == userId;
+    // }
+
+    // Règle par défaut plus restrictive pour tous les autres chemins
+    // pour éviter un accès non intentionnel.
     match /{allPaths=**} {
       allow read, write: if false;
     }
