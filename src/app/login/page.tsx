@@ -67,10 +67,10 @@ export default function LoginPage() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5" 
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-24 w-24 md:h-32 md:w-32 text-white" 
+      className="h-24 w-24 md:h-32 md:w-32 text-white"
     >
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
@@ -83,7 +83,7 @@ export default function LoginPage() {
         <div className="bg-primary p-8 md:p-12 flex flex-col justify-center items-center text-primary-foreground">
           <div className="text-center">
             <DollarSignIcon />
-            <h1 className="text-4xl md:text-5xl font-bold mt-4">Dépense Partagée</h1>
+            <h1 className="text-4xl md:text-5xl font-bold mt-4">Sharepot</h1>
             <p className="mt-3 text-lg md:text-xl">
               Simplifiez la gestion de vos dépenses partagées en quelques clics
             </p>
@@ -94,7 +94,7 @@ export default function LoginPage() {
               <span>Suivi des dépenses en temps réel</span>
             </li>
             <li className="flex items-center">
-              <Icons.repeat className="h-6 w-6 mr-3 shrink-0" /> 
+              <Icons.repeat className="h-6 w-6 mr-3 shrink-0" />
               <span>Conversion automatique des devises</span>
             </li>
             <li className="flex items-center">
@@ -125,11 +125,11 @@ export default function LoginPage() {
                     <FormControl>
                       <div className="relative">
                         <Icons.mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input 
-                          type="email" 
-                          placeholder="exemple@email.com" 
-                          {...field} 
-                          className="pl-10" 
+                        <Input
+                          type="email"
+                          placeholder="exemple@email.com"
+                          {...field}
+                          className="pl-10"
                           data-ai-hint="email input"
                         />
                       </div>
@@ -148,11 +148,11 @@ export default function LoginPage() {
                     <FormControl>
                       <div className="relative">
                         <Icons.lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input 
-                          type="password" 
-                          placeholder="••••••••" 
-                          {...field} 
-                          className="pl-10" 
+                        <Input
+                          type="password"
+                          placeholder="••••••••"
+                          {...field}
+                          className="pl-10"
                           data-ai-hint="password input"
                         />
                       </div>
@@ -161,7 +161,7 @@ export default function LoginPage() {
                   </FormItem>
                 )}
               />
-              
+
               <div className="text-right">
                 <Link href="/reset-password" className="text-sm text-primary hover:underline">
                   Mot de passe oublié ?
