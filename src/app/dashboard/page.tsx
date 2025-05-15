@@ -194,6 +194,7 @@ export default function DashboardPage() {
     setIsLoadingRecentExpenses(true);
     try {
         const expensesRef = collection(db, "expenses");
+        // This query needs a composite index on `createdBy` (asc) and `createdAt` (desc)
         const q = query(expensesRef, where("createdBy", "==", currentUser.uid), orderBy("createdAt", "desc"), limit(5));
         const querySnapshot = await getDocs(q);
         const fetchedExpenses = querySnapshot.docs.map(doc => ({
@@ -202,13 +203,22 @@ export default function DashboardPage() {
             displayIcon: Icons.fileText, 
         } as DisplayExpenseItem));
         setRecentGlobalExpenses(fetchedExpenses);
-    } catch (error) {
+    } catch (error: any) {
         console.error("Erreur lors de la récupération des dépenses récentes: ", error);
-        toast({
-            title: "Erreur de chargement",
-            description: "Impossible de charger les dépenses récentes.",
-            variant: "destructive",
-        });
+        if (error.code === 'failed-precondition') {
+             toast({
+                title: "Index Firestore manquant",
+                description: "Un index est requis pour cette requête. Veuillez vérifier la console Firebase pour le créer.",
+                variant: "destructive",
+                duration: 10000,
+            });
+        } else {
+            toast({
+                title: "Erreur de chargement",
+                description: "Impossible de charger les dépenses récentes.",
+                variant: "destructive",
+            });
+        }
     } finally {
         setIsLoadingRecentExpenses(false);
     }
@@ -216,7 +226,7 @@ export default function DashboardPage() {
 
   const fetchAllUserProfiles = useCallback(async () => {
     if (!currentUser || !isAdmin) {
-        console.warn("DashboardPage: fetchAllUserProfiles called by non-admin or no currentUser. Setting isLoadingUserProfiles to false.");
+        console.warn("DashboardPage: fetchAllUserProfiles called by non-admin or no currentUser.");
         setIsLoadingUserProfiles(false);
         return;
     }
@@ -286,7 +296,6 @@ export default function DashboardPage() {
           if (userDocSnap.exists()) {
             const profileData = { id: userDocSnap.id, ...userDocSnap.data() } as AppUserType;
             fetchedMemberProfiles.push(profileData);
-            console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Profile fetched for UID ${uid}:`, JSON.stringify(profileData));
           } else {
             console.warn(`DashboardPage: fetchSelectedProjectMembersProfiles - Profile for UID ${uid} not found in 'users' collection.`);
           }
@@ -326,7 +335,6 @@ export default function DashboardPage() {
 
     const fetchedMemberProfiles: AppUserType[] = [];
     for (const uid of Array.from(allMemberUIDs)) {
-        console.log(`DashboardPage: getProfilesForAllUsersProjects - Attempting to fetch profile for UID: ${uid}`);
         try {
             const userDocRef = doc(db, "users", uid);
             const userDocSnap = await getDoc(userDocRef);
@@ -340,18 +348,19 @@ export default function DashboardPage() {
             console.error(`DashboardPage: getProfilesForAllUsersProjects - Error fetching profile for UID ${uid}:`, profileError);
         }
     }
-    // Ensure current user's profile is included if they are not part of any project members list explicitly but have projects
+   
     if (userProfile && !fetchedMemberProfiles.find(p => p.id === userProfile.id)) {
         const currentUserIsAlreadyMemberOfAnyProject = projects.some(p => p.members.includes(userProfile.id));
-        if (!currentUserIsAlreadyMemberOfAnyProject && projects.some(p=> p.ownerId === userProfile.id)){ // User is owner but maybe not in members list
+        if (!currentUserIsAlreadyMemberOfAnyProject && projects.some(p=> p.ownerId === userProfile.id)){ 
             fetchedMemberProfiles.push(userProfile);
-        } else if (currentUserIsAlreadyMemberOfAnyProject) {
-            // Already included, do nothing
-        } else { // User has no projects or not member of any, ensure self is there.
-             fetchedMemberProfiles.push(userProfile);
+        } else if (!currentUserIsAlreadyMemberOfAnyProject && projects.length > 0) {
+            // Only add if user has projects but isn't explicitly a member of any.
+            // This case might be redundant if ownerId implies membership.
+        } else if (!currentUserIsAlreadyMemberOfAnyProject && projects.length === 0) {
+           fetchedMemberProfiles.push(userProfile);
         }
     }
-     // Remove duplicates by ID, keeping the first occurrence
+    
     const uniqueFetchedMemberProfiles = fetchedMemberProfiles.filter((user, index, self) => index === self.findIndex(u => u.id === user.id));
 
 
@@ -392,7 +401,7 @@ export default function DashboardPage() {
     try {
       const expensesRef = collection(db, "expenses");
       let fetchedExpenses: ExpenseItem[] = [];
-      const chunkSize = 30;
+      const chunkSize = 30; // Firestore 'in' query limit for non-collection group queries
       for (let i = 0; i < projectIdsToQuery.length; i += chunkSize) {
           const chunk = projectIdsToQuery.slice(i, i + chunkSize);
           if (chunk.length > 0) {
@@ -436,8 +445,6 @@ export default function DashboardPage() {
     }
   }, [currentUser, projects, selectedProjectId, allUserProfiles, isLoadingUserProfiles, toast, isLoadingProjects]);
 
-
-  // Effect 1: Core data fetching (projects, recent expenses)
   useEffect(() => {
     if (currentUser) {
       console.log("DashboardPage: useEffect (Core data) - Fetching projects and recent expenses.");
@@ -446,14 +453,13 @@ export default function DashboardPage() {
     }
   }, [currentUser, fetchProjects, fetchRecentGlobalExpenses]);
 
-  // Effect 2: User profiles fetching (admin all, or non-admin specific)
   useEffect(() => {
     console.log(`DashboardPage: useEffect (User Profiles) - Triggered. currentUser: ${!!currentUser}, isAdmin: ${isAdmin}, selectedProjectId: ${selectedProjectId}, isLoadingProjects: ${isLoadingProjects}`);
     if (currentUser) {
       if (isAdmin) {
         console.log("DashboardPage: useEffect (User Profiles) - Admin detected, fetching all user profiles.");
         fetchAllUserProfiles();
-      } else { // Non-admin
+      } else {
         if (selectedProjectId === 'all') {
           if (!isLoadingProjects && projects.length > 0) {
             console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'all' projects, projects loaded. Fetching profiles for all their project members.");
@@ -464,20 +470,18 @@ export default function DashboardPage() {
             setIsLoadingUserProfiles(false);
           } else {
              console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'all' projects, projects still loading. Waiting.");
-             setIsLoadingUserProfiles(true); // Ensure loading state while waiting for projects
+             setIsLoadingUserProfiles(true);
           }
-        } else { // Specific project selected by non-admin
+        } else { 
           console.log(`DashboardPage: useEffect (User Profiles) - Non-admin, specific project selected: ${selectedProjectId}. Fetching members.`);
           fetchSelectedProjectMembersProfiles(selectedProjectId);
         }
       }
     } else {
-      setIsLoadingUserProfiles(false); // No user, no profiles to load
+      setIsLoadingUserProfiles(false); 
     }
   }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, userProfile, fetchAllUserProfiles, getProfilesForAllUsersProjects, fetchSelectedProjectMembersProfiles]);
 
-
-  // Effect 3: Chart data - depends on selectedProjectId and allUserProfiles
   useEffect(() => {
     console.log(
         "DashboardPage: useEffect (chart data) triggered. Conditions - currentUser:", !!currentUser, 
@@ -491,12 +495,12 @@ export default function DashboardPage() {
       fetchAndProcessExpensesForChart();
     } else {
       console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET or allUserProfiles empty. Clearing chart data and setting loading to false if necessary.");
-      setExpenseChartData([]); // Clear chart data if conditions not met
-      if (isLoadingExpenseChartData) { // Only set to false if it was true, to avoid unnecessary re-renders
+      setExpenseChartData([]); 
+      if (isLoadingExpenseChartData) { 
          setIsLoadingExpenseChartData(false);
       }
     }
-  }, [selectedProjectId, allUserProfiles, fetchAndProcessExpensesForChart, currentUser, isLoadingProjects, isLoadingUserProfiles]);
+  }, [selectedProjectId, allUserProfiles, fetchAndProcessExpensesForChart, currentUser, isLoadingProjects, isLoadingUserProfiles, isLoadingExpenseChartData]);
 
 
   const handleLogout = async () => {
@@ -575,8 +579,8 @@ export default function DashboardPage() {
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <Link href="/expenses"><Icons.receipt /> Dépenses</Link>
+              <SidebarMenuButton onClick={() => router.push('/expenses')}>
+                <Icons.receipt /> Dépenses
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
