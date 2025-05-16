@@ -7,8 +7,9 @@ export interface User {
   name: string;
   email: string;
   isAdmin: boolean;
-  avatarUrl?: string; // Added avatarUrl
-  createdAt?: Timestamp; // Added createdAt from register page
+  avatarUrl?: string;
+  avatarStoragePath?: string; // Added to store the path in Firebase Storage
+  createdAt?: Timestamp;
 }
 
 // mockUsers is kept for potential reference or if parts of the app still use it,
@@ -73,3 +74,4 @@ export const initialProjects: Project[] = [
     //   tags: ['voyage', 'équipe'],
     // },
   ];
+
