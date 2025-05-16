@@ -7,10 +7,10 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"; // Firebase Storage
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import { Button } from '@/components/ui/button';
 import {
@@ -40,10 +40,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db, storage } from '@/lib/firebase'; // Import storage
-import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, runTransaction, getDoc, query, where } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import { collection, getDocs, doc, updateDoc, runTransaction, getDoc, query, where, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
+import { Separator } from '@/components/ui/separator';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -59,6 +60,7 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   receipt: z.instanceof(File).optional().nullable(),
+  invoiceForAnalysis: z.instanceof(File).optional().nullable(), // Pour l'analyse IA
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -69,11 +71,14 @@ export default function NewExpensePage() {
   const { currentUser, userProfile, loading: authLoading } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
@@ -86,6 +91,7 @@ export default function NewExpensePage() {
       expenseDate: new Date(),
       tags: '',
       receipt: null,
+      invoiceForAnalysis: null,
     },
   });
 
@@ -109,6 +115,7 @@ export default function NewExpensePage() {
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         receipt: form.getValues('receipt') || null,
+        invoiceForAnalysis: form.getValues('invoiceForAnalysis') || null,
       });
     }
   }, [currentUser, form, authLoading]);
@@ -180,14 +187,10 @@ export default function NewExpensePage() {
                 uniqueMemberMap.set(member.id, member);
             }
         });
-         // Ensure current user is in the list if they are a member of the project
         if (currentUser && fetchedProjectMembers.some(m => m.id === currentUser.uid) && !uniqueMemberMap.has(currentUser.uid)) {
             const currentUserProfileForDropdown = userProfile || { id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || '' };
             uniqueMemberMap.set(currentUser.uid, currentUserProfileForDropdown);
         } else if (currentUser && !fetchedProjectMembers.some(m => m.id === currentUser.uid) && userProfile && projectId) {
-            // if current user is not in fetched members, but a project is selected (and they should be a member if they can select it)
-            // add them. This might happen if userProfile is loaded but project.members hasn't updated in cache yet.
-            // This is more of a fallback.
              uniqueMemberMap.set(currentUser.uid, userProfile);
         }
 
@@ -235,11 +238,89 @@ export default function NewExpensePage() {
   }, [watchedProjectId, currentUser, userProfile, toast, form]);
 
 
+  const handleAnalyzeInvoice = async () => {
+    if (!invoiceFile) {
+      toast({ title: "Aucun fichier", description: "Veuillez sélectionner un fichier de facture à analyser.", variant: "destructive" });
+      return;
+    }
+    setIsAnalyzing(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(invoiceFile);
+      reader.onloadend = async () => {
+        const base64Image = reader.result as string;
+        const fileType = invoiceFile.type;
+
+        const response = await fetch('/api/extract-invoice-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64Image, fileType }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        form.setValue('description', data.nom_fournisseur || data.nom_client || "Facture analysée");
+        
+        let amountValue = 0;
+        let currencyValue = "EUR"; // Default
+
+        if (data.montant_total_ttc) {
+            if (typeof data.montant_total_ttc === 'number') {
+                amountValue = data.montant_total_ttc;
+            } else if (typeof data.montant_total_ttc === 'string') {
+                const amountString = data.montant_total_ttc.replace(',', '.');
+                const numericMatch = amountString.match(/[\d.]+/);
+                if (numericMatch && numericMatch[0]) {
+                    amountValue = parseFloat(numericMatch[0]);
+                }
+
+                const currencyMatch = amountString.match(/(EUR|USD|GBP|CZK)/i);
+                if (currencyMatch && currencyMatch[0]) {
+                    const foundCurrency = currencyMatch[0].toUpperCase();
+                    if (currencies.includes(foundCurrency)) {
+                        currencyValue = foundCurrency;
+                    }
+                }
+            }
+        }
+        form.setValue('amount', amountValue);
+        form.setValue('currency', currencyValue);
+
+
+        if (data.date_facture) {
+          try {
+            const parsedDate = parseISO(data.date_facture); // AAAA-MM-JJ
+            form.setValue('expenseDate', parsedDate);
+          } catch (dateError) {
+            console.error("Erreur de parsing de la date de la facture:", dateError);
+            toast({ title: "Avertissement", description: "Format de date de facture non reconnu. Veuillez vérifier la date."});
+          }
+        }
+        
+        toast({ title: "Analyse réussie", description: "Les champs ont été pré-remplis." });
+      };
+      reader.onerror = () => {
+        throw new Error("Erreur de lecture du fichier.");
+      };
+    } catch (error: any) {
+      console.error("Erreur lors de l'analyse de la facture:", error);
+      toast({ title: "Erreur d'analyse", description: error.message || "Impossible d'analyser la facture.", variant: "destructive" });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+
   async function onSubmit(values: ExpenseFormValues) {
+    console.log("[NewExpensePage onSubmit] currentUser:", currentUser);
+    console.log("[NewExpensePage onSubmit] userProfile from context:", userProfile);
     console.log("[NewExpensePage onSubmit] Form values:", values);
     console.log("[NewExpensePage onSubmit] Current usersForDropdown state:", usersForDropdown);
-    console.log("[NewExpensePage onSubmit] Current userProfile from context:", userProfile);
-    console.log("[NewExpensePage onSubmit] Current currentUser from context:", currentUser);
 
     if (!currentUser || !userProfile) {
         toast({ title: "Utilisateur non connecté ou profil incomplet", description: "Veuillez vous connecter et vous assurer que votre profil est chargé.", variant: "destructive" });
@@ -250,9 +331,10 @@ export default function NewExpensePage() {
 
     const selectedProject = projects.find(p => p.id === values.projectId);
     const payerProfile = usersForDropdown.find(u => u.id === values.paidById);
-
+    
     console.log("[NewExpensePage onSubmit] Selected Project:", selectedProject);
     console.log("[NewExpensePage onSubmit] Found Payer Profile (from usersForDropdown):", payerProfile);
+
 
     if (!selectedProject) {
         toast({ title: "Erreur de données", description: "Projet introuvable.", variant: "destructive" });
@@ -260,30 +342,34 @@ export default function NewExpensePage() {
         return;
     }
     if (!payerProfile) {
-        toast({ title: "Erreur de données", description: `Payeur introuvable (ID: ${values.paidById}). Assurez-vous que le payeur est membre du projet.`, variant: "destructive" });
+        toast({ title: "Erreur de données", description: `Payeur introuvable (ID: ${values.paidById}).`, variant: "destructive" });
         setIsSubmitting(false);
         return;
     }
 
     let receiptDownloadUrl: string | null = null;
+    let receiptStoragePathValue: string | null = null;
     const expenseCollectionRef = collection(db, "expenses");
-    const newExpenseRef = doc(expenseCollectionRef); // Generate a new ID for the expense
+    const newExpenseRef = doc(expenseCollectionRef); 
 
     if (values.receipt) {
-      console.log("[NewExpensePage onSubmit] Receipt file selected:", values.receipt.name);
+      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "File:", values.receipt.name);
       const fileName = `${Date.now()}-${values.receipt.name}`;
-      const storageRef = ref(storage, `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`);
+      const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`;
+      const fileStorageRef = ref(storage, storageRefPath);
       try {
-        const uploadTask = await uploadBytes(storageRef, values.receipt);
+        const uploadTask = await uploadBytes(fileStorageRef, values.receipt);
         receiptDownloadUrl = await getDownloadURL(uploadTask.ref);
-        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl);
-      } catch (uploadError) {
+        receiptStoragePathValue = storageRefPath;
+        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePathValue);
+      } catch (uploadError: any) {
         console.error("Erreur lors du téléversement du justificatif: ", uploadError);
         toast({
           title: "Erreur de téléversement",
-          description: "Impossible de sauvegarder le justificatif. La dépense sera créée sans.",
+          description: `Impossible de sauvegarder le justificatif: ${uploadError.message || 'Vérifiez les permissions Firebase Storage.'}`,
           variant: "destructive",
         });
+        // Ne pas bloquer la création de la dépense si le justificatif échoue
       }
     } else {
       console.log("[NewExpensePage onSubmit] No receipt file selected.");
@@ -291,36 +377,39 @@ export default function NewExpensePage() {
 
 
     try {
-      const newExpenseDocData = {
-        id: newExpenseRef.id,
-        title: values.description,
-        amount: values.amount,
-        currency: values.currency,
-        projectId: values.projectId,
-        projectName: selectedProject.name,
-        paidById: payerProfile.id, 
-        paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu", 
-        expenseDate: Timestamp.fromDate(values.expenseDate),
-        tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-        receiptUrl: receiptDownloadUrl, // Use the URL from storage or null
-        createdAt: serverTimestamp(),
-        createdBy: currentUser.uid,
-      };
-
-      console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
-
       await runTransaction(db, async (transaction) => {
         const projectRef = doc(db, "projects", selectedProject.id);
         const projectDoc = await transaction.get(projectRef);
+        
         if (!projectDoc.exists()) {
-          throw "Project document does not exist!";
+          throw new Error("Le projet associé n'existe plus.");
         }
         const projectData = projectDoc.data() as Project;
+
+        const newExpenseDocData = {
+            id: newExpenseRef.id,
+            title: values.description,
+            amount: values.amount,
+            currency: values.currency,
+            projectId: values.projectId,
+            projectName: selectedProject.name,
+            paidById: payerProfile.id,
+            paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
+            expenseDate: Timestamp.fromDate(values.expenseDate),
+            tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+            receiptUrl: receiptDownloadUrl,
+            receiptStoragePath: receiptStoragePathValue,
+            createdAt: serverTimestamp(),
+            createdBy: currentUser.uid,
+            updatedAt: serverTimestamp(),
+        };
+        console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
+        transaction.set(newExpenseRef, newExpenseDocData);
 
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
         if (isNaN(expenseAmount)) {
-            throw "Invalid expense amount for project total calculation.";
+            throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
         }
         const newTotalExpenses = currentTotalExpenses + expenseAmount;
 
@@ -332,7 +421,8 @@ export default function NewExpensePage() {
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
         
-        const updatedRecentExpenses = [...(projectData.recentExpenses || []), recentExpenseSummary].slice(-5); // Keep only last 5
+        const existingRecentExpenses = projectData.recentExpenses || [];
+        const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses].slice(0,5);
 
 
         const projectUpdateData: Partial<Project> = {
@@ -342,7 +432,6 @@ export default function NewExpensePage() {
             updatedAt: serverTimestamp(),
         };
         
-        transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -359,8 +448,10 @@ export default function NewExpensePage() {
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
-         receipt: null
+         receipt: null,
+         invoiceForAnalysis: null,
       });
+      setInvoiceFile(null);
       setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
       router.push('/expenses');
     } catch (error: any) {
@@ -399,13 +490,68 @@ export default function NewExpensePage() {
       <Card className="max-w-2xl mx-auto shadow-lg">
         <CardHeader>
           <CardTitle>Enregistrer une nouvelle dépense</CardTitle>
-          <CardDescription>
-            Remplissez les informations ci-dessous pour ajouter une dépense.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            
+            <Card className="bg-muted/30 p-4">
+                <CardHeader className="p-0 pb-3">
+                    <CardTitle className="text-lg">Analyse de facture par IA (Optionnel)</CardTitle>
+                    <CardDescription className="text-xs">
+                        Chargez une image de votre facture pour pré-remplir certains champs.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <FormField
+                        control={form.control}
+                        name="invoiceForAnalysis"
+                        render={({ field: { onChange, ...rest } }) => (
+                        <FormItem>
+                            <FormLabel visuallyHidden>Fichier de facture pour analyse</FormLabel>
+                            <FormControl>
+                            <Input
+                                type="file"
+                                accept="image/png, image/jpeg, image/webp"
+                                onChange={(e) => {
+                                    const file = e.target.files ? e.target.files[0] : null;
+                                    onChange(file);
+                                    setInvoiceFile(file);
+                                }}
+                                className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                                data-ai-hint="invoice file upload for AI analysis"
+                                {...rest}
+                            />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    <Button 
+                        type="button" 
+                        onClick={handleAnalyzeInvoice} 
+                        disabled={!invoiceFile || isAnalyzing || isSubmitting}
+                        className="mt-3 w-full"
+                        variant="outline"
+                    >
+                        {isAnalyzing ? (
+                            <>
+                            <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
+                            Analyse en cours...
+                            </>
+                        ) : (
+                            <>
+                            <Icons.scan className="mr-2 h-4 w-4" /> {/* Assurez-vous que Icons.scan existe */}
+                            Analyser la facture
+                            </>
+                        )}
+                    </Button>
+                </CardContent>
+            </Card>
+
+            <Separator className="my-6" />
+
+
               <FormField
                 control={form.control}
                 name="description"
@@ -448,7 +594,7 @@ export default function NewExpensePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Devise</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger data-ai-hint="currency select">
                             <SelectValue placeholder="Choisir une devise" />
@@ -599,7 +745,7 @@ export default function NewExpensePage() {
                 name="receipt"
                 render={({ field: { onChange, value, ...rest } }) => ( 
                   <FormItem>
-                    <FormLabel>Justificatif (optionnel)</FormLabel>
+                    <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
                     <FormControl>
                       <Input
                         type="file"
@@ -610,16 +756,19 @@ export default function NewExpensePage() {
                         {...rest} 
                       />
                     </FormControl>
+                     <FormDescription>
+                      Ce fichier sera stocké avec la dépense.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
               <div className="flex justify-end space-x-3 pt-4">
-                <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
+                <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown}>
+                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown || isAnalyzing}>
                   {isSubmitting ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
@@ -640,4 +789,3 @@ export default function NewExpensePage() {
     </div>
   );
 }
-
