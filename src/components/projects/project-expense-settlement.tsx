@@ -10,14 +10,13 @@ import { Icons } from '@/components/icons';
 
 interface ProjectExpenseSettlementProps {
   project: Project;
-  // Renamed to reflect that these are profiles relevant to THIS project
   memberProfilesOfProject: AppUserType[]; 
-  isLoadingUserProfiles: boolean; // Renamed for consistency, reflects loading of memberProfilesOfProject
+  isLoadingUserProfiles: boolean; 
 }
 
 interface MemberBalance {
   uid: string;
-  name: string; // Should be the resolved name
+  name: string; 
   balance: number; 
   amountPaid: number;
   share: number;
@@ -25,14 +24,25 @@ interface MemberBalance {
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
-    const parts = name.split(' ');
+    const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    return name.substring(0, 2).toUpperCase();
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
   }
   if (email) {
-    return email.substring(0, 2).toUpperCase();
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
   }
   return '??';
 };
@@ -61,13 +71,12 @@ const calculateBalances = (project: Project, memberProfiles: AppUserType[]): Mem
   });
 
   let currentProjectTotalExpenses = 0;
-  (project.recentExpenses || []).forEach(expense => { // Ensure recentExpenses is not undefined
+  (project.recentExpenses || []).forEach(expense => { 
     if (expense.payer) { 
-      const payerProfile = getUserProfileByName(expense.payer); // Search within the provided memberProfiles
+      const payerProfile = getUserProfileByName(expense.payer); 
       if (!payerProfile) {
           console.warn(`ProjectExpenseSettlement (calculateBalances): Payer name "${expense.payer}" (from expense: "${expense.name}") NOT FOUND in provided memberProfiles for project "${project.name}". Checked profiles:`, JSON.stringify(memberProfiles.map(p => p.name)));
       } else if (!project.members.includes(payerProfile.id)) {
-          // This case should be less likely if memberProfiles are correctly fetched for project.members
           console.warn(`ProjectExpenseSettlement (calculateBalances): Payer "${expense.payer}" (UID: ${payerProfile.id}) is NOT a member of project "${project.name}" based on project.members. Project Members UIDs: ${project.members.join(', ')}`);
       } else {
         totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
@@ -150,7 +159,7 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
   const memberBalances = calculateBalances(project, memberProfilesOfProject);
   const settlementSuggestions = generateSettlementSuggestions(memberBalances.map(mb => ({ ...mb }))); 
   const allBalanced = memberBalances.every(b => Math.abs(b.balance) <= 0.005);
-  const noExpenses = (project.recentExpenses || []).length === 0; // Ensure recentExpenses is not undefined
+  const noExpenses = (project.recentExpenses || []).length === 0; 
 
   if (memberBalances.length === 0 && noExpenses && !isLoadingUserProfiles) {
     return (
@@ -197,9 +206,9 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
           <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Balances Individuelles</h3>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
             {memberBalances.map(({ uid, name, balance, amountPaid, share }) => {
-              const userProfile = memberProfilesOfProject.find(u => u.id === uid); // Use the passed profiles
-              const displayName = userProfile?.name || name; // Fallback to name from balance if profile name is not found
-              const avatarUrl = userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff`;
+              const userProfile = memberProfilesOfProject.find(u => u.id === uid); 
+              const displayName = userProfile?.name || name; 
+              const avatarUrl = userProfile?.avatarUrl;
 
               return (
                 <div key={uid} className="flex items-center justify-between p-2.5 bg-muted/50 rounded-md">
@@ -242,8 +251,8 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
               {settlementSuggestions.map((settlement, index) => {
                 const fromUserProfile = memberProfilesOfProject.find(u=>u.name && u.name.trim().toLowerCase() === settlement.from.trim().toLowerCase());
                 const toUserProfile = memberProfilesOfProject.find(u=>u.name && u.name.trim().toLowerCase() === settlement.to.trim().toLowerCase());
-                const fromAvatarUrl = fromUserProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.from)}&background=random&color=fff&size=24`;
-                const toAvatarUrl = toUserProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(settlement.to)}&background=random&color=fff&size=24`;
+                const fromAvatarUrl = fromUserProfile?.avatarUrl;
+                const toAvatarUrl = toUserProfile?.avatarUrl;
 
                 return(
                 <div key={index} className="flex items-center justify-between p-2 border border-border/70 bg-card rounded-md shadow-xs">
@@ -269,7 +278,7 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
             </div>
           </div>
         )}
-         {allBalanced && (project.recentExpenses || []).length > 0 && ( // Ensure recentExpenses is not undefined
+         {allBalanced && (project.recentExpenses || []).length > 0 && ( 
             <div className="text-center text-green-600 font-medium py-2.5 bg-green-500/10 rounded-md text-sm">
                 <Icons.checkCircle className="inline mr-1.5 h-4 w-4"/> Dépenses équilibrées!
             </div>

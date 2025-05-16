@@ -205,10 +205,10 @@ export default function EditExpensePage() {
     }
 
     try {
-      await runTransaction(db, async (transaction) => {
-        const expenseRef = doc(db, "expenses", originalExpense.id);
-        const projectRef = doc(db, "projects", originalExpense.projectId);
+      const expenseRef = doc(db, "expenses", originalExpense.id);
+      const projectRef = doc(db, "projects", originalExpense.projectId);
 
+      await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
@@ -227,10 +227,13 @@ export default function EditExpensePage() {
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
           updatedAt: serverTimestamp(),
+          receiptUrl: originalExpense.receiptUrl || null, 
+          receiptStoragePath: originalExpense.receiptStoragePath || null, 
         };
         transaction.update(expenseRef, updatedExpenseData);
 
-        const updatedRecentExpenses = (projectData.recentExpenses || []).map(expSummary => {
+        const existingRecentExpenses = projectData.recentExpenses || [];
+        let updatedRecentExpenses = existingRecentExpenses.map(expSummary => {
           if (expSummary.id === originalExpense.id) {
             return {
               ...expSummary,
@@ -241,7 +244,10 @@ export default function EditExpensePage() {
             };
           }
           return expSummary;
-        }).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5);
+        });
+        updatedRecentExpenses.sort((a,b) => b.date.toMillis() - a.date.toMillis());
+        updatedRecentExpenses = updatedRecentExpenses.slice(0,5);
+
 
         transaction.update(projectRef, {
           totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
@@ -304,7 +310,7 @@ export default function EditExpensePage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImage
-                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    src={userProfile?.avatarUrl}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -555,3 +561,4 @@ export default function EditExpensePage() {
     </div>
   );
 }
+

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -121,20 +121,13 @@ export default function ProjectsPage() {
 
   const fetchAllUserProfiles = useCallback(async () => {
     if (!currentUser) {
-        console.warn("ProjectsPage: fetchAllUserProfiles called without currentUser.");
-        setIsLoadingAllUserProfiles(false);
-        setAllUserProfiles([]);
-        return;
+      console.warn("ProjectsPage: fetchAllUserProfiles called without currentUser.");
+      setIsLoadingAllUserProfiles(false);
+      setAllUserProfiles([]);
+      return;
     }
-    
-    if (!isAdmin) {
-        console.log("ProjectsPage: fetchAllUserProfiles - Non-admin. Setting minimal allUserProfiles (self).");
-        setAllUserProfiles(userProfile ? [userProfile] : []);
-        setIsLoadingAllUserProfiles(false);
-        return;
-    }
-
-    console.log("ProjectsPage: fetchAllUserProfiles - Admin is fetching ALL user profiles.");
+    // Allow all authenticated users to fetch all profiles for the add member dialog
+    console.log("ProjectsPage: fetchAllUserProfiles - Fetching ALL user profiles.");
     setIsLoadingAllUserProfiles(true);
     try {
       const usersCollectionRef = collection(db, "users");
@@ -156,7 +149,7 @@ export default function ProjectsPage() {
     } finally {
       setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, isAdmin, userProfile, toast]);
+  }, [currentUser, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -205,16 +198,15 @@ export default function ProjectsPage() {
   useEffect(() => {
     console.log("ProjectsPage: useEffect (core data) - currentUser:", !!currentUser, "isAdmin from context:", isAdmin);
     if (currentUser) {
-      console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects.");
+      console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects and all user profiles.");
       fetchProjects();
-      // Fetch all users if admin, otherwise minimal set for add member dialog later
       fetchAllUserProfiles(); 
     } else {
       console.log("ProjectsPage: useEffect (core data) - currentUser is null, cannot fetch data.");
       setAllUserProfiles([]); 
       setIsLoadingAllUserProfiles(true); 
     }
-  }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
+  }, [currentUser, fetchProjects, fetchAllUserProfiles]);
 
 
   const handleViewProjectDetails = async (project: ProjectType) => {
@@ -376,31 +368,15 @@ export default function ProjectsPage() {
       return;
     }
     
-    if (allUserProfiles.length === 0 && !isLoadingAllUserProfiles && !isAdmin ) { // if non-admin and allUserProfiles is still empty (e.g. initial minimal set)
-        setIsLoadingAllUserProfiles(true);
-        try {
-            const usersCollectionRef = collection(db, "users");
-            const usersSnapshot = await getDocs(usersCollectionRef);
-            const usersList = usersSnapshot.docs.map(docSnap => ({
-                id: docSnap.id, ...docSnap.data(),
-            } as AppUserType));
-            setAllUserProfiles(usersList);
-            const currentMemberIds = new Set(selectedProject.members);
-            const available = usersList.filter(user => !currentMemberIds.has(user.id));
-            setAvailableUsersForProject(available);
-        } catch (error) {
-             console.error("Erreur lors de la récupération de tous les profils pour l'ajout de membre (non-admin):", error);
-             toast({ title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
-             setIsLoadingAllUserProfiles(false);
-             return;
-        } finally {
-            setIsLoadingAllUserProfiles(false);
-        }
-    } else {
-        const currentMemberIds = new Set(selectedProject.members);
-        const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
-        setAvailableUsersForProject(available);
+    if (allUserProfiles.length === 0 && !isLoadingAllUserProfiles) { 
+        console.log("ProjectsPage (handleOpenAddMemberDialog): allUserProfiles is empty, attempting to fetch all for dialog.");
+        await fetchAllUserProfiles(); 
     }
+    
+    const currentMemberIds = new Set(selectedProject.members);
+    const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
+    setAvailableUsersForProject(available);
+    
 
     setUsersToAddToProject([]);
     setIsAddMemberDialogOpen(true);
@@ -489,11 +465,11 @@ export default function ProjectsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
-                <AvatarImage
-                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
-                  alt={userProfile?.name || currentUser?.email || "User"}
-                  data-ai-hint="user avatar"
-                />
+                 <AvatarImage
+                    src={userProfile?.avatarUrl}
+                    alt={userProfile?.name || currentUser?.email || "User"}
+                    data-ai-hint="user avatar"
+                  />
                 <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
@@ -592,7 +568,7 @@ export default function ProjectsPage() {
                             {displayableMemberProfilesOnCard.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={memberProfile.id || index} className="h-8 w-8 border-2 border-background">
                                 <AvatarImage
-                                  src={memberProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(memberProfile.name || 'User')}&background=random&color=fff&size=32`}
+                                  src={memberProfile.avatarUrl}
                                   alt={memberProfile.name || 'Membre'}
                                   data-ai-hint="member avatar"
                                 />
@@ -743,7 +719,7 @@ export default function ProjectsPage() {
                           <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
                               <AvatarImage
-                                src={member?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member?.name || 'User')}&background=random&color=fff&size=32`}
+                                src={member?.avatarUrl}
                                 alt={member?.name || 'Membre'}
                                 data-ai-hint="member avatar small"
                               />
@@ -876,7 +852,7 @@ export default function ProjectsPage() {
                                 />
                                 <Avatar className="h-8 w-8">
                                   <AvatarImage
-                                    src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'User')}&background=random&color=fff&size=32`}
+                                    src={user.avatarUrl}
                                     alt={user.name || user.email || 'Utilisateur'}
                                     data-ai-hint="user avatar"
                                   />
@@ -908,3 +884,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+

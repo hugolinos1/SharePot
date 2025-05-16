@@ -246,7 +246,7 @@ export default function DashboardPage() {
             } as AppUserType));
             setAllUserProfiles(usersList);
             console.log("DashboardPage: Successfully fetched allUserProfiles (Admin):", JSON.stringify(usersList.map(u => ({id: u.id, name: u.name}))));
-        } else { // Non-admin user
+        } else { 
             if (selectedProjectId === 'all') {
                  if (!isLoadingProjects && projects.length > 0) {
                     console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Projects loaded. Fetching profiles for all their project members.");
@@ -256,7 +256,6 @@ export default function DashboardPage() {
                             p.members.forEach(uid => allMemberUIDs.add(uid));
                         }
                     });
-                     // Ensure current user's UID is also included if not already present
                     if(currentUser) allMemberUIDs.add(currentUser.uid);
 
 
@@ -288,11 +287,10 @@ export default function DashboardPage() {
                      console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Projects loading or no userProfile. Setting empty profiles.");
                      setAllUserProfiles([]);
                 }
-            } else { // A specific project is selected by a non-admin
+            } else { 
                 const project = projects.find(p => p.id === selectedProjectId);
                 if (project) {
                     const memberUIDs = new Set(project.members || []);
-                     // Ensure current user's UID is also included if they are part of the project
                     if(currentUser && project.members && project.members.includes(currentUser.uid)) {
                         memberUIDs.add(currentUser.uid);
                     }
@@ -312,7 +310,7 @@ export default function DashboardPage() {
                     setAllUserProfiles(fetchedMemberProfiles.filter((user, index, self) => index === self.findIndex(u => u.id === user.id)));
                     console.log(`DashboardPage: fetchAllUserProfiles (Non-Admin, Specific Project ${selectedProjectId}) - Successfully set profiles:`, JSON.stringify(fetchedMemberProfiles.map(u => ({id: u.id, name: u.name}))));
                 } else {
-                    setAllUserProfiles(userProfile ? [userProfile] : []); // Fallback for specific project not found
+                    setAllUserProfiles(userProfile ? [userProfile] : []); 
                 }
             }
         }
@@ -360,7 +358,7 @@ export default function DashboardPage() {
     }
     console.log("Chart: projectIdsToQuery:", projectIdsToQuery);
 
-    if (projectIdsToQuery.length === 0 && selectedProjectId !== 'all') { // if specific project selected but no ID, clear
+    if (projectIdsToQuery.length === 0 && selectedProjectId !== 'all') { 
         setUserExpenseChartData([]);
         setCategoryChartData([]);
         setIsLoadingExpenseChartData(false);
@@ -390,7 +388,6 @@ export default function DashboardPage() {
       }
       console.log("Chart: Fetched expenses for chart:", fetchedExpenses.length, "items");
 
-      // Aggregate by user
       const aggregatedExpensesByUser: { [paidById: string]: number } = {};
       fetchedExpenses.forEach(expense => {
         if (expense.paidById) {
@@ -412,7 +409,6 @@ export default function DashboardPage() {
       console.log("Chart (User): Final formattedUserChartData:", formattedUserChartData);
       setUserExpenseChartData(formattedUserChartData);
 
-      // Aggregate by category (tags)
       const aggregatedExpensesByCategory: { [category: string]: number } = {};
       fetchedExpenses.forEach(expense => {
         (expense.tags || []).forEach(tag => {
@@ -462,7 +458,7 @@ export default function DashboardPage() {
       setAllUserProfiles([]);
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, userProfile, fetchAllUserProfiles]);
+  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, fetchAllUserProfiles]);
 
 
   useEffect(() => {
@@ -524,7 +520,7 @@ export default function DashboardPage() {
     }
 
     let totalSpentAll = 0;
-    let totalExpenseCountAll = 0; // Note: This uses recentExpenses length, might not be total expenses.
+    let totalExpenseCountAll = 0; 
     projectsToConsider.forEach(p => {
         totalSpentAll += (p.totalExpenses || 0);
         totalExpenseCountAll += (p.recentExpenses?.length || 0);
@@ -533,7 +529,7 @@ export default function DashboardPage() {
     let participantsSet = new Set<string>();
     if (selectedProject && selectedProject.members) {
       selectedProject.members.forEach(memberUid => participantsSet.add(memberUid));
-    } else { // "All projects" or no specific project selected
+    } else { 
       projects.forEach(p => {
           if(p.members && Array.isArray(p.members)) {
             p.members.forEach(memberUid => participantsSet.add(memberUid));
@@ -563,9 +559,9 @@ export default function DashboardPage() {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar className="border-r" collapsible="icon">
+      <Sidebar className="border-r bg-sidebar text-sidebar-foreground" collapsible="icon">
         <SidebarHeader className="p-4">
-          <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold text-primary">
+          <Link href="/dashboard" className="flex items-center gap-2 text-xl font-semibold text-sidebar-header-title-color">
             <Icons.dollarSign className="h-7 w-7" />
             <span>SharePot</span>
           </Link>
@@ -583,7 +579,7 @@ export default function DashboardPage() {
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => router.push('/expenses')}>
+               <SidebarMenuButton onClick={() => router.push('/expenses')}>
                 <Icons.receipt /> Dépenses
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -616,7 +612,11 @@ export default function DashboardPage() {
           )}
         </SidebarContent>
         <SidebarFooter className="p-4">
-           <Button variant="outline" onClick={handleLogout}>
+           <Button 
+              variant="ghost" 
+              onClick={handleLogout} 
+              className="text-sidebar-foreground border border-sidebar-foreground/50 hover:bg-sidebar-accent hover:border-sidebar-accent-foreground w-full justify-start"
+            >
                 <Icons.logOut className="mr-2 h-4 w-4" /> Déconnexion
           </Button>
         </SidebarFooter>
@@ -627,7 +627,7 @@ export default function DashboardPage() {
           <SidebarTrigger><Icons.chevronsLeft /></SidebarTrigger>
           <div className="relative flex-1">
             <Icons.search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Rechercher..." className="pl-10 w-full md:w-1/3 lg:w-1/4" data-ai-hint="search input"/>
+            <Input placeholder="Rechercher..." className="pl-10 w-full md:w-1/3 lg:w-1/4 placeholder:text-foreground" data-ai-hint="search input"/>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" className="rounded-full">
@@ -638,7 +638,7 @@ export default function DashboardPage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImage
-                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    src={userProfile?.avatarUrl}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -674,7 +674,7 @@ export default function DashboardPage() {
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-bold">Tableau de bord</h1>
-              <p className="text-muted-foreground">
+              <p className="text-foreground">
                 {selectedProject ? `Aperçu du projet: ${selectedProject.name}` : `Bienvenue, ${userProfile?.name || currentUser?.email || 'Utilisateur'}.`}
               </p>
             </div>
@@ -779,3 +779,4 @@ export default function DashboardPage() {
     </SidebarProvider>
   );
 }
+

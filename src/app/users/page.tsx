@@ -242,7 +242,7 @@ export default function UsersPage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImage
-                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    src={userProfile?.avatarUrl}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -330,7 +330,7 @@ export default function UsersPage() {
                                         className="flex items-center gap-3 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-primary rounded-md p-1 -m-1"
                                     >
                                         <Avatar>
-                                            <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'U')}&background=random&color=fff`} alt={user.name || user.email} data-ai-hint="user avatar placeholder"/>
+                                            <AvatarImage src={user.avatarUrl} alt={user.name || user.email} data-ai-hint="user avatar placeholder"/>
                                             <AvatarFallback>{getAvatarFallbackText(user.name || user.email)}</AvatarFallback>
                                         </Avatar>
                                         <span className="font-medium">{user.name || 'Utilisateur sans nom'}</span>
@@ -382,7 +382,7 @@ export default function UsersPage() {
                     <DialogContent className="sm:max-w-lg">
                         <DialogHeader className="items-center text-center pt-4">
                             <Avatar className="h-24 w-24 mb-3 ring-2 ring-primary ring-offset-2 ring-offset-background">
-                                <AvatarImage src={selectedUserForModal.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUserForModal.name || selectedUserForModal.email || 'U')}&background=random&color=fff&size=128`} alt={selectedUserForModal.name || selectedUserForModal.email} data-ai-hint="user avatar large"/>
+                                <AvatarImage src={selectedUserForModal.avatarUrl} alt={selectedUserForModal.name || selectedUserForModal.email} data-ai-hint="user avatar large"/>
                                 <AvatarFallback className="text-3xl">{getAvatarFallbackText(selectedUserForModal.name || selectedUserForModal.email)}</AvatarFallback>
                             </Avatar>
                             <DialogTitle className="text-2xl">{selectedUserForModal.name || 'Utilisateur sans nom'}</DialogTitle>
@@ -424,3 +424,4 @@ export default function UsersPage() {
     </div>
     );
 }
+

@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, doc, getDoc, serverTimestamp, addDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -39,8 +39,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, runTransaction, getDoc, query, where, serverTimestamp, addDoc } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -410,13 +410,13 @@ export default function NewExpensePage() {
         return;
     }
 
-    const newExpenseRef = doc(collection(db, "expenses"));
+    const newExpenseRef = doc(collection(db, "expenses")); 
 
     try {
-      await runTransaction(db, async (transaction) => {
-        const projectRef = doc(db, "projects", selectedProject.id);
+      const projectRef = doc(db, "projects", selectedProject.id);
+      
+      await db.runTransaction(async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
-
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
@@ -433,11 +433,11 @@ export default function NewExpensePage() {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            receiptUrl: null, 
-            receiptStoragePath: null, 
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
+            receiptUrl: null, 
+            receiptStoragePath: null,
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         transaction.set(newExpenseRef, newExpenseDocData);
@@ -546,7 +546,7 @@ export default function NewExpensePage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImage
-                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                  src={userProfile?.avatarUrl}
                   alt={userProfile?.name || currentUser?.email || "User"}
                   data-ai-hint="user avatar"
                 />
@@ -612,7 +612,7 @@ export default function NewExpensePage() {
                                     accept="image/png, image/jpeg, image/webp"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : null;
-                                        rhfOnChange(file);
+                                        rhfOnChange(file); 
                                         setInvoiceFile(file);
                                     }}
                                     className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
@@ -868,3 +868,4 @@ export default function NewExpensePage() {
     </div>
   );
 }
+
