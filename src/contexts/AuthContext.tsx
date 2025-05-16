@@ -45,36 +45,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             name: user.displayName || user.email?.split('@')[0] || "Nouvel Utilisateur",
             email: user.email || "",
             isAdmin: false,
-            avatarUrl: user.photoURL || '', // Prioritize Firebase Auth photoURL if available
-            createdAt: undefined, // Or new Timestamp(0,0) if needed, but usually not for fallback
+            avatarUrl: user.photoURL || '',
+            createdAt: undefined, 
           };
         }
 
-        // Check if avatar generation is needed
+        console.log(`[AuthContext] Checking avatar for ${profileDataToSet.id}. Current avatarUrl: "${profileDataToSet.avatarUrl}"`);
         const needsAvatarGeneration = profileDataToSet && (!profileDataToSet.avatarUrl || profileDataToSet.avatarUrl.startsWith('https://ui-avatars.com'));
-        console.log(`[AuthContext] Profile for ${profileDataToSet?.name}: Current avatarUrl: '${profileDataToSet?.avatarUrl}'. Needs generation: ${needsAvatarGeneration}`);
+        console.log(`[AuthContext] For ${profileDataToSet.id}, needsAvatarGeneration: ${needsAvatarGeneration}`);
 
         if (needsAvatarGeneration) {
           const seedText = profileDataToSet.name || profileDataToSet.email || 'user_avatar_seed';
           console.log(`[AuthContext] Attempting to generate avatar for ${profileDataToSet.name} with seed: "${seedText}"`);
           try {
             const generatedAvatarUrl = await generateAvatar({ seedText });
-            if (generatedAvatarUrl && !generatedAvatarUrl.includes('placehold.co')) { // Check if generation was successful
+            if (generatedAvatarUrl && !generatedAvatarUrl.includes('placehold.co')) {
               profileDataToSet.avatarUrl = generatedAvatarUrl;
-              console.log(`[AuthContext] Successfully generated and set avatar for ${profileDataToSet.name}.`);
+              console.log(`[AuthContext] Successfully generated and set avatar for ${profileDataToSet.name}. New URL starts with: ${generatedAvatarUrl.substring(0,50)}...`);
             } else {
-              console.warn(`[AuthContext] Avatar generation failed or returned placeholder for ${profileDataToSet.name}. Fallback URL: ${generatedAvatarUrl}`);
-              // Keep the placeholder URL if generation failed, or let it be empty if it was initially empty
-              if (generatedAvatarUrl.includes('placehold.co')) {
-                profileDataToSet.avatarUrl = generatedAvatarUrl;
-              } else if (!profileDataToSet.avatarUrl) { // If it was empty and generation returned nothing valid
-                 profileDataToSet.avatarUrl = ''; // Keep it empty or set a default error image
+              console.warn(`[AuthContext] Avatar generation failed or returned placeholder for ${profileDataToSet.name}. Fallback URL from flow: ${generatedAvatarUrl}`);
+              if (generatedAvatarUrl.includes('placehold.co') && profileDataToSet) {
+                profileDataToSet.avatarUrl = generatedAvatarUrl; 
+              } else if (profileDataToSet && !profileDataToSet.avatarUrl) { 
+                 profileDataToSet.avatarUrl = 'https://placehold.co/40x40.png?text=NoGen'; 
               }
             }
-          } catch (genError) {
-            console.error(`[AuthContext] Error during avatar generation for ${profileDataToSet.name}:`, genError);
-             if (!profileDataToSet.avatarUrl) { // If it was empty and generation errored
-                profileDataToSet.avatarUrl = 'https://placehold.co/40x40.png?text=Err'; // Fallback on error if still no avatar
+          } catch (genError: any) {
+            console.error(`[AuthContext] Error during avatar generation call for ${profileDataToSet.name}:`, genError.message ? genError.message : genError);
+             if (profileDataToSet && !profileDataToSet.avatarUrl) { 
+                profileDataToSet.avatarUrl = 'https://placehold.co/40x40.png?text=CtxErr';
              }
           }
         }

@@ -31,12 +31,12 @@ const generateAvatarFlow = ai.defineFlow(
     outputSchema: GenerateAvatarOutputSchema,
   },
   async (input: GenerateAvatarInput) => {
-    const promptText = `Generate a very small, funny, quirky, and abstract cartoon avatar suitable for a profile picture. Use the concept of "${input.seedText}" as very loose inspiration. The avatar should be simple, iconic, and not a literal representation. Ensure the background is transparent or a solid muted color. Make it fun! Output only the image.`;
+    const promptText = `Generate a very small, funny, quirky, and abstract cartoon avatar suitable for a profile picture. Use the concept of "${input.seedText}" as very loose inspiration. The avatar should be simple, iconic, and not a literal representation. Ensure the background is transparent or a solid muted color. Make it fun! Output only the image. Do not output any text.`;
     console.log('[generateAvatarFlow] Attempting to generate avatar with prompt seed:', input.seedText);
     console.log('[generateAvatarFlow] Full prompt for model:', promptText);
 
     try {
-      const {media} = await ai.generate({
+      const {media, content} = await ai.generate({
         model: 'googleai/gemini-2.0-flash-exp', // Use the image-capable model
         prompt: promptText,
         config: {
@@ -49,16 +49,18 @@ const generateAvatarFlow = ai.defineFlow(
           ],
         },
       });
+      
+      console.log('[generateAvatarFlow] Raw response from ai.generate. Media:', JSON.stringify(media), 'Content:', JSON.stringify(content));
 
       if (media && media.url) {
         console.log('[generateAvatarFlow] Avatar generated successfully for seed:', input.seedText, 'URL starts with:', media.url.substring(0, 50) + '...');
         return media.url; // This is the data URI, e.g., "data:image/png;base64,..."
       } else {
-        console.warn('[generateAvatarFlow] Avatar generation did not return media or media.url for seed:', input.seedText);
+        console.warn('[generateAvatarFlow] Avatar generation did not return media or media.url for seed:', input.seedText, 'Full media object:', JSON.stringify(media), 'Full content object:', JSON.stringify(content));
         return 'https://placehold.co/40x40.png?text=GenFail'; // More distinct placeholder
       }
-    } catch (error) {
-      console.error('[generateAvatarFlow] Error generating avatar for seed:', input.seedText, error);
+    } catch (error: any) {
+      console.error('[generateAvatarFlow] Error generating avatar for seed:', input.seedText, 'Error message:', error.message, 'Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
       return 'https://placehold.co/40x40.png?text=GenError'; // More distinct placeholder
     }
   }
