@@ -93,51 +93,73 @@ export default function ProfilePage() {
     }
     if (userProfile) {
       form.reset({ name: userProfile.name });
+      // Ensure preview is cleared if user navigates away or profile updates elsewhere
+      if (!selectedAvatarFile) {
+        setAvatarPreviewUrl(null);
+      }
     }
-  }, [authLoading, currentUser, userProfile, router, form]);
+  }, [authLoading, currentUser, userProfile, router, form, selectedAvatarFile]);
 
   const handleAvatarFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedAvatarFile(file);
       setAvatarPreviewUrl(URL.createObjectURL(file));
+    } else {
+      setSelectedAvatarFile(null);
+      setAvatarPreviewUrl(null);
     }
   };
 
   const handleSaveAvatar = async () => {
-    if (!currentUser || !selectedAvatarFile) return;
+    console.log("[ProfilePage handleSaveAvatar] Attempting to save avatar.");
+    if (!currentUser || !selectedAvatarFile || !userProfile) {
+      console.error("[ProfilePage handleSaveAvatar] Pre-condition failed: currentUser, selectedAvatarFile, or userProfile missing.", { currentUser, selectedAvatarFile, userProfile });
+      toast({ title: "Erreur", description: "Informations utilisateur ou fichier manquant.", variant: "destructive" });
+      return;
+    }
     setIsUploadingAvatar(true);
+    console.log("[ProfilePage handleSaveAvatar] User:", currentUser.uid, "File:", selectedAvatarFile.name);
 
-    const oldAvatarStoragePath = userProfile?.avatarStoragePath;
+    const oldAvatarStoragePath = userProfile.avatarStoragePath;
     const newFileName = `${Date.now()}-${selectedAvatarFile.name}`;
     const newAvatarStoragePath = `avatars/${currentUser.uid}/${newFileName}`;
     const avatarRef = ref(storage, newAvatarStoragePath);
+    console.log("[ProfilePage handleSaveAvatar] New avatar path:", newAvatarStoragePath);
 
     try {
-      // Upload new avatar
+      console.log("[ProfilePage handleSaveAvatar] Starting upload to Firebase Storage...");
       await uploadBytes(avatarRef, selectedAvatarFile);
-      const newAvatarUrl = await getDownloadURL(avatarRef);
+      console.log("[ProfilePage handleSaveAvatar] Upload to Storage successful.");
 
-      // Update Firestore
-      const userDocRef = doc(db, "users", currentUser.uid);
-      await updateDoc(userDocRef, {
-        avatarUrl: newAvatarUrl,
-        avatarStoragePath: newAvatarStoragePath,
-      });
+      const newAvatarUrl = await getDownloadURL(avatarRef);
+      console.log("[ProfilePage handleSaveAvatar] Got download URL:", newAvatarUrl);
 
       // Delete old avatar if it exists and is different
       if (oldAvatarStoragePath && oldAvatarStoragePath !== newAvatarStoragePath) {
+        console.log("[ProfilePage handleSaveAvatar] Attempting to delete old avatar from Storage:", oldAvatarStoragePath);
         try {
           const oldAvatarRef = ref(storage, oldAvatarStoragePath);
           await deleteObject(oldAvatarRef);
-          console.log("[ProfilePage] Old avatar deleted from Storage:", oldAvatarStoragePath);
-        } catch (deleteError) {
-          console.error("[ProfilePage] Error deleting old avatar from Storage:", deleteError);
-          // Non-critical error, proceed
+          console.log("[ProfilePage handleSaveAvatar] Old avatar deleted successfully from Storage.");
+        } catch (deleteError: any) {
+          console.error("[ProfilePage handleSaveAvatar] Error deleting old avatar from Storage:", deleteError.message, deleteError);
+          // Non-critical error, proceed with updating Firestore
+          toast({ title: "Avertissement", description: "Impossible de supprimer l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
         }
       }
       
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const updateData = {
+        avatarUrl: newAvatarUrl,
+        avatarStoragePath: newAvatarStoragePath,
+      };
+      console.log("[ProfilePage handleSaveAvatar] Attempting to update Firestore user document with:", updateData);
+      await updateDoc(userDocRef, updateData);
+      console.log("[ProfilePage handleSaveAvatar] Firestore user document updated successfully.");
+      
       if(setContextUserProfile) {
+        console.log("[ProfilePage handleSaveAvatar] Updating AuthContext userProfile.");
         setContextUserProfile(prev => prev ? { ...prev, avatarUrl: newAvatarUrl, avatarStoragePath: newAvatarStoragePath } : null);
       }
 
@@ -146,16 +168,17 @@ export default function ProfilePage() {
         description: "Votre nouvel avatar a été enregistré.",
       });
       setSelectedAvatarFile(null);
-      setAvatarPreviewUrl(null);
-    } catch (error) {
-      console.error("Erreur lors de la mise à jour de l'avatar: ", error);
+      setAvatarPreviewUrl(null); // Clear preview after successful save
+    } catch (error: any) {
+      console.error("[ProfilePage handleSaveAvatar] Error during avatar update process:", error.message, error);
       toast({
-        title: "Erreur",
-        description: "Impossible de mettre à jour l'avatar.",
+        title: "Erreur de mise à jour de l'avatar",
+        description: `Impossible de mettre à jour l'avatar: ${error.message || "Une erreur inconnue est survenue."}`,
         variant: "destructive",
       });
     } finally {
       setIsUploadingAvatar(false);
+      console.log("[ProfilePage handleSaveAvatar] Finished avatar save attempt.");
     }
   };
 
@@ -287,9 +310,9 @@ export default function ProfilePage() {
                 className="hidden"
                 data-ai-hint="avatar file input"
             />
-            {avatarPreviewUrl && (
+            {avatarPreviewUrl && selectedAvatarFile && (
                 <Button onClick={handleSaveAvatar} disabled={isUploadingAvatar} className="mt-2">
-                {isUploadingAvatar ? <Icons.loader className="animate-spin mr-2"/> : <Icons.save className="mr-2"/>}
+                {isUploadingAvatar ? <Icons.loader className="animate-spin mr-2 h-4 w-4"/> : <Icons.save className="mr-2 h-4 w-4"/>}
                 Enregistrer l'avatar
                 </Button>
             )}
@@ -352,4 +375,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-
