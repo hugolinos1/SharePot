@@ -7,32 +7,21 @@ service firebase.storage {
     // Règles pour les justificatifs de dépenses
     // Chemin: receipts/{projectId}/{expenseId}/{fileName}
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // TEST: Autoriser la création si l'utilisateur est authentifié,
-      // que le fichier est une image de moins de 5Mo,
-      // ET que le document projet existe dans Firestore.
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 &&
-                       request.resource.contentType.matches('image/.*') &&
-                       exists(/databases/$(database)/documents/projects/$(projectId));
+      // TEST ULTRA-SIMPLIFIÉ: Autoriser l'écriture si l'utilisateur est authentifié.
+      // Les conditions de taille et de type de contenu sont aussi temporairement retirées pour ce test extrême.
+      allow create: if request.auth != null;
 
-      // Autoriser la lecture si l'utilisateur est authentifié ET
-      // (propriétaire ou membre du projet - version complète et sécurisée)
+      // Garder des règles de lecture et de suppression plus restrictives pour l'instant
+      // (basées sur la version sécurisée précédente)
       allow read: if request.auth != null &&
                      (
                        exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                       get(/databases/$(database)/documents/projects/$(projectId)).data != null &&
                        (
                          request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-                         (
-                           get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
-                           get(/databases/$(database)/documents/projects/$(projectId)).data.members is list &&
-                           request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
-                         )
+                         (get(/databases/$(database)/documents/projects/$(projectId)).data.members != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members)
                        )
                      );
 
-      // Autoriser la suppression si l'utilisateur est authentifié ET
-      // (créateur de la dépense ET la dépense appartient au projet OU propriétaire du projet)
       allow delete: if request.auth != null &&
                        exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
                        get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
@@ -40,27 +29,37 @@ service firebase.storage {
                          request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
                          (
                            exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           get(/databases/$(database)/documents/projects/$(projectId)).data != null &&
+                           get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId != null &&
                            request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
                          )
                        );
-      allow update: if false; // Les mises à jour se font par suppression puis nouvelle création
+      // Les mises à jour sont généralement gérées par une suppression puis une nouvelle création.
+      allow update: if false;
     }
 
     // Règles pour les avatars des utilisateurs
     // Chemin: avatars/{userId}/{fileName}
     match /avatars/{userId}/{fileName} {
-      allow read: if true; // Les avatars sont souvent publics
+      // Autoriser la lecture par tout le monde (les avatars sont souvent publics).
+      allow read: if true;
 
+      // Autoriser l'écriture (téléversement/modification) si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin.
+      // 3. La taille du fichier est inférieure à 2 Mo.
+      // 4. Le type de contenu est une image.
       allow write: if request.auth != null &&
                       request.auth.uid == userId &&
-                      request.resource.size < 2 * 1024 * 1024 && // Limite à 2MB
+                      request.resource.size < 2 * 1024 * 1024 &&
                       request.resource.contentType.matches('image/.*');
 
+      // Autoriser la suppression si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin.
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Règle par défaut plus restrictive pour les autres chemins
+    // Règle par défaut : refuser toutes les autres opérations sur tous les autres chemins.
     match /{allPaths=**} {
       allow read, write: if false;
     }
