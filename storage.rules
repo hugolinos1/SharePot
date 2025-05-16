@@ -4,50 +4,40 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is an admin - Not used in these simplified rules for receipts, but kept for avatars
-    function isAdmin() {
-      return request.auth.token.email == 'hugues.rabier@gmail.com';
-    }
-
-    // Note: The full isProjectParticipant function is commented out for this test.
-    // function isProjectParticipant(projectId) {
-    //   let projectDoc = get(/databases/$(database)/documents/projects/$(projectId));
-    //   return exists(/databases/$(database)/documents/projects/$(projectId)) &&
-    //          projectDoc.data != null &&
-    //          projectDoc.data.members != null &&
-    //          projectDoc.data.members is list &&
-    //          (
-    //            request.auth.uid == projectDoc.data.ownerId ||
-    //            request.auth.uid in projectDoc.data.members
-    //          );
-    // }
-
+    // Règles pour les justificatifs de dépenses
+    // Chemin: receipts/{projectId}/{expenseId}/{fileName}
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // TEST: Autoriser la création (téléversement) si :
+      // Autoriser la création (téléversement) si :
       // 1. L'utilisateur est authentifié.
       // 2. La taille du fichier est inférieure à 5 Mo.
       // 3. Le type de contenu est une image.
-      // 4. L'utilisateur est propriétaire du projet (vérifié via Firestore).
+      // 4. L'utilisateur est propriétaire ou membre du projet (vérifié via Firestore).
       allow create: if request.auth != null &&
                        request.resource.size < 5 * 1024 * 1024 &&
                        request.resource.contentType.matches('image/.*') &&
-                       ( // Simplified project participation check - ONLY CHECKS OWNERSHIP
+                       (
                          exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                         (
+                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+                           (
+                              get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
+                              request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+                           )
+                         )
                        );
 
       // Autoriser la lecture si :
       // 1. L'utilisateur est authentifié.
-      // 2. L'utilisateur est propriétaire ou membre du projet (using the more complete check here).
+      // 2. L'utilisateur est propriétaire ou membre du projet.
       allow read: if request.auth != null &&
                      (
                        exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                       get(/databases/$(database)/documents/projects/$(projectId)).data != null &&
-                       get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
-                       get(/databases/$(database)/documents/projects/$(projectId)).data.members is list &&
                        (
                          request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-                         request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+                         (
+                            get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
+                            request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+                         )
                        )
                      );
 
