@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -67,8 +68,8 @@ export interface ExpenseItem {
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
-  receiptUrl?: string | null; // Added for receipt URL
-  receiptStoragePath?: string | null; // Added for storage path
+  receiptUrl?: string | null; 
+  receiptStoragePath?: string | null; 
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
@@ -126,8 +127,8 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true);
-      setIsLoadingExpenses(true);
+      setIsLoadingProjects(true); // Set to true, will be false after fetch or if no user
+      setIsLoadingExpenses(true); // Same for expenses
       return;
     }
     setIsLoadingProjects(true);
@@ -216,17 +217,24 @@ export default function ExpensesPage() {
   }, [currentUser, projects, toast]);
 
   useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
+
+  useEffect(() => {
+    console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
     if (currentUser) {
-      console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
       fetchProjects();
     } else {
-      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser, clearing projects and expenses.");
+      // Ensure states are reset if user logs out or context initializes without a user
+      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser or auth loading. Resetting states.");
       setProjects([]);
       setAllExpenses([]);
       setIsLoadingProjects(true);
       setIsLoadingExpenses(true);
     }
-  }, [currentUser, fetchProjects]);
+  }, [currentUser, authLoading, fetchProjects]); // Added authLoading
 
   useEffect(() => {
     console.log("ExpensesPage: useEffect for fetchExpenses triggered. currentUser:", !!currentUser, "projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
@@ -495,15 +503,15 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>
+                     <TableCell>
                       {expense.receiptUrl ? (
                         <Button variant="outline" size="sm" onClick={() => handleOpenReceiptModal(expense.receiptUrl!)} className="h-8 w-8 p-0">
-                          <Image
+                           <Image
                             src={expense.receiptUrl}
                             alt={`Justificatif pour ${expense.title}`}
                             width={24}
                             height={24}
-                            className="rounded-sm object-contain"
+                            className="rounded-sm object-contain" 
                             data-ai-hint="receipt thumbnail"
                           />
                         </Button>
