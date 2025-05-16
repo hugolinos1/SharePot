@@ -44,7 +44,7 @@ import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from '@/contexts/AuthContext';
 import type { ExpenseItem } from '@/app/expenses/page';
-import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; // Renamed to avoid conflict
+import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,8 +67,8 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  currentReceiptUrl: z.string().optional().nullable(), // To display existing receipt
-  receipt: z.instanceof(File).optional().nullable(), // For uploading a new receipt
+  currentReceiptUrl: z.string().optional().nullable(), 
+  receipt: z.instanceof(File).optional().nullable(), 
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -215,9 +215,9 @@ export default function EditExpensePage() {
     let newReceiptUrl: string | null = originalExpense.receiptUrl || null;
     let newReceiptStoragePath: string | null = originalExpense.receiptStoragePath || null;
 
+    console.log(`[EditExpensePage onSubmit Attempting upload] User UID: ${currentUser.uid}, Project ID: ${project.id}, Expense ID (for path): ${originalExpense.id}`);
     if (values.receipt && currentUser && project) {
       console.log("[EditExpensePage onSubmit] New receipt file selected:", values.receipt.name);
-      // Delete old receipt if it exists and a new one is uploaded
       if (originalExpense.receiptStoragePath) {
         console.log("[EditExpensePage onSubmit] Attempting to delete old receipt:", originalExpense.receiptStoragePath);
         const oldReceiptRef = ref(storage, originalExpense.receiptStoragePath);
@@ -226,14 +226,12 @@ export default function EditExpensePage() {
           console.log("[EditExpensePage onSubmit] Old receipt deleted successfully.");
         } catch (deleteError: any) {
           console.error("Erreur lors de la suppression de l'ancien justificatif:", deleteError);
-          // Non-critical, proceed with new upload
         }
       }
 
       const storageRefPath = `receipts/${project.id}/${originalExpense.id}/${Date.now()}-${values.receipt.name}`;
       const fileRef = ref(storage, storageRefPath);
       try {
-        console.log(`[EditExpensePage onSubmit Attempting upload] User UID: ${currentUser.uid}, Project ID: ${project.id}, Expense ID (for path): ${originalExpense.id}, File: ${values.receipt.name}`);
         await uploadBytes(fileRef, values.receipt);
         newReceiptUrl = await getDownloadURL(fileRef);
         newReceiptStoragePath = storageRefPath;
@@ -246,7 +244,6 @@ export default function EditExpensePage() {
           variant: "destructive",
           duration: 7000,
         });
-        // Keep original receipt if new upload fails
         newReceiptUrl = originalExpense.receiptUrl || null;
         newReceiptStoragePath = originalExpense.receiptStoragePath || null;
       }
@@ -358,7 +355,7 @@ export default function EditExpensePage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImagePrimitive
-                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    src={userProfile?.avatarUrl}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -591,7 +588,7 @@ export default function EditExpensePage() {
                   return (
                     <FormItem>
                       <FormLabel>Justificatif (optionnel)</FormLabel>
-                      {currentReceiptUrl && !value && ( // Show current receipt if no new file is staged
+                      {currentReceiptUrl && !value && ( 
                         <div className="mb-2">
                           <p className="text-sm text-muted-foreground mb-1">Justificatif actuel :</p>
                           <Image
