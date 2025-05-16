@@ -4,77 +4,62 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is an admin by email
-    // Note: Accessing request.auth.token.email requires the user to be recently signed in.
-    // It's generally more robust to rely on custom claims or Firestore data for admin checks if possible,
-    // but for simplicity with current setup, we use email.
-    function isAdmin() {
-      return request.auth != null && request.auth.token.email == 'hugues.rabier@gmail.com';
-    }
+    // function isProjectParticipant(projectId) { // Commented out, not used in current simplified rules
+    //   let projectPath = /databases/$(database)/documents/projects/$(projectId);
+    //   return exists(projectPath) &&
+    //          (
+    //            request.auth.uid == get(projectPath).data.ownerId ||
+    //            request.auth.uid in get(projectPath).data.members
+    //          );
+    // }
 
-    // Helper function to check if the user is a participant (member or owner) of a project
-    // This function reads from Firestore. Ensure Firestore rules allow these reads for authenticated users.
-    function isProjectParticipant(projectId) {
-      let projectPath = /databases/$(database)/documents/projects/$(projectId);
-      // Check if the project document exists
-      return exists(projectPath) &&
-             (
-               // Check if the user is the owner of the project
-               request.auth.uid == get(projectPath).data.ownerId ||
-               // Check if the user's UID is in the members array of the project
-               request.auth.uid in get(projectPath).data.members
-             );
-    }
-
-    // Rules for receipt files
-    // Path structure: receipts/{projectId}/{expenseId}/{fileName}
-    match /receipts/{projectId}/{expenseId}/{fileName} {
-
+    // Receipts path: receipts/{projectId}/{expenseId}/{fileName}
+    // match /receipts/{projectId}/{expenseId}/{fileName} { // Commented out as functionality is removed
       // Allow create (upload) if:
       // 1. User is authenticated.
       // 2. File is an image.
       // 3. File size is less than 5MB.
       // 4. User is a participant (owner or member) of the project.
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 &&
-                       request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId);
+      // allow create: if request.auth != null &&
+      //                  request.resource.size < 5 * 1024 * 1024 &&
+      //                  request.resource.contentType.matches('image/.*') &&
+      //                  (
+      //                    exists(/databases/$(database)/documents/projects/$(projectId)) &&
+      //                    (
+      //                      request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+      //                      request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+      //                    )
+      //                  );
 
       // Allow read if:
       // 1. User is authenticated.
       // 2. User is a participant (owner or member) of the project.
-      allow read: if request.auth != null && isProjectParticipant(projectId);
+      // allow read: if request.auth != null &&
+      //                (
+      //                  exists(/databases/$(database)/documents/projects/$(projectId)) &&
+      //                  (
+      //                    request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+      //                    request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+      //                  )
+      //                );
 
       // Allow delete if:
       // 1. User is authenticated.
       // 2. The corresponding expense document exists in Firestore and belongs to the same project.
-      // 3. The user is the creator of the expense OR the owner of the project.
-      allow delete: if request.auth != null &&
-                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
-                       (
-                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         ( // Or if the user is the project owner
-                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
-                         )
-                       );
-      
-      // Updates are generally handled by deleting and re-uploading for simplicity,
-      // so direct updates are often disallowed or have the same rules as create.
-      allow update: if false; // Or similar to 'create' if needed.
-    }
+      // 3. User is the creator of the expense OR the owner of the project.
+    //   allow delete: if request.auth != null &&
+    //                    exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
+    //                    get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
+    //                    (
+    //                      request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
+    //                      (
+    //                        exists(/databases/$(database)/documents/projects/$(projectId)) &&
+    //                        request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+    //                      )
+    //                    );
+    // }
 
-    // Example for user profile pictures (if you add this feature)
-    // Path structure: userProfilePictures/{userId}/{fileName}
-    match /userProfilePictures/{userId}/{fileName} {
-      allow read: if true; // Publicly readable profile pictures
-      allow write: if request.auth != null && request.auth.uid == userId &&
-                      request.resource.size < 2 * 1024 * 1024 && // 2MB limit
-                      request.resource.contentType.matches('image/.*');
-    }
-
-    // Default deny for all other paths
+    // Default deny all other paths if not explicitly matched
     match /{allPaths=**} {
       allow read, write: if false;
     }

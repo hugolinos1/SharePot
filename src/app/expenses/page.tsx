@@ -20,13 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog";
+// Removed: import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog"; // No longer needed
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -35,14 +29,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import type { Project } from '@/data/mock-data';
-import { db, storage } from '@/lib/firebase'; // Import storage
+import { db } from '@/lib/firebase'; // Removed storage import
 import { collection, getDocs, query, where, Timestamp, deleteDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { ref, deleteObject } from "firebase/storage"; // Import for deleting from storage
+// Removed: import { ref, deleteObject } from "firebase/storage"; // No longer needed if not deleting from storage
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import Image from 'next/image';
+// Removed: import Image from 'next/image'; // No longer needed for receipts
 
 export interface ExpenseItem {
   id: string;
@@ -55,11 +49,11 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
-  receiptUrl?: string | null; 
-  receiptStoragePath?: string | null; 
+  // receiptUrl?: string | null; // Removed
+  // receiptStoragePath?: string | null; // Removed
   createdAt?: Timestamp;
   createdBy: string;
-  updatedAt?: Timestamp; 
+  updatedAt?: Timestamp;
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
@@ -84,8 +78,8 @@ export default function ExpensesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
 
-  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
-  const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+  // Removed: const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  // Removed: const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
 
 
   const fetchProjects = useCallback(async () => {
@@ -93,7 +87,7 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); 
+      setIsLoadingProjects(true);
       setIsLoadingExpenses(true);
       return;
     }
@@ -139,7 +133,7 @@ export default function ExpensesPage() {
 
         if (projectIds.length > 0) {
           let expensesList: ExpenseItem[] = [];
-          const chunkSize = 30; // Firestore 'in' query limit is 30
+          const chunkSize = 30;
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
                 if (chunk.length > 0) {
@@ -172,7 +166,7 @@ export default function ExpensesPage() {
       setIsLoadingExpenses(false);
       console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, projects, toast]); 
+  }, [currentUser, projects, toast]);
 
   useEffect(() => {
     if (currentUser) {
@@ -182,7 +176,7 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: useEffect for fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); 
+      setIsLoadingProjects(true);
       setIsLoadingExpenses(true);
     }
   }, [currentUser, fetchProjects]);
@@ -202,7 +196,7 @@ export default function ExpensesPage() {
         console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        if (!isLoadingProjects && !currentUser) { // Ensure data is cleared if user logs out and projects were loaded
+        if (!isLoadingProjects && !currentUser) {
             setAllExpenses([]);
             setIsLoadingExpenses(false);
         }
@@ -213,7 +207,7 @@ export default function ExpensesPage() {
   const filteredExpenses = useMemo(() => {
     let expensesToFilter = allExpenses;
 
-    if (selectedProjectId !== 'all' && !isLoadingProjects) { 
+    if (selectedProjectId !== 'all' && !isLoadingProjects) {
         expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
     }
 
@@ -240,15 +234,16 @@ export default function ExpensesPage() {
       const expenseRef = doc(db, "expenses", expenseToDelete.id);
       const projectRef = doc(db, "projects", expenseToDelete.projectId);
 
-      if (expenseToDelete.receiptStoragePath) {
-        try {
-          const receiptFileRef = ref(storage, expenseToDelete.receiptStoragePath);
-          await deleteObject(receiptFileRef);
-          console.log("Justificatif supprimé de Firebase Storage.");
-        } catch (storageError: any) {
-          console.warn("Erreur lors de la suppression du justificatif de Storage: ", storageError.code, storageError.message);
-        }
-      }
+      // Receipt deletion from storage is removed
+      // if (expenseToDelete.receiptStoragePath) {
+      //   try {
+      //     const receiptFileRef = ref(storage, expenseToDelete.receiptStoragePath);
+      //     await deleteObject(receiptFileRef);
+      //     console.log("Justificatif supprimé de Firebase Storage.");
+      //   } catch (storageError: any) {
+      //     console.warn("Erreur lors de la suppression du justificatif de Storage: ", storageError.code, storageError.message);
+      //   }
+      // }
 
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
@@ -297,10 +292,7 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
-  const openReceiptModal = (receiptUrl: string) => {
-    setSelectedReceiptUrl(receiptUrl);
-    setIsReceiptModalOpen(true);
-  };
+  // Removed: const openReceiptModal = (receiptUrl: string) => { ... };
 
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
 
@@ -382,21 +374,21 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
-                  <TableHead>Justificatif</TableHead>
+                  {/* Removed: <TableHead>Justificatif</TableHead> */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && ( 
+                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32">
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
                     </TableRow>
                 )}
                 {!isLoadingExpenses && filteredExpenses.map((expense) => {
-                  console.log("Rendering expense in table:", JSON.stringify(expense, null, 2)); // ADDED LOG
+                  console.log("Rendering expense in table:", JSON.stringify(expense, null, 2));
                   return (
                   <TableRow key={expense.id}>
                     <TableCell className="font-medium">{expense.title}</TableCell>
@@ -413,28 +405,7 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      {expense.receiptUrl ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => openReceiptModal(expense.receiptUrl!)}
-                          aria-label="Voir le justificatif"
-                        >
-                          <Image
-                            src={expense.receiptUrl}
-                            alt={`Justificatif pour ${expense.title}`}
-                            width={24}
-                            height={24}
-                            className="object-cover rounded-sm"
-                            data-ai-hint="receipt thumbnail"
-                          />
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Aucun</span>
-                      )}
-                    </TableCell>
+                    {/* Removed receipt cell */}
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -447,9 +418,9 @@ export default function ExpensesPage() {
                     </TableCell>
                   </TableRow>
                 )})}
-                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && ( 
+                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -479,30 +450,7 @@ export default function ExpensesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
-        <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-4xl p-0">
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Visualisation du Justificatif</DialogTitle>
-          </DialogHeader>
-          <div className="p-4 max-h-[80vh] overflow-y-auto">
-            {selectedReceiptUrl ? (
-              <Image
-                src={selectedReceiptUrl}
-                alt="Justificatif en taille réelle"
-                width={1200} 
-                height={1600}
-                className="w-full h-auto object-contain rounded-md"
-                data-ai-hint="full receipt image"
-              />
-            ) : (
-              <p className="text-muted-foreground text-center py-10">Aucun justificatif à afficher.</p>
-            )}
-          </div>
-          <DialogClose asChild>
-            <Button variant="outline" className="m-4 mt-0">Fermer</Button>
-          </DialogClose>
-        </DialogContent>
-      </Dialog>
+      {/* Removed Receipt Modal Dialog */}
     </div>
   );
 }
