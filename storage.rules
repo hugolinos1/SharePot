@@ -1,54 +1,68 @@
-rules_version = '2';
-
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Helper function to check if the user is a participant (member or owner) of a project
+    // This function is defined here but used by inlining its logic below for robustness.
+    // function isProjectParticipant(projectId) {
+    //   let projectPath = /databases/$(database)/documents/projects/$(projectId);
+    //   return exists(projectPath) &&
+    //          (
+    //            request.auth.uid == get(projectPath).data.ownerId ||
+    //            (get(projectPath).data.members is list && request.auth.uid in get(projectPath).data.members)
+    //          );
+    // }
+
     // Rules for user avatars
     match /avatars/{userId}/{fileName} {
-      allow read: if true; // Avatars are generally public
-
-      // TEMPORARY DIAGNOSTIC RULE: Simplify to check only auth and UID match
-      allow write: if request.auth != null && request.auth.uid == userId;
-
-      allow delete: if request.auth.uid == userId;
+      allow read: if true; // Avatars are public
+      allow write: if request.auth != null &&
+                      request.auth.uid == userId && // User can only write to their own avatar path
+                      request.resource.size < 2 * 1024 * 1024 && // Max 2MB
+                      request.resource.contentType.matches('image/.*'); // Only images
+      allow delete: if request.auth != null && request.auth.uid == userId; // User can only delete their own avatar
     }
 
     // Rules for receipt images
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Helper function to check if the user is a participant (member or owner) of a project
-      // This function makes calls to Firestore, ensure your Firestore rules allow these reads
-      // by the `service firebase.storage` service account implicitly, or by the authenticated user.
-      function isProjectParticipant(localProjectId) {
-        let projectPath = /databases/$(database)/documents/projects/$(localProjectId);
-        return exists(projectPath) &&
-               (
-                 request.auth.uid == get(projectPath).data.ownerId ||
-                 (get(projectPath).data.members != null && request.auth.uid in get(projectPath).data.members)
-               );
-      }
-
       allow create: if request.auth != null &&
                        request.resource.size < 5 * 1024 * 1024 && // Max 5MB
-                       request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId); // Validate that the user is part of the project
+                       request.resource.contentType.matches('image/.*') && // Only images
+                       // Inline the project participant check for robustness
+                       (
+                         exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                         (
+                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+                           (get(/databases/$(database)/documents/projects/$(projectId)).data.members is list && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members)
+                         )
+                       );
 
-      allow read: if request.auth != null && isProjectParticipant(projectId);
+      allow read: if request.auth != null &&
+                     // Inline the project participant check
+                     (
+                       exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                       (
+                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+                         (get(/databases/$(database)/documents/projects/$(projectId)).data.members is list && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members)
+                       )
+                     );
 
       allow delete: if request.auth != null &&
                        exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId && // Expense belongs to this project
+                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
                        (
-                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy || // User created the expense
-                         ( // Or user is the project owner
+                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
+                         (
                            exists(/databases/$(database)/documents/projects/$(projectId)) &&
                            request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
                          )
                        );
     }
 
-    // Deny all other paths by default
-    // match /{allPaths=**} {
-    //   allow read, write: if false;
-    // }
+    // Deny all other writes by default
+    match /{allPaths=**} {
+      allow write: if false;
+      // Read access can be more open if needed, or restricted like writes
+      // allow read: if request.auth != null; // Example: allow all authenticated users to read anything not explicitly denied
+    }
   }
 }
