@@ -10,7 +10,6 @@ import * as z from 'zod';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp, doc, getDoc, updateDoc, runTransaction, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
-// Removed: import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 import { Button } from '@/components/ui/button';
 import {
@@ -40,10 +39,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; // Removed storage import
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ExpenseItem } from '@/app/expenses/page';
-// Removed: import Image from 'next/image';
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
 
@@ -57,9 +55,7 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  // receipt: z.instanceof(File).optional().nullable(), // Removed
-  // currentReceiptUrl: z.string().optional().nullable(), // Removed
-  // currentReceiptStoragePath: z.string().optional().nullable(), // Removed
+  // receipt and currentReceiptUrl/Path fields removed
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -88,9 +84,6 @@ export default function EditExpensePage() {
       paidById: '',
       expenseDate: new Date(),
       tags: '',
-      // receipt: null, // Removed
-      // currentReceiptUrl: null, // Removed
-      // currentReceiptStoragePath: null, // Removed
     },
   });
 
@@ -140,9 +133,6 @@ export default function EditExpensePage() {
           paidById: expenseData.paidById,
           expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
-          // receipt: null, // Removed
-          // currentReceiptUrl: expenseData.receiptUrl || null, // Removed
-          // currentReceiptStoragePath: expenseData.receiptStoragePath || null, // Removed
         });
 
       } else {
@@ -179,48 +169,12 @@ export default function EditExpensePage() {
         return;
     }
 
-    // let newReceiptUrl: string | null = originalExpense.receiptUrl || null; // Removed
-    // let newReceiptStoragePath: string | null = originalExpense.receiptStoragePath || null; // Removed
-
-    // if (values.receipt) { // Removed block for receipt upload
-    //   console.log("[EditExpensePage onSubmit] New receipt file selected:", values.receipt.name);
-    //   if (originalExpense.receiptStoragePath) {
-    //     try {
-    //       const oldFileRef = ref(storage, originalExpense.receiptStoragePath);
-    //       await deleteObject(oldFileRef);
-    //       console.log("[EditExpensePage onSubmit] Old receipt deleted from Storage.");
-    //     } catch (deleteError: any) {
-    //       console.warn("Erreur lors de la suppression de l'ancien justificatif: ", deleteError.code, deleteError.message);
-    //     }
-    //   }
-
-    //   const fileName = `${Date.now()}-${values.receipt.name}`;
-    //   const storageRefPath = `receipts/${project.id}/${originalExpense.id}/${fileName}`;
-    //   const newFileStorageRef = ref(storage, storageRefPath);
-    //   try {
-    //     const uploadTask = await uploadBytes(newFileStorageRef, values.receipt);
-    //     newReceiptUrl = await getDownloadURL(uploadTask.ref);
-    //     newReceiptStoragePath = storageRefPath;
-    //     console.log("[EditExpensePage onSubmit] New receipt uploaded. URL:", newReceiptUrl, "Path:", newReceiptStoragePath);
-    //   } catch (uploadError) {
-    //     console.error("Erreur lors du téléversement du nouveau justificatif: ", uploadError);
-    //     toast({
-    //       title: "Erreur de téléversement",
-    //       description: "Impossible de sauvegarder le nouveau justificatif. Les modifications de la dépense (hors justificatif) seront tentées.",
-    //       variant: "destructive",
-    //     });
-    //     newReceiptUrl = originalExpense.receiptUrl || null;
-    //     newReceiptStoragePath = originalExpense.receiptStoragePath || null;
-    //   }
-    // }
-
-
+    // Receipt upload logic removed
     try {
       await runTransaction(db, async (transaction) => {
         const expenseRef = doc(db, "expenses", originalExpense.id);
         const projectRef = doc(db, "projects", originalExpense.projectId);
 
-        // Read operation must come first
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
@@ -238,8 +192,7 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          // receiptUrl: newReceiptUrl, // Removed
-          // receiptStoragePath: newReceiptStoragePath, // Removed
+          // receiptUrl and receiptStoragePath removed from update
           updatedAt: serverTimestamp(),
         };
         transaction.update(expenseRef, updatedExpenseData);
@@ -491,8 +444,6 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
-
-              {/* Removed receipt upload related FormField here */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>

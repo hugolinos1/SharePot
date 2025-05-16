@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation'; // Import useSearchParams
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,7 +10,7 @@ import * as z from 'zod';
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+// Removed: import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import { Button } from '@/components/ui/button';
 import {
@@ -40,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db, storage } from '@/lib/firebase'; 
+import { db } from '@/lib/firebase'; // Removed storage import
 import { collection, getDocs, doc, updateDoc, runTransaction, getDoc, query, where, serverTimestamp, addDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
@@ -59,7 +59,7 @@ const expenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  receipt: z.instanceof(File).optional().nullable(),
+  // receipt: z.instanceof(File).optional().nullable(), // Removed
   invoiceForAnalysis: z.instanceof(File).optional().nullable(),
 });
 
@@ -67,7 +67,7 @@ type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
 export default function NewExpensePage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // For reading URL query params
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading } = useAuth();
 
@@ -86,26 +86,24 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number, // Keep for number conversion
+      amount: '' as unknown as number,
       currency: 'EUR',
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
       tags: '',
-      receipt: null,
+      // receipt: null, // Removed
       invoiceForAnalysis: null,
     },
   });
 
   const watchedProjectId = form.watch('projectId');
 
-  // Effect to handle projectId from URL
   useEffect(() => {
     const projectIdFromUrl = searchParams.get('projectId');
     if (projectIdFromUrl) {
       form.setValue('projectId', projectIdFromUrl);
       setIsProjectSelectDisabled(true); 
-      // The useEffect that depends on watchedProjectId will handle fetching members
     }
   }, [searchParams, form]);
 
@@ -124,11 +122,11 @@ export default function NewExpensePage() {
         amount: form.getValues('amount') || '' as unknown as number,
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
-        projectId: form.getValues('projectId') || '', // This might be set by URL param effect
+        projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
-        receipt: form.getValues('receipt') || null,
-        invoiceForAnalysis: form.getValues('invoiceForAnalysis') || null,
+        // receipt: null, // Removed
+        invoiceForAnalysis: null,
       });
     }
   }, [currentUser, form, authLoading]);
@@ -368,58 +366,24 @@ export default function NewExpensePage() {
         return;
     }
 
-    const expenseCollectionRef = collection(db, "expenses");
-    const newExpenseRef = doc(expenseCollectionRef); // Create a reference for the new expense
+    const newExpenseRef = doc(collection(db, "expenses")); // Pre-generate ID for new expense
+    // const receiptDownloadUrl: string | null = null; // Removed storage logic
+    // const receiptStoragePathValue: string | null = null; // Removed storage logic
 
-    let fileToUploadAsReceipt: File | null | undefined = values.receipt;
-    if (!fileToUploadAsReceipt && invoiceFile) {
-      console.log("[NewExpensePage onSubmit] No specific receipt chosen, using invoiceForAnalysis file as receipt.");
-      fileToUploadAsReceipt = invoiceFile;
-    }
-
-    let receiptDownloadUrl: string | null = null;
-    let receiptStoragePathValue: string | null = null;
-
-    if (fileToUploadAsReceipt && currentUser) {
-      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "Expense ID (for path):", newExpenseRef.id, "File:", fileToUploadAsReceipt.name);
-      const fileName = `${Date.now()}-${fileToUploadAsReceipt.name}`;
-      // Use newExpenseRef.id in the storage path
-      const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`;
-      const fileStorageRef = ref(storage, storageRefPath);
-      try {
-        const uploadTask = await uploadBytes(fileStorageRef, fileToUploadAsReceipt);
-        receiptDownloadUrl = await getDownloadURL(uploadTask.ref);
-        receiptStoragePathValue = storageRefPath; // Store the full path for potential deletion later
-        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePathValue);
-      } catch (uploadError: any) {
-        console.error("Erreur lors du téléversement du justificatif: ", uploadError);
-        toast({
-          title: "Erreur de téléversement",
-          description: `Impossible de sauvegarder le justificatif: ${uploadError.message || 'Vérifiez les permissions Firebase Storage.'}. La dépense sera enregistrée sans justificatif.`,
-          variant: "destructive",
-          duration: 7000,
-        });
-        receiptDownloadUrl = null;
-        receiptStoragePathValue = null;
-      }
-    } else {
-      console.log("[NewExpensePage onSubmit] No receipt file selected or provided for upload.");
-    }
-
+    // Logic for choosing receipt file (values.receipt or invoiceFile) and uploading is removed.
 
     try {
       await runTransaction(db, async (transaction) => {
         const projectRef = doc(db, "projects", selectedProject.id);
-        const projectDoc = await transaction.get(projectRef); // READ project first
+        const projectDoc = await transaction.get(projectRef); 
 
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
         const projectData = projectDoc.data() as Project;
 
-        // Now define newExpenseDocData with potentially resolved receiptDownloadUrl
         const newExpenseDocData = {
-            id: newExpenseRef.id, // Use the pre-generated ID
+            id: newExpenseRef.id, 
             title: values.description,
             amount: values.amount,
             currency: values.currency,
@@ -429,15 +393,15 @@ export default function NewExpensePage() {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            receiptUrl: receiptDownloadUrl, // Use the URL from upload (or null if no upload/failed)
-            receiptStoragePath: receiptStoragePathValue, // Use the path from upload (or null)
+            // receiptUrl: null, // No longer saving receipt URL
+            // receiptStoragePath: null, // No longer saving storage path
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
-        transaction.set(newExpenseRef, newExpenseDocData); // WRITE new expense
+        transaction.set(newExpenseRef, newExpenseDocData);
 
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
@@ -455,10 +419,9 @@ export default function NewExpensePage() {
         };
 
         const existingRecentExpenses = projectData.recentExpenses || [];
-        // Ensure the array doesn't grow indefinitely, sort by date, take top 5
         const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
-            .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Sort descending by date
-            .slice(0, 5); // Keep only the 5 most recent
+            .sort((a, b) => b.date.toMillis() - a.date.toMillis())
+            .slice(0, 5);
 
 
         const projectUpdateData: Partial<Project> = {
@@ -468,7 +431,7 @@ export default function NewExpensePage() {
             updatedAt: serverTimestamp(),
         };
 
-        transaction.update(projectRef, projectUpdateData); // UPDATE project
+        transaction.update(projectRef, projectUpdateData);
       });
 
 
@@ -480,15 +443,15 @@ export default function NewExpensePage() {
          description: '',
          amount: '' as unknown as number,
          currency: 'EUR',
-         projectId: '', // Reset projectId so it's not pre-filled unless by URL
+         projectId: '',
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
-         receipt: null,
+         // receipt: null, // Removed
          invoiceForAnalysis: null,
       });
       setInvoiceFile(null);
-      setIsProjectSelectDisabled(false); // Re-enable project select for next entry
+      setIsProjectSelectDisabled(false);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -561,12 +524,12 @@ export default function NewExpensePage() {
                                     accept="image/png, image/jpeg, image/webp"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : null;
-                                        rhfOnChange(file); // Update react-hook-form state
-                                        setInvoiceFile(file); // Update local state for analysis button
+                                        rhfOnChange(file); 
+                                        setInvoiceFile(file); 
                                     }}
                                     className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                                     data-ai-hint="invoice file upload for AI analysis"
-                                    {...restOfField} // Spread rest of field props, EXCLUDING value
+                                    {...restOfField} 
                                 />
                                 </FormControl>
                                 <FormMessage />
@@ -791,36 +754,7 @@ export default function NewExpensePage() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="receipt"
-                render={({ field }) => {
-                  const { value, onChange: rhfOnChange, ...restOfField } = field;
-                  return (
-                    <FormItem>
-                      <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="file"
-                          accept="image/png, image/jpeg, image/webp, application/pdf"
-                          onChange={(e) => {
-                            const file = e.target.files ? e.target.files[0] : null;
-                            rhfOnChange(file); // Update react-hook-form state
-                          }}
-                          className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                          data-ai-hint="receipt file upload"
-                          {...restOfField} // Spread rest of field props, EXCLUDING value
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Ce fichier sera stocké avec la dépense. Si aucun fichier n'est sélectionné ici, le fichier utilisé pour l'analyse IA (si fourni) sera utilisé comme justificatif.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
-
+              {/* Removed FormField for receipt to be saved */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
@@ -847,4 +781,3 @@ export default function NewExpensePage() {
     </div>
   );
 }
-

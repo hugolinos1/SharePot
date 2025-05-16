@@ -4,62 +4,65 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // function isProjectParticipant(projectId) { // Commented out, not used in current simplified rules
-    //   let projectPath = /databases/$(database)/documents/projects/$(projectId);
-    //   return exists(projectPath) &&
-    //          (
-    //            request.auth.uid == get(projectPath).data.ownerId ||
-    //            request.auth.uid in get(projectPath).data.members
-    //          );
-    // }
+    // Helper function to check if the user is an admin based on their email
+    function isAdmin() {
+      return request.auth.token.email == 'hugues.rabier@gmail.com';
+    }
 
-    // Receipts path: receipts/{projectId}/{expenseId}/{fileName}
-    // match /receipts/{projectId}/{expenseId}/{fileName} { // Commented out as functionality is removed
+    // Helper function to check if the user is a participant (member or owner) of a project
+    // This function reads data from Firestore.
+    function isProjectParticipant(projectId) {
+      let projectPath = /databases/$(database)/documents/projects/$(projectId);
+      return exists(projectPath) &&
+             (
+               request.auth.uid == get(projectPath).data.ownerId ||
+               request.auth.uid in get(projectPath).data.members
+             );
+    }
+
+    // Match rules for user avatar images if you implement avatar uploads
+    match /avatars/{userId}/{fileName} {
+      allow read: if true; // Allow public read for avatars
+      allow write: if request.auth != null && request.auth.uid == userId &&
+                      request.resource.size < 1 * 1024 * 1024 && // Max 1MB
+                      request.resource.contentType.matches('image/.*');
+    }
+
+    // Rules for receipts are commented out as the feature is removed.
+    /*
+    match /receipts/{projectId}/{expenseId}/{fileName} {
       // Allow create (upload) if:
       // 1. User is authenticated.
-      // 2. File is an image.
-      // 3. File size is less than 5MB.
-      // 4. User is a participant (owner or member) of the project.
-      // allow create: if request.auth != null &&
-      //                  request.resource.size < 5 * 1024 * 1024 &&
-      //                  request.resource.contentType.matches('image/.*') &&
-      //                  (
-      //                    exists(/databases/$(database)/documents/projects/$(projectId)) &&
-      //                    (
-      //                      request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-      //                      request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
-      //                    )
-      //                  );
+      // 2. File is an image and less than 5MB.
+      // 3. User is a participant of the project (owner or member).
+      allow create: if request.auth != null &&
+                       request.resource.size < 5 * 1024 * 1024 &&
+                       request.resource.contentType.matches('image/.*') &&
+                       isProjectParticipant(projectId);
 
       // Allow read if:
       // 1. User is authenticated.
-      // 2. User is a participant (owner or member) of the project.
-      // allow read: if request.auth != null &&
-      //                (
-      //                  exists(/databases/$(database)/documents/projects/$(projectId)) &&
-      //                  (
-      //                    request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-      //                    request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
-      //                  )
-      //                );
+      // 2. User is a participant of the project.
+      allow read: if request.auth != null && isProjectParticipant(projectId);
 
       // Allow delete if:
       // 1. User is authenticated.
-      // 2. The corresponding expense document exists in Firestore and belongs to the same project.
+      // 2. The corresponding expense document exists in Firestore and belongs to the project.
       // 3. User is the creator of the expense OR the owner of the project.
-    //   allow delete: if request.auth != null &&
-    //                    exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-    //                    get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
-    //                    (
-    //                      request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-    //                      (
-    //                        exists(/databases/$(database)/documents/projects/$(projectId)) &&
-    //                        request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
-    //                      )
-    //                    );
-    // }
+      allow delete: if request.auth != null &&
+                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
+                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
+                       (
+                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
+                         (
+                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                         )
+                       );
+    }
+    */
 
-    // Default deny all other paths if not explicitly matched
+    // Default deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;
     }

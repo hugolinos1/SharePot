@@ -20,7 +20,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Removed: import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog"; // No longer needed
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -29,14 +28,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; // Removed storage import
+import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, Timestamp, deleteDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-// Removed: import { ref, deleteObject } from "firebase/storage"; // No longer needed if not deleting from storage
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-// Removed: import Image from 'next/image'; // No longer needed for receipts
 
 export interface ExpenseItem {
   id: string;
@@ -49,11 +46,10 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
-  // receiptUrl?: string | null; // Removed
-  // receiptStoragePath?: string | null; // Removed
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
+  // receiptUrl and receiptStoragePath removed
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
@@ -78,17 +74,14 @@ export default function ExpensesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
 
-  // Removed: const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
-  // Removed: const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
-
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true);
-      setIsLoadingExpenses(true);
+      setIsLoadingProjects(true); // Ensure loading state is true if we clear
+      setIsLoadingExpenses(true); // Ensure loading state is true if we clear
       return;
     }
     setIsLoadingProjects(true);
@@ -133,7 +126,7 @@ export default function ExpensesPage() {
 
         if (projectIds.length > 0) {
           let expensesList: ExpenseItem[] = [];
-          const chunkSize = 30;
+          const chunkSize = 30; 
            for (let i = 0; i < projectIds.length; i += chunkSize) {
                 const chunk = projectIds.slice(i, i + chunkSize);
                 if (chunk.length > 0) {
@@ -196,7 +189,7 @@ export default function ExpensesPage() {
         console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        if (!isLoadingProjects && !currentUser) {
+        if (!isLoadingProjects && !currentUser) { // If not loading projects and no user, clear expenses
             setAllExpenses([]);
             setIsLoadingExpenses(false);
         }
@@ -235,16 +228,6 @@ export default function ExpensesPage() {
       const projectRef = doc(db, "projects", expenseToDelete.projectId);
 
       // Receipt deletion from storage is removed
-      // if (expenseToDelete.receiptStoragePath) {
-      //   try {
-      //     const receiptFileRef = ref(storage, expenseToDelete.receiptStoragePath);
-      //     await deleteObject(receiptFileRef);
-      //     console.log("Justificatif supprimé de Firebase Storage.");
-      //   } catch (storageError: any) {
-      //     console.warn("Erreur lors de la suppression du justificatif de Storage: ", storageError.code, storageError.message);
-      //   }
-      // }
-
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
@@ -291,8 +274,6 @@ export default function ExpensesPage() {
   const handleEditExpense = (expenseId: string) => {
     router.push(`/expenses/${expenseId}/edit`);
   };
-
-  // Removed: const openReceiptModal = (receiptUrl: string) => { ... };
 
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
 
@@ -374,14 +355,13 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
-                  {/* Removed: <TableHead>Justificatif</TableHead> */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32">
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
@@ -405,7 +385,6 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
-                    {/* Removed receipt cell */}
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -420,7 +399,7 @@ export default function ExpensesPage() {
                 )})}
                 {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32">
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -449,8 +428,6 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Removed Receipt Modal Dialog */}
     </div>
   );
 }
