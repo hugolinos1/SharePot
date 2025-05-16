@@ -84,7 +84,7 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number,
+      amount: '' as unknown as number, // Correctly initialize as empty string for controlled input
       currency: 'EUR',
       projectId: '',
       paidById: '',
@@ -108,7 +108,7 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || ('' as unknown as number),
+        amount: form.getValues('amount') || '', // Ensure amount is an empty string if null/undefined
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
@@ -154,10 +154,13 @@ export default function NewExpensePage() {
   useEffect(() => {
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
       if (!currentUser || !projectId) {
-        setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
-        if (currentUser && !form.getValues('paidById')) {
-            form.setValue('paidById', currentUser.uid);
+        // If no project selected or no current user, default to current user if available
+        const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
+        setUsersForDropdown(defaultUserArray);
+        if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0] && !form.getValues('paidById')) {
+             form.setValue('paidById', currentUser.uid);
         }
+        setIsLoadingUsersForDropdown(false);
         return;
       }
       setIsLoadingUsersForDropdown(true);
@@ -171,6 +174,7 @@ export default function NewExpensePage() {
           const memberUIDs = projectData.members || [];
 
           if (memberUIDs.length > 0) {
+            // Fetch profiles for each member UID
             const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
             const userDocs = await Promise.all(userPromises);
             fetchedProjectMembers = userDocs
@@ -187,10 +191,11 @@ export default function NewExpensePage() {
                 uniqueMemberMap.set(member.id, member);
             }
         });
-        if (currentUser && fetchedProjectMembers.some(m => m.id === currentUser.uid) && !uniqueMemberMap.has(currentUser.uid)) {
-            const currentUserProfileForDropdown = userProfile || { id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || '' };
-            uniqueMemberMap.set(currentUser.uid, currentUserProfileForDropdown);
-        } else if (currentUser && !fetchedProjectMembers.some(m => m.id === currentUser.uid) && userProfile && projectId) {
+        // Ensure current user is in the list if they are a member or if it's their profile (if userProfile is defined)
+        if (currentUser && userProfile && !uniqueMemberMap.has(currentUser.uid) && fetchedProjectMembers.some(m => m.id === currentUser.uid)) {
+            uniqueMemberMap.set(currentUser.uid, userProfile);
+        } else if (currentUser && userProfile && !uniqueMemberMap.has(currentUser.uid) && fetchedProjectMembers.length === 0) {
+            // If project has no members in its array but a project is selected, add current user
              uniqueMemberMap.set(currentUser.uid, userProfile);
         }
 
@@ -198,16 +203,19 @@ export default function NewExpensePage() {
         const finalUsersList = Array.from(uniqueMemberMap.values());
         setUsersForDropdown(finalUsersList);
 
+        // Auto-select current user or first user if 'paidById' is not set or not in the new list
         const currentPaidById = form.getValues('paidById');
         const currentUserIsAmongFetched = finalUsersList.some(u => u.id === currentUser?.uid);
 
         if (!currentPaidById || !finalUsersList.some(u => u.id === currentPaidById)) {
             if (currentUserIsAmongFetched && currentUser) {
                 form.setValue('paidById', currentUser.uid);
-            } else if (finalUsersList.length > 0 && finalUsersList[0]) {
+            } else if (finalUsersList.length > 0 && finalUsersList[0]) { // Select first if current user not there
                 form.setValue('paidById', finalUsersList[0].id);
+            } else if (currentUser) { // Fallback to current user if list ends up empty
+                 form.setValue('paidById', currentUser.uid); 
             } else {
-                 form.setValue('paidById', currentUser?.uid || ''); 
+                form.setValue('paidById', ''); // Clear if no options
             }
         }
 
@@ -218,8 +226,10 @@ export default function NewExpensePage() {
           description: "Impossible de charger les membres du projet pour la sélection du payeur.",
           variant: "destructive",
         });
-        setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
-         if (currentUser && !form.getValues('paidById')) {
+        // Fallback to current user on error
+        const defaultUserOnError = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
+        setUsersForDropdown(defaultUserOnError);
+         if (currentUser && defaultUserOnError.length > 0 && defaultUserOnError[0] && !form.getValues('paidById')) {
             form.setValue('paidById', currentUser.uid);
         }
       } finally {
@@ -230,12 +240,16 @@ export default function NewExpensePage() {
     if (watchedProjectId) {
       fetchProjectMembersAndSetDropdown(watchedProjectId);
     } else {
-      setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
-       if (currentUser && !form.getValues('paidById')) {
+      // No project selected, default 'paidBy' to current user if available
+      const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
+      setUsersForDropdown(defaultUserArray);
+      if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0] && !form.getValues('paidById')) {
          form.setValue('paidById', currentUser.uid);
       }
+      setIsLoadingUsersForDropdown(false);
     }
-  }, [watchedProjectId, currentUser, userProfile, toast, form]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedProjectId, currentUser, userProfile, toast]);
 
 
   const handleAnalyzeInvoice = async () => {
@@ -259,7 +273,7 @@ export default function NewExpensePage() {
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
+          throw new Error(errorData.error || errorData.message || `Erreur HTTP: ${response.status}`);
         }
 
         const data = await response.json();
@@ -317,10 +331,11 @@ export default function NewExpensePage() {
 
 
   async function onSubmit(values: ExpenseFormValues) {
-    console.log("[NewExpensePage onSubmit] currentUser:", currentUser);
-    console.log("[NewExpensePage onSubmit] userProfile from context:", userProfile);
     console.log("[NewExpensePage onSubmit] Form values:", values);
     console.log("[NewExpensePage onSubmit] Current usersForDropdown state:", usersForDropdown);
+    console.log("[NewExpensePage onSubmit] Current userProfile from context:", userProfile);
+    console.log("[NewExpensePage onSubmit] Current currentUser from context:", currentUser);
+
 
     if (!currentUser || !userProfile) {
         toast({ title: "Utilisateur non connecté ou profil incomplet", description: "Veuillez vous connecter et vous assurer que votre profil est chargé.", variant: "destructive" });
@@ -350,10 +365,10 @@ export default function NewExpensePage() {
     let receiptDownloadUrl: string | null = null;
     let receiptStoragePathValue: string | null = null;
     const expenseCollectionRef = collection(db, "expenses");
-    const newExpenseRef = doc(expenseCollectionRef); 
+    const newExpenseRef = doc(expenseCollectionRef); // Generate new expense ID for storage path
 
     if (values.receipt) {
-      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "File:", values.receipt.name);
+      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "Expense ID (for path):", newExpenseRef.id, "File:", values.receipt.name);
       const fileName = `${Date.now()}-${values.receipt.name}`;
       const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`;
       const fileStorageRef = ref(storage, storageRefPath);
@@ -369,7 +384,6 @@ export default function NewExpensePage() {
           description: `Impossible de sauvegarder le justificatif: ${uploadError.message || 'Vérifiez les permissions Firebase Storage.'}`,
           variant: "destructive",
         });
-        // Ne pas bloquer la création de la dépense si le justificatif échoue
       }
     } else {
       console.log("[NewExpensePage onSubmit] No receipt file selected.");
@@ -379,6 +393,7 @@ export default function NewExpensePage() {
     try {
       await runTransaction(db, async (transaction) => {
         const projectRef = doc(db, "projects", selectedProject.id);
+        // Read project first
         const projectDoc = await transaction.get(projectRef);
         
         if (!projectDoc.exists()) {
@@ -386,8 +401,9 @@ export default function NewExpensePage() {
         }
         const projectData = projectDoc.data() as Project;
 
+        // Prepare new expense data
         const newExpenseDocData = {
-            id: newExpenseRef.id,
+            id: newExpenseRef.id, // Use the pre-generated ID
             title: values.description,
             amount: values.amount,
             currency: values.currency,
@@ -397,15 +413,18 @@ export default function NewExpensePage() {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            receiptUrl: receiptDownloadUrl,
-            receiptStoragePath: receiptStoragePathValue,
+            receiptUrl: receiptDownloadUrl, // Can be null if upload failed or no file
+            receiptStoragePath: receiptStoragePathValue, // Can be null
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
+        
+        // Set new expense
         transaction.set(newExpenseRef, newExpenseDocData);
 
+        // Prepare project update data
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
         if (isNaN(expenseAmount)) {
@@ -416,13 +435,15 @@ export default function NewExpensePage() {
         const recentExpenseSummary = {
           id: newExpenseRef.id, 
           name: values.description,
-          date: Timestamp.fromDate(values.expenseDate),
+          date: Timestamp.fromDate(values.expenseDate), // Use Timestamp
           amount: expenseAmount,
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
         
         const existingRecentExpenses = projectData.recentExpenses || [];
-        const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses].slice(0,5);
+        const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
+          .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Sort by date descending
+          .slice(0,5); // Keep only the last 5
 
 
         const projectUpdateData: Partial<Project> = {
@@ -432,6 +453,7 @@ export default function NewExpensePage() {
             updatedAt: serverTimestamp(),
         };
         
+        // Update project
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -452,7 +474,15 @@ export default function NewExpensePage() {
          invoiceForAnalysis: null,
       });
       setInvoiceFile(null);
-      setUsersForDropdown(userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []));
+      // Reset usersForDropdown to current user or empty if no project is selected
+      const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
+      setUsersForDropdown(defaultUserArrayReset);
+      if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
+        form.setValue('paidById', currentUser.uid);
+      } else {
+        form.setValue('paidById', '');
+      }
+      
       router.push('/expenses');
     } catch (error: any) {
         console.error("Erreur lors de l'ajout de la dépense: ", error);
@@ -508,15 +538,15 @@ export default function NewExpensePage() {
                         name="invoiceForAnalysis"
                         render={({ field: { onChange, ...rest } }) => (
                         <FormItem>
-                            <FormLabel visuallyHidden>Fichier de facture pour analyse</FormLabel>
+                            <FormLabel>Fichier de facture pour analyse</FormLabel>
                             <FormControl>
                             <Input
                                 type="file"
                                 accept="image/png, image/jpeg, image/webp"
                                 onChange={(e) => {
                                     const file = e.target.files ? e.target.files[0] : null;
-                                    onChange(file);
-                                    setInvoiceFile(file);
+                                    onChange(file); // RHF's onChange
+                                    setInvoiceFile(file); // Local state for the button
                                 }}
                                 className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                                 data-ai-hint="invoice file upload for AI analysis"
@@ -541,7 +571,7 @@ export default function NewExpensePage() {
                             </>
                         ) : (
                             <>
-                            <Icons.scan className="mr-2 h-4 w-4" /> {/* Assurez-vous que Icons.scan existe */}
+                            <Icons.scan className="mr-2 h-4 w-4" />
                             Analyser la facture
                             </>
                         )}
@@ -669,7 +699,7 @@ export default function NewExpensePage() {
                       <SelectContent>
                         {usersForDropdown.map(user => (
                           <SelectItem key={user.id} value={user.id}>
-                            {user.name} {user.id === currentUser?.uid ? "(Moi)" : ""}
+                            {user.name} {currentUser && user.id === currentUser.uid ? "(Moi)" : ""}
                           </SelectItem>
                         ))}
                          {usersForDropdown.length === 0 && watchedProjectId && !isLoadingUsersForDropdown && (
