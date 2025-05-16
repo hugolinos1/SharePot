@@ -37,6 +37,14 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
@@ -80,10 +88,10 @@ const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): str
 export default function ProjectsPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { currentUser, userProfile, isAdmin, loading: authLoading } = useAuth();
+  const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
 
   const [projects, setProjects] = useState<ProjectType[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Generic loading for operations like save/delete
+  const [isLoading, setIsLoading] = useState(true); 
   const [isFetchingProjects, setIsFetchingProjects] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
@@ -119,9 +127,8 @@ export default function ProjectsPage() {
         return;
     }
     
-    // Only fetch all users if the current user is an admin OR for adding members functionality later
     if (!isAdmin) {
-        console.log("ProjectsPage: fetchAllUserProfiles - Non-admin. Minimal allUserProfiles will be used (self).");
+        console.log("ProjectsPage: fetchAllUserProfiles - Non-admin. Setting minimal allUserProfiles (self).");
         setAllUserProfiles(userProfile ? [userProfile] : []);
         setIsLoadingAllUserProfiles(false);
         return;
@@ -191,7 +198,7 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); // Keep this for overall page readiness
+      setIsLoading(false); 
     }
   }, [currentUser, toast]);
 
@@ -200,21 +207,14 @@ export default function ProjectsPage() {
     if (currentUser) {
       console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects.");
       fetchProjects();
-      // If admin, fetch all user profiles. If not, profiles will be fetched on demand for modals.
-      if (isAdmin) {
-        console.log("ProjectsPage: useEffect (core data) - User is admin, calling fetchAllUserProfiles.");
-        fetchAllUserProfiles();
-      } else {
-         console.log("ProjectsPage: useEffect (core data) - User is not admin. Setting minimal allUserProfiles (self).");
-         setAllUserProfiles(userProfile ? [userProfile] : []);
-         setIsLoadingAllUserProfiles(false); 
-      }
+      // Fetch all users if admin, otherwise minimal set for add member dialog later
+      fetchAllUserProfiles(); 
     } else {
       console.log("ProjectsPage: useEffect (core data) - currentUser is null, cannot fetch data.");
       setAllUserProfiles([]); 
       setIsLoadingAllUserProfiles(true); 
     }
-  }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles, userProfile]);
+  }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
 
 
   const handleViewProjectDetails = async (project: ProjectType) => {
@@ -361,10 +361,8 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    // For card display, if allUserProfiles isn't fully populated for non-admins, it might show UID.
-    // This is now less of an issue for the modal view since we fetch specific member profiles for it.
     const profile = allUserProfiles.find(p => p.id === uid);
-    if (!profile) console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found in allUserProfiles. This may happen if allUserProfiles is not yet fully populated for non-admins on the main page view.`);
+    if (!profile && !isLoadingAllUserProfiles) console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found in allUserProfiles.`);
     return profile;
   };
 
@@ -378,24 +376,20 @@ export default function ProjectsPage() {
       return;
     }
     
-    // Fetch all users if not already fetched by an admin
-    if (!isAdmin && allUserProfiles.length <= 1) { // <=1 to account for self-profile only
+    if (allUserProfiles.length === 0 && !isLoadingAllUserProfiles && !isAdmin ) { // if non-admin and allUserProfiles is still empty (e.g. initial minimal set)
         setIsLoadingAllUserProfiles(true);
         try {
             const usersCollectionRef = collection(db, "users");
             const usersSnapshot = await getDocs(usersCollectionRef);
             const usersList = usersSnapshot.docs.map(docSnap => ({
-                id: docSnap.id,
-                ...docSnap.data(),
+                id: docSnap.id, ...docSnap.data(),
             } as AppUserType));
-            setAllUserProfiles(usersList); // Update the global allUserProfiles state
-            
+            setAllUserProfiles(usersList);
             const currentMemberIds = new Set(selectedProject.members);
             const available = usersList.filter(user => !currentMemberIds.has(user.id));
             setAvailableUsersForProject(available);
-
         } catch (error) {
-             console.error("Erreur lors de la récupération de tous les profils pour l'ajout de membre:", error);
+             console.error("Erreur lors de la récupération de tous les profils pour l'ajout de membre (non-admin):", error);
              toast({ title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive" });
              setIsLoadingAllUserProfiles(false);
              return;
@@ -403,7 +397,6 @@ export default function ProjectsPage() {
             setIsLoadingAllUserProfiles(false);
         }
     } else {
-        // If admin, allUserProfiles should already be populated. If non-admin but somehow populated, use it.
         const currentMemberIds = new Set(selectedProject.members);
         const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
         setAvailableUsersForProject(available);
@@ -462,6 +455,17 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+      toast({ title: "Déconnexion réussie" });
+    } catch (error) {
+      console.error("Erreur de déconnexion:", error);
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
+
   if (authLoading || !currentUser) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -472,26 +476,42 @@ export default function ProjectsPage() {
 
   return (
     <div className="bg-background min-h-screen">
-      <header className="bg-card shadow-sm border-b">
-        <div className="container mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <Link href="/dashboard" className="text-2xl font-bold text-primary flex items-center">
-             <Icons.dollarSign className="mr-2 h-7 w-7 inline-block"/>
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+          <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+             <Icons.dollarSign className="mr-2 h-7 w-7"/>
             <span>SharePot</span>
           </Link>
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-              <Icons.bell className="h-5 w-5" />
-              <span className="sr-only">Notifications</span>
-            </Button>
-            <Avatar className="h-9 w-9">
-               <AvatarImage
-                src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser.email || 'User')}&background=random&color=fff&size=32`}
-                alt={userProfile?.name || currentUser.email || "User"}
-                data-ai-hint="user avatar"
-              />
-              <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser.email)}</AvatarFallback>
-            </Avatar>
-          </div>
+        <div className="flex flex-1 items-center justify-end gap-4">
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Icons.bell className="h-5 w-5" />
+            <span className="sr-only">Notifications</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-9 w-9 cursor-pointer">
+                <AvatarImage
+                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                  alt={userProfile?.name || currentUser?.email || "User"}
+                  data-ai-hint="user avatar"
+                />
+                <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <Icons.user className="mr-2 h-4 w-4" />
+                  Mon Profil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <Icons.logOut className="mr-2 h-4 w-4" />
+                Déconnexion
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -647,7 +667,7 @@ export default function ProjectsPage() {
                       <p className="text-muted-foreground text-sm">Aucune dépense récente pour ce projet.</p>
                     )}
                     {(selectedProject.recentExpenses || []).length > 3 && (
-                         <Button variant="link" className="mt-4 w-full text-primary">
+                         <Button variant="link" className="mt-4 w-full text-primary" onClick={() => router.push(`/expenses?projectId=${selectedProject.id}`)}>
                            Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
                          </Button>
                     )}
@@ -885,8 +905,6 @@ export default function ProjectsPage() {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-
     </div>
   );
 }
-

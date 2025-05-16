@@ -25,7 +25,15 @@ import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import { db } from '@/lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import { useAuth } from '@/contexts/AuthContext'; 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Le nom doit comporter au moins 2 caractères." }).max(50, { message: "Le nom ne doit pas dépasser 50 caractères." }),
@@ -33,11 +41,36 @@ const profileFormSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
+  }
+  if (email) {
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
+  }
+  return '??';
+};
+
 export default function ProfilePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { currentUser, userProfile, loading: authLoading, setUserProfile: setContextUserProfile } = useAuth(); // Use from AuthContext
-  const [isLoading, setIsLoading] = useState(false); // For form submission, authLoading handles initial load
+  const { currentUser, userProfile, loading: authLoading, setUserProfile: setContextUserProfile, logout } = useAuth(); 
+  const [isLoading, setIsLoading] = useState(false); 
   const [isEditingName, setIsEditingName] = useState(false);
 
   const form = useForm<ProfileFormValues>({
@@ -56,27 +89,17 @@ export default function ProfilePage() {
     }
   }, [authLoading, currentUser, userProfile, router, form]);
 
-
-  const getAvatarFallback = (name: string | undefined | null) => {
-    if (!name) return '??';
-    const parts = name.split(' ');
-    if (parts.length >= 2) {
-        return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
-    }
-    return name.substring(0, 2).toUpperCase();
-  };
-
   const handleSaveName = async (values: ProfileFormValues) => {
     if (!currentUser || !userProfile) return;
-    setIsLoading(true); // For form submission
+    setIsLoading(true); 
 
     try {
       const userDocRef = doc(db, "users", currentUser.uid);
       await updateDoc(userDocRef, {
         name: values.name,
       });
-      // Update local context state
-      if(setContextUserProfile) { // Check if setUserProfile exists
+      
+      if(setContextUserProfile) { 
         setContextUserProfile(prev => prev ? { ...prev, name: values.name } : null);
       }
 
@@ -97,6 +120,18 @@ export default function ProfilePage() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+      toast({ title: "Déconnexion réussie" });
+    } catch (error) {
+      console.error("Erreur de déconnexion:", error);
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
+
+
   if (authLoading || !currentUser || !userProfile) {
     return (
       <div className="container mx-auto py-10 text-center">
@@ -107,7 +142,47 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
+    <div className="min-h-screen flex flex-col">
+       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+          <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+             <Icons.dollarSign className="mr-2 h-7 w-7"/>
+            <span>SharePot</span>
+          </Link>
+        <div className="flex flex-1 items-center justify-end gap-4">
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Icons.bell className="h-5 w-5" />
+            <span className="sr-only">Notifications</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-9 w-9 cursor-pointer">
+                <AvatarImage
+                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                  alt={userProfile?.name || currentUser?.email || "User"}
+                  data-ai-hint="user avatar"
+                />
+                <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <Icons.user className="mr-2 h-4 w-4" />
+                  Mon Profil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <Icons.logOut className="mr-2 h-4 w-4" />
+                Déconnexion
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Mon Profil</h1>
         <Link href="/dashboard" passHref>
@@ -122,7 +197,7 @@ export default function ProfilePage() {
         <CardHeader className="items-center text-center">
           <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background">
             <AvatarImage src={userProfile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name || 'User')}&background=random&color=fff&size=128`} alt={userProfile.name || 'User'} data-ai-hint="user avatar large"/>
-            <AvatarFallback className="text-3xl">{getAvatarFallback(userProfile.name)}</AvatarFallback>
+            <AvatarFallback className="text-3xl">{getAvatarFallbackText(userProfile.name, userProfile.email)}</AvatarFallback>
           </Avatar>
           {!isEditingName ? (
             <div className="flex items-center gap-2">
@@ -178,6 +253,7 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

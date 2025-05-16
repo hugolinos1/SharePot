@@ -34,6 +34,15 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface ExpenseItem {
   id: string;
@@ -49,8 +58,32 @@ export interface ExpenseItem {
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
-  // receiptUrl and receiptStoragePath removed
 }
+
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
+  }
+  if (email) {
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
+  }
+  return '??';
+};
 
 const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
   if (!timestamp) return 'N/A';
@@ -62,7 +95,7 @@ const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
 };
 
 export default function ExpensesPage() {
-  const { currentUser, loading: authLoading } = useAuth();
+  const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -80,19 +113,28 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); // Ensure loading state is true if we clear
-      setIsLoadingExpenses(true); // Ensure loading state is true if we clear
+      setIsLoadingProjects(true); 
+      setIsLoadingExpenses(true); 
       return;
     }
     setIsLoadingProjects(true);
     try {
       const projectsCollectionRef = collection(db, "projects");
-      const q = query(projectsCollectionRef, where("members", "array-contains", currentUser.uid));
-      const projectSnapshot = await getDocs(q);
-      const projectsList = projectSnapshot.docs.map(docSn => ({
-        id: docSn.id,
-        ...docSn.data(),
-      } as Project));
+      // Query projects where current user is a member OR owner
+      const memberQuery = query(projectsCollectionRef, where("members", "array-contains", currentUser.uid));
+      const ownerQuery = query(projectsCollectionRef, where("ownerId", "==", currentUser.uid));
+
+      const [memberSnapshot, ownerSnapshot] = await Promise.all([
+        getDocs(memberQuery),
+        getDocs(ownerQuery)
+      ]);
+      
+      const projectsMap = new Map<string, Project>();
+      memberSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
+      ownerSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
+      
+      const projectsList = Array.from(projectsMap.values());
+
       setProjects(projectsList);
       console.log("ExpensesPage: Fetched projectsList:", projectsList.length, "items:", JSON.stringify(projectsList.map(p => p.id)));
     } catch (error) {
@@ -189,7 +231,7 @@ export default function ExpensesPage() {
         console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
     } else {
         console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        if (!isLoadingProjects && !currentUser) { // If not loading projects and no user, clear expenses
+        if (!isLoadingProjects && !currentUser) { 
             setAllExpenses([]);
             setIsLoadingExpenses(false);
         }
@@ -227,7 +269,6 @@ export default function ExpensesPage() {
       const expenseRef = doc(db, "expenses", expenseToDelete.id);
       const projectRef = doc(db, "projects", expenseToDelete.projectId);
 
-      // Receipt deletion from storage is removed
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
@@ -275,6 +316,17 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+      toast({ title: "Déconnexion réussie" });
+    } catch (error) {
+      console.error("Erreur de déconnexion:", error);
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
+
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
 
 
@@ -287,7 +339,47 @@ export default function ExpensesPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
+    <div className="min-h-screen flex flex-col">
+       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+          <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+             <Icons.dollarSign className="mr-2 h-7 w-7"/>
+            <span>SharePot</span>
+          </Link>
+        <div className="flex flex-1 items-center justify-end gap-4">
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Icons.bell className="h-5 w-5" />
+            <span className="sr-only">Notifications</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-9 w-9 cursor-pointer">
+                <AvatarImage
+                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                  alt={userProfile?.name || currentUser?.email || "User"}
+                  data-ai-hint="user avatar"
+                />
+                <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <Icons.user className="mr-2 h-4 w-4" />
+                  Mon Profil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <Icons.logOut className="mr-2 h-4 w-4" />
+                Déconnexion
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-1">Gestion des Dépenses</h1>
@@ -361,7 +453,7 @@ export default function ExpensesPage() {
               <TableBody>
                 {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32">
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> {/* Updated colSpan */}
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
@@ -399,7 +491,7 @@ export default function ExpensesPage() {
                 )})}
                 {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> {/* Updated colSpan */}
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -428,6 +520,7 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
     </div>
   );
 }

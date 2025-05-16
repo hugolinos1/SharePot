@@ -38,18 +38,51 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, type DocumentData } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-// Simplified Project type for this page's needs
 interface UserProject {
   id: string;
   name: string;
-  members: string[]; // Contains user UIDs
+  members: string[]; 
 }
+
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
+  }
+  if (email) {
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
+  }
+  return '??';
+};
+
 
 export default function UsersPage() {
     const router = useRouter();
     const { toast } = useToast();
-    const { currentUser, isAdmin, loading: authLoading } = useAuth();
+    const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
 
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -85,7 +118,7 @@ export default function UsersPage() {
           id: docSnap.id,
           ...docSnap.data(),
         } as User));
-        console.log('Fetched usersList:', usersList); // For debugging
+        console.log('Fetched usersList:', usersList); 
         setAllUsers(usersList);
       } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs: ", error);
@@ -110,7 +143,7 @@ export default function UsersPage() {
           return {
             id: docSnap.id,
             name: data.name || "Projet sans nom",
-            members: data.members || [], // Ensure members array exists (should contain UIDs)
+            members: data.members || [], 
           } as UserProject;
         });
         setProjects(projectsList);
@@ -145,18 +178,8 @@ export default function UsersPage() {
 
     const getProjectsForSpecificUser = useCallback((userIdToCheck: string): UserProject[] => {
         if (isLoadingProjects || !projects) return [];
-        // Ensure project.members exists and is an array before calling .includes
         return projects.filter(project => project.members && Array.isArray(project.members) && project.members.includes(userIdToCheck));
     }, [projects, isLoadingProjects]);
-
-    const getAvatarFallback = (name: string | undefined | null) => {
-        if (!name) return '??';
-        const parts = name.split(' ');
-        if (parts.length >= 2) {
-            return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
-        }
-        return name.substring(0, 2).toUpperCase();
-    };
     
     const handleUserAction = (actionType: 'edit' | 'delete', userId: string) => {
         toast({
@@ -170,11 +193,22 @@ export default function UsersPage() {
         setIsProfileModalOpen(true);
     };
 
-    if (authLoading) {
+    const handleLogout = async () => {
+      try {
+        await logout();
+        router.push('/login');
+        toast({ title: "Déconnexion réussie" });
+      } catch (error) {
+        console.error("Erreur de déconnexion:", error);
+        toast({ title: "Erreur de déconnexion", variant: "destructive" });
+      }
+    };
+
+    if (authLoading || !currentUser) {
         return (
           <div className="container mx-auto py-10 text-center">
             <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
-            <p className="mt-4">Vérification des droits d'accès...</p>
+            <p className="mt-4">Chargement...</p>
           </div>
         );
     }
@@ -193,7 +227,47 @@ export default function UsersPage() {
     }
 
     return (
-        <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
+      <div className="min-h-screen flex flex-col">
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+            <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+               <Icons.dollarSign className="mr-2 h-7 w-7"/>
+              <span>SharePot</span>
+            </Link>
+          <div className="flex flex-1 items-center justify-end gap-4">
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <Icons.bell className="h-5 w-5" />
+              <span className="sr-only">Notifications</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Avatar className="h-9 w-9 cursor-pointer">
+                  <AvatarImage
+                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    alt={userProfile?.name || currentUser?.email || "User"}
+                    data-ai-hint="user avatar"
+                  />
+                  <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">
+                    <Icons.user className="mr-2 h-4 w-4" />
+                    Mon Profil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}>
+                  <Icons.logOut className="mr-2 h-4 w-4" />
+                  Déconnexion
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+
+        <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
                  <div>
                      <h1 className="text-3xl font-bold mb-1">Gestion des Utilisateurs</h1>
@@ -247,7 +321,7 @@ export default function UsersPage() {
                             </TableRow>
                             )}
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.map((user) => {
-                            const userProjectsList = getProjectsForSpecificUser(user.id); // Use user.id (UID)
+                            const userProjectsList = getProjectsForSpecificUser(user.id); 
                             return (
                                 <TableRow key={user.id}>
                                 <TableCell>
@@ -257,7 +331,7 @@ export default function UsersPage() {
                                     >
                                         <Avatar>
                                             <AvatarImage src={user.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'U')}&background=random&color=fff`} alt={user.name || user.email} data-ai-hint="user avatar placeholder"/>
-                                            <AvatarFallback>{getAvatarFallback(user.name || user.email)}</AvatarFallback>
+                                            <AvatarFallback>{getAvatarFallbackText(user.name || user.email)}</AvatarFallback>
                                         </Avatar>
                                         <span className="font-medium">{user.name || 'Utilisateur sans nom'}</span>
                                     </button>
@@ -309,7 +383,7 @@ export default function UsersPage() {
                         <DialogHeader className="items-center text-center pt-4">
                             <Avatar className="h-24 w-24 mb-3 ring-2 ring-primary ring-offset-2 ring-offset-background">
                                 <AvatarImage src={selectedUserForModal.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUserForModal.name || selectedUserForModal.email || 'U')}&background=random&color=fff&size=128`} alt={selectedUserForModal.name || selectedUserForModal.email} data-ai-hint="user avatar large"/>
-                                <AvatarFallback className="text-3xl">{getAvatarFallback(selectedUserForModal.name || selectedUserForModal.email)}</AvatarFallback>
+                                <AvatarFallback className="text-3xl">{getAvatarFallbackText(selectedUserForModal.name || selectedUserForModal.email)}</AvatarFallback>
                             </Avatar>
                             <DialogTitle className="text-2xl">{selectedUserForModal.name || 'Utilisateur sans nom'}</DialogTitle>
                             <DialogDescription>{selectedUserForModal.email}</DialogDescription>
@@ -326,7 +400,7 @@ export default function UsersPage() {
                                 {isLoadingProjects ? (
                                      <p className="text-sm text-muted-foreground">Chargement des projets...</p>
                                 ) : (
-                                    getProjectsForSpecificUser(selectedUserForModal.id).length > 0 ? ( // Use id for fetching projects
+                                    getProjectsForSpecificUser(selectedUserForModal.id).length > 0 ? ( 
                                         <ul className="list-disc list-inside space-y-1 text-sm text-foreground max-h-32 overflow-y-auto">
                                             {getProjectsForSpecificUser(selectedUserForModal.id).map(proj => (
                                                 <li key={proj.id}>{proj.name}</li>
@@ -347,8 +421,6 @@ export default function UsersPage() {
                 </Dialog>
             )}
         </div>
+    </div>
     );
-
-    
-
-    
+}

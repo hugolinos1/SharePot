@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation'; // Removed useSearchParams
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +44,15 @@ import { collection, getDocs, doc, updateDoc, runTransaction, getDoc, query, whe
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -63,10 +72,36 @@ const expenseFormSchema = z.object({
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
+  }
+  if (email) {
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
+  }
+  return '??';
+};
+
+
 export default function NewExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { currentUser, userProfile, loading: authLoading } = useAuth();
+  const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -76,16 +111,15 @@ export default function NewExpensePage() {
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
-  // Removed isProjectSelectDisabled state
 
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number,
+      amount: '' as unknown as number, 
       currency: 'EUR',
-      projectId: '', // Will always start empty now
+      projectId: '', 
       paidById: '',
       expenseDate: new Date(),
       tags: '',
@@ -94,8 +128,6 @@ export default function NewExpensePage() {
   });
 
   const watchedProjectId = form.watch('projectId');
-
-  // Removed useEffect that reads projectId from URL and sets isProjectSelectDisabled
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -111,7 +143,7 @@ export default function NewExpensePage() {
         amount: form.getValues('amount') || '' as unknown as number,
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
-        projectId: form.getValues('projectId') || '', // Keeps current value or empty if not set
+        projectId: form.getValues('projectId') || '', 
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: null,
@@ -125,7 +157,6 @@ export default function NewExpensePage() {
     setIsLoadingProjects(true);
     try {
       const projectsCollection = collection(db, "projects");
-      // Fetch projects where the current user is a member OR the owner
       const memberQuery = query(projectsCollection, where("members", "array-contains", currentUser.uid));
       const ownerQuery = query(projectsCollection, where("ownerId", "==", currentUser.uid));
 
@@ -402,16 +433,15 @@ export default function NewExpensePage() {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            receiptUrl: null, // Justificatif non stocké
-            receiptStoragePath: null, // Justificatif non stocké
+            receiptUrl: null, 
+            receiptStoragePath: null, 
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
-
         transaction.set(newExpenseRef, newExpenseDocData);
-
+        
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
         if (isNaN(expenseAmount)) {
@@ -459,7 +489,6 @@ export default function NewExpensePage() {
          invoiceForAnalysis: null,
       });
       setInvoiceFile(null);
-      // Removed setIsProjectSelectDisabled(false);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -481,6 +510,17 @@ export default function NewExpensePage() {
     }
   }
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+      toast({ title: "Déconnexion réussie" });
+    } catch (error) {
+      console.error("Erreur de déconnexion:", error);
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
+
   if (authLoading || !currentUser) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -491,7 +531,47 @@ export default function NewExpensePage() {
 
 
   return (
-    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
+    <div className="min-h-screen flex flex-col">
+       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+          <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+             <Icons.dollarSign className="mr-2 h-7 w-7"/>
+            <span>SharePot</span>
+          </Link>
+        <div className="flex flex-1 items-center justify-end gap-4">
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Icons.bell className="h-5 w-5" />
+            <span className="sr-only">Notifications</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-9 w-9 cursor-pointer">
+                <AvatarImage
+                  src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                  alt={userProfile?.name || currentUser?.email || "User"}
+                  data-ai-hint="user avatar"
+                />
+                <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <Icons.user className="mr-2 h-4 w-4" />
+                  Mon Profil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <Icons.logOut className="mr-2 h-4 w-4" />
+                Déconnexion
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Nouvelle Dépense</h1>
         <Link href="/expenses" passHref>
@@ -641,7 +721,7 @@ export default function NewExpensePage() {
                     <Select
                         onValueChange={field.onChange}
                         value={field.value || ''}
-                        disabled={isLoadingProjects} // Always enabled
+                        disabled={isLoadingProjects} 
                     >
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
@@ -784,6 +864,7 @@ export default function NewExpensePage() {
           </Form>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

@@ -29,11 +29,44 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
+  if (name) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+      return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
+    }
+    if (parts[0] && parts[0].length >= 2) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+     if (parts[0] && parts[0].length === 1) {
+      return parts[0][0].toUpperCase();
+    }
+  }
+  if (email) {
+    const emailPrefix = email.split('@')[0];
+    if (emailPrefix && emailPrefix.length >= 2) {
+        return emailPrefix.substring(0, 2).toUpperCase();
+    }
+    if (emailPrefix && emailPrefix.length === 1) {
+        return emailPrefix[0].toUpperCase();
+    }
+  }
+  return '??';
+};
 
 export default function AdminProjectsPage() {
     const router = useRouter();
     const { toast } = useToast();
-    const { currentUser, isAdmin, loading: authLoading } = useAuth();
+    const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
@@ -43,7 +76,7 @@ export default function AdminProjectsPage() {
         if (!authLoading && !currentUser) {
             router.replace('/login');
         } else if (!authLoading && currentUser && !isAdmin) {
-            router.replace('/dashboard'); // Or an access denied page
+            router.replace('/dashboard'); 
             toast({
                 title: "Accès non autorisé",
                 description: "Vous n'avez pas les droits pour accéder à cette page.",
@@ -53,7 +86,7 @@ export default function AdminProjectsPage() {
     }, [authLoading, currentUser, isAdmin, router, toast]);
 
     const fetchProjects = useCallback(async () => {
-      if (!isAdmin) return; // Only fetch if confirmed admin
+      if (!isAdmin) return; 
       setIsLoadingProjects(true);
       try {
         const projectsCollection = collection(db, "projects");
@@ -76,7 +109,7 @@ export default function AdminProjectsPage() {
     }, [isAdmin, toast]);
   
     useEffect(() => {
-      if (isAdmin) { // Fetch projects only if user is admin
+      if (isAdmin) { 
         fetchProjects();
       }
     }, [isAdmin, fetchProjects]);
@@ -91,14 +124,6 @@ export default function AdminProjectsPage() {
              project.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch))
          );
      }, [projects, searchTerm, isLoadingProjects]);
-
-    const getAvatarFallback = (name: string) => {
-        const parts = name.split(' ');
-        if (parts.length >= 2) {
-            return (parts[0][0] || '') + (parts[parts.length - 1][0] || '');
-        }
-        return name.substring(0, 2).toUpperCase();
-    };
     
     const handleProjectAction = (actionType: 'edit' | 'delete', projectId: string) => {
         toast({
@@ -108,11 +133,22 @@ export default function AdminProjectsPage() {
         });
     };
 
-    if (authLoading) {
+    const handleLogout = async () => {
+      try {
+        await logout();
+        router.push('/login');
+        toast({ title: "Déconnexion réussie" });
+      } catch (error) {
+        console.error("Erreur de déconnexion:", error);
+        toast({ title: "Erreur de déconnexion", variant: "destructive" });
+      }
+    };
+
+    if (authLoading || !currentUser) {
         return (
           <div className="container mx-auto py-10 text-center">
             <Icons.loader className="mx-auto h-12 w-12 animate-spin text-primary" />
-            <p className="mt-4">Vérification des droits d'accès...</p>
+            <p className="mt-4">Chargement...</p>
           </div>
         );
     }
@@ -131,7 +167,47 @@ export default function AdminProjectsPage() {
     }
 
     return (
-        <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8">
+      <div className="min-h-screen flex flex-col">
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+            <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+               <Icons.dollarSign className="mr-2 h-7 w-7"/>
+              <span>SharePot</span>
+            </Link>
+          <div className="flex flex-1 items-center justify-end gap-4">
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <Icons.bell className="h-5 w-5" />
+              <span className="sr-only">Notifications</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Avatar className="h-9 w-9 cursor-pointer">
+                  <AvatarImage
+                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    alt={userProfile?.name || currentUser?.email || "User"}
+                    data-ai-hint="user avatar"
+                  />
+                  <AvatarFallback>{getAvatarFallbackText(userProfile?.name, currentUser?.email)}</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{userProfile?.name || currentUser?.email}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">
+                    <Icons.user className="mr-2 h-4 w-4" />
+                    Mon Profil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}>
+                  <Icons.logOut className="mr-2 h-4 w-4" />
+                  Déconnexion
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+
+        <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
                  <div>
                      <h1 className="text-3xl font-bold mb-1">Gestion des Projets (Admin)</h1>
@@ -204,7 +280,7 @@ export default function AdminProjectsPage() {
                                     {project.members.slice(0, 3).map((member, index) => (
                                         <Avatar key={index} className="h-6 w-6 border-2 border-card">
                                             <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar"/>
-                                            <AvatarFallback>{getAvatarFallback(member)}</AvatarFallback>
+                                            <AvatarFallback>{getAvatarFallbackText(member)}</AvatarFallback>
                                         </Avatar>
                                     ))}
                                     {project.members.length > 3 && (
@@ -246,5 +322,6 @@ export default function AdminProjectsPage() {
                 </CardContent>
             </Card>
         </div>
+    </div>
     );
 }
