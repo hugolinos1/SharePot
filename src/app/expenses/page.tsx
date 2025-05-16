@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
@@ -20,6 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -58,6 +67,8 @@ export interface ExpenseItem {
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
+  receiptUrl?: string | null; // Added for receipt URL
+  receiptStoragePath?: string | null; // Added for storage path
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
@@ -106,6 +117,8 @@ export default function ExpensesPage() {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
 
 
   const fetchProjects = useCallback(async () => {
@@ -113,14 +126,13 @@ export default function ExpensesPage() {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); 
-      setIsLoadingExpenses(true); 
+      setIsLoadingProjects(true);
+      setIsLoadingExpenses(true);
       return;
     }
     setIsLoadingProjects(true);
     try {
       const projectsCollectionRef = collection(db, "projects");
-      // Query projects where current user is a member OR owner
       const memberQuery = query(projectsCollectionRef, where("members", "array-contains", currentUser.uid));
       const ownerQuery = query(projectsCollectionRef, where("ownerId", "==", currentUser.uid));
 
@@ -316,6 +328,11 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
+  const handleOpenReceiptModal = (url: string) => {
+    setSelectedReceiptUrl(url);
+    setIsReceiptModalOpen(true);
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -447,13 +464,14 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
+                  <TableHead>Justificatif</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> {/* Updated colSpan */}
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32"> 
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
@@ -477,6 +495,22 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
+                    <TableCell>
+                      {expense.receiptUrl ? (
+                        <Button variant="outline" size="sm" onClick={() => handleOpenReceiptModal(expense.receiptUrl!)} className="h-8 w-8 p-0">
+                          <Image
+                            src={expense.receiptUrl}
+                            alt={`Justificatif pour ${expense.title}`}
+                            width={24}
+                            height={24}
+                            className="rounded-sm object-contain"
+                            data-ai-hint="receipt thumbnail"
+                          />
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Aucun</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -491,7 +525,7 @@ export default function ExpensesPage() {
                 )})}
                 {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> {/* Updated colSpan */}
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-10 h-32"> 
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -520,7 +554,41 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Visualisation du Justificatif</DialogTitle>
+             <DialogDescription>
+              Aperçu du justificatif téléversé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 max-h-[70vh] overflow-auto flex justify-center items-center">
+            {selectedReceiptUrl ? (
+              <Image
+                src={selectedReceiptUrl}
+                alt="Justificatif en grand"
+                width={800} 
+                height={600}
+                className="max-w-full max-h-full object-contain rounded-md"
+                data-ai-hint="large receipt"
+              />
+            ) : (
+              <p>Aucun justificatif à afficher.</p>
+            )}
+          </div>
+           <DialogFooter className="sm:justify-end mt-4">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Fermer
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
     </div>
   );
 }
+
