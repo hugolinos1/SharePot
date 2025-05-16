@@ -24,7 +24,6 @@ export async function generateAvatar(input: GenerateAvatarInput): Promise<Genera
   return generateAvatarFlow(input);
 }
 
-// This flow does not need a dedicated prompt object, it directly calls ai.generate
 const generateAvatarFlow = ai.defineFlow(
   {
     name: 'generateAvatarFlow',
@@ -32,46 +31,35 @@ const generateAvatarFlow = ai.defineFlow(
     outputSchema: GenerateAvatarOutputSchema,
   },
   async (input: GenerateAvatarInput) => {
+    const promptText = `Generate a very small, funny, quirky, and abstract cartoon avatar suitable for a profile picture. Use the concept of "${input.seedText}" as very loose inspiration. The avatar should be simple, iconic, and not a literal representation. Ensure the background is transparent or a solid muted color. Make it fun! Output only the image.`;
+    console.log('[generateAvatarFlow] Attempting to generate avatar with prompt seed:', input.seedText);
+    console.log('[generateAvatarFlow] Full prompt for model:', promptText);
+
     try {
       const {media} = await ai.generate({
         model: 'googleai/gemini-2.0-flash-exp', // Use the image-capable model
-        prompt: `Generate a very small, funny, quirky, and abstract cartoon avatar suitable for a profile picture. Use the concept of "${input.seedText}" as very loose inspiration. The avatar should be simple, iconic, and not a literal representation. Ensure the background is transparent or a solid muted color. Make it fun!`,
+        prompt: promptText,
         config: {
           responseModalities: ['IMAGE', 'TEXT'], // Must request IMAGE
-           safetySettings: [ // Relax safety settings slightly if needed for creative avatars
-            {category: 'HARM_CATEGORY_HARASSMENT', threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-            {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-            {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE},
-            {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH}, // Be careful with this
+           safetySettings: [ 
+            {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
+            {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
+            {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
+            {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH'},
           ],
         },
       });
 
       if (media && media.url) {
+        console.log('[generateAvatarFlow] Avatar generated successfully for seed:', input.seedText, 'URL starts with:', media.url.substring(0, 50) + '...');
         return media.url; // This is the data URI, e.g., "data:image/png;base64,..."
       } else {
-        console.warn('Avatar generation did not return media or media.url');
-        // Fallback to a default placeholder or indicate failure
-        return 'https://placehold.co/40x40.png?text=Error'; // Default placeholder on error
+        console.warn('[generateAvatarFlow] Avatar generation did not return media or media.url for seed:', input.seedText);
+        return 'https://placehold.co/40x40.png?text=GenFail'; // More distinct placeholder
       }
     } catch (error) {
-      console.error('Error generating avatar:', error);
-      // Fallback to a default placeholder or indicate failure
-      return 'https://placehold.co/40x40.png?text=Error'; // Default placeholder on error
+      console.error('[generateAvatarFlow] Error generating avatar for seed:', input.seedText, error);
+      return 'https://placehold.co/40x40.png?text=GenError'; // More distinct placeholder
     }
   }
 );
-
-// Helper for safety settings - not strictly needed for this flow as config is inline
-enum HarmBlockThreshold {
-  BLOCK_NONE = 'BLOCK_NONE',
-  BLOCK_ONLY_HIGH = 'BLOCK_ONLY_HIGH',
-  BLOCK_MEDIUM_AND_ABOVE = 'BLOCK_MEDIUM_AND_ABOVE',
-  BLOCK_LOW_AND_ABOVE = 'BLOCK_LOW_AND_ABOVE',
-}
-enum HarmCategory {
-    HARM_CATEGORY_HARASSMENT = "HARM_CATEGORY_HARASSMENT",
-    HARM_CATEGORY_HATE_SPEECH = "HARM_CATEGORY_HATE_SPEECH",
-    HARM_CATEGORY_SEXUALLY_EXPLICIT = "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    HARM_CATEGORY_DANGEROUS_CONTENT = "HARM_CATEGORY_DANGEROUS_CONTENT",
-}
