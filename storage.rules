@@ -4,50 +4,57 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper function to check if the user is an admin
+    // Helper function to check if the user is an admin - Not used in these simplified rules for receipts, but kept for avatars
     function isAdmin() {
-      // Ensure request.auth and request.auth.token are not null before accessing email
-      return request.auth != null &&
-             request.auth.token != null &&
-             request.auth.token.email == 'hugues.rabier@gmail.com';
+      return request.auth.token.email == 'hugues.rabier@gmail.com';
     }
 
-    // Helper function to check if the user is a participant (member or owner) of a project
-    // This function reads from Firestore.
-    function isProjectParticipant(projectId) {
-      let projectPath = /databases/$(database)/documents/projects/$(projectId);
-      // Ensure the project document exists and its data is not null before accessing fields.
-      return exists(projectPath) &&
-             get(projectPath).data != null &&
-             (
-               request.auth.uid == get(projectPath).data.ownerId ||
-               (
-                 get(projectPath).data.members != null &&
-                 get(projectPath).data.members is list && // Ensure 'members' is a list
-                 request.auth.uid in get(projectPath).data.members
-               )
-             );
-    }
+    // Note: The full isProjectParticipant function is commented out for this test.
+    // function isProjectParticipant(projectId) {
+    //   let projectDoc = get(/databases/$(database)/documents/projects/$(projectId));
+    //   return exists(/databases/$(database)/documents/projects/$(projectId)) &&
+    //          projectDoc.data != null &&
+    //          projectDoc.data.members != null &&
+    //          projectDoc.data.members is list &&
+    //          (
+    //            request.auth.uid == projectDoc.data.ownerId ||
+    //            request.auth.uid in projectDoc.data.members
+    //          );
+    // }
 
-    // Rules for receipt images
-    // Path: receipts/{projectId}/{expenseId}/{fileName}
     match /receipts/{projectId}/{expenseId}/{fileName} {
-      // Allow create (upload) if:
-      // 1. User is authenticated.
-      // 2. File is an image and under 5MB.
-      // 3. User is a participant of the project.
+      // TEST: Autoriser la création (téléversement) si :
+      // 1. L'utilisateur est authentifié.
+      // 2. La taille du fichier est inférieure à 5 Mo.
+      // 3. Le type de contenu est une image.
+      // 4. L'utilisateur est propriétaire du projet (vérifié via Firestore).
       allow create: if request.auth != null &&
                        request.resource.size < 5 * 1024 * 1024 &&
                        request.resource.contentType.matches('image/.*') &&
-                       isProjectParticipant(projectId);
+                       ( // Simplified project participation check - ONLY CHECKS OWNERSHIP
+                         exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                       );
 
-      // Allow read if user is a participant of the project.
-      allow read: if request.auth != null && isProjectParticipant(projectId);
+      // Autoriser la lecture si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'utilisateur est propriétaire ou membre du projet (using the more complete check here).
+      allow read: if request.auth != null &&
+                     (
+                       exists(/databases/$(database)/documents/projects/$(projectId)) &&
+                       get(/databases/$(database)/documents/projects/$(projectId)).data != null &&
+                       get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
+                       get(/databases/$(database)/documents/projects/$(projectId)).data.members is list &&
+                       (
+                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+                         request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+                       )
+                     );
 
-      // Allow delete if:
-      // 1. User is authenticated.
-      // 2. The corresponding expense document exists and belongs to the project.
-      // 3. User is the creator of the expense OR the owner of the project.
+      // Autoriser la suppression si :
+      // 1. L'utilisateur est authentifié.
+      // 2. Le document de la dépense correspondante existe et appartient bien au projet.
+      // 3. L'utilisateur est le créateur de la dépense OU le propriétaire du projet.
       allow delete: if request.auth != null &&
                        exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
                        get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
@@ -55,37 +62,36 @@ service firebase.storage {
                          request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
                          (
                            exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           get(/databases/$(database)/documents/projects/$(projectId)).data != null &&
                            request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
                          )
                        );
-      // Updates are generally handled as delete then create new.
+      // Les mises à jour sont généralement gérées par une suppression puis une nouvelle création.
       allow update: if false;
     }
 
-    // Rules for user avatars
-    // Path: avatars/{userId}/{fileName}
+    // Règles pour les avatars des utilisateurs
+    // Chemin: avatars/{userId}/{fileName}
     match /avatars/{userId}/{fileName} {
-      // Allow anyone to read avatars (they are often public).
+      // Autoriser la lecture par tout le monde (les avatars sont souvent publics).
       allow read: if true;
 
-      // Allow write (upload/update) if:
-      // 1. User is authenticated.
-      // 2. The authenticated user's UID matches the {userId} in the path.
-      // 3. File is an image and under 2MB.
+      // Autoriser l'écriture (téléversement/modification) si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin (l'utilisateur ne peut modifier que son propre avatar).
+      // 3. La taille du fichier est inférieure à 2 Mo.
+      // 4. Le type de contenu est une image.
       allow write: if request.auth != null &&
                       request.auth.uid == userId &&
                       request.resource.size < 2 * 1024 * 1024 &&
                       request.resource.contentType.matches('image/.*');
 
-      // Allow delete if:
-      // 1. User is authenticated.
-      // 2. The authenticated user's UID matches the {userId} in the path.
+      // Autoriser la suppression si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin.
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Default rule: Deny all other operations on all other paths.
-    // This is important for security. Only explicitly allowed paths/operations are permitted.
+    // Règle par défaut : refuser toutes les autres opérations sur tous les autres chemins.
     match /{allPaths=**} {
       allow read, write: if false;
     }
