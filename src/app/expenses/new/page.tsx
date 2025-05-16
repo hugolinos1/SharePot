@@ -77,7 +77,7 @@ export default function NewExpensePage() {
 
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
-  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null); // State to hold the file for analysis
 
 
   const form = useForm<ExpenseFormValues>({
@@ -108,7 +108,7 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || '', 
+        amount: form.getValues('amount') || '' as unknown as number,
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
@@ -360,13 +360,20 @@ export default function NewExpensePage() {
     const expenseCollectionRef = collection(db, "expenses");
     const newExpenseRef = doc(expenseCollectionRef); 
 
-    if (values.receipt) {
-      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "Expense ID (for path):", newExpenseRef.id, "File:", values.receipt.name);
-      const fileName = `${Date.now()}-${values.receipt.name}`;
+    let fileToUploadAsReceipt: File | null | undefined = values.receipt;
+    if (!fileToUploadAsReceipt && invoiceFile) {
+      console.log("[NewExpensePage onSubmit] No specific receipt chosen, using invoiceForAnalysis file as receipt.");
+      fileToUploadAsReceipt = invoiceFile;
+    }
+
+
+    if (fileToUploadAsReceipt) {
+      console.log("[NewExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", selectedProject.id, "Expense ID (for path):", newExpenseRef.id, "File:", fileToUploadAsReceipt.name);
+      const fileName = `${Date.now()}-${fileToUploadAsReceipt.name}`;
       const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${fileName}`;
       const fileStorageRef = ref(storage, storageRefPath);
       try {
-        const uploadTask = await uploadBytes(fileStorageRef, values.receipt);
+        const uploadTask = await uploadBytes(fileStorageRef, fileToUploadAsReceipt);
         receiptDownloadUrl = await getDownloadURL(uploadTask.ref);
         receiptStoragePathValue = storageRefPath;
         console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePathValue);
@@ -379,7 +386,7 @@ export default function NewExpensePage() {
         });
       }
     } else {
-      console.log("[NewExpensePage onSubmit] No receipt file selected.");
+      console.log("[NewExpensePage onSubmit] No receipt file selected or provided for upload.");
     }
 
 
@@ -461,7 +468,7 @@ export default function NewExpensePage() {
          receipt: null,
          invoiceForAnalysis: null,
       });
-      setInvoiceFile(null);
+      setInvoiceFile(null); // Reset the invoice file state
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -524,7 +531,8 @@ export default function NewExpensePage() {
                         control={form.control}
                         name="invoiceForAnalysis"
                         render={({ field }) => {
-                          const { value, onChange: rhfOnChange, ...restOfField } = field;
+                          // We only need onChange and restOfField, value is not used for file inputs by react-hook-form
+                          const { value, onChange: rhfOnChange, ...restOfField } = field; 
                           return (
                             <FormItem>
                                 <FormLabel>Fichier de facture pour analyse</FormLabel>
@@ -764,7 +772,8 @@ export default function NewExpensePage() {
                 control={form.control}
                 name="receipt"
                 render={({ field }) => {
-                  const { value, onChange: rhfOnChange, ...restOfField } = field;
+                  // We only need onChange and restOfField, value is not used for file inputs by react-hook-form
+                  const { value, onChange: rhfOnChange, ...restOfField } = field; 
                   return (
                   <FormItem>
                     <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
@@ -779,7 +788,7 @@ export default function NewExpensePage() {
                       />
                     </FormControl>
                      <FormDescription>
-                      Ce fichier sera stocké avec la dépense.
+                      Ce fichier sera stocké avec la dépense. Si aucun fichier n'est sélectionné ici, le fichier utilisé pour l'analyse IA (si fourni) sera utilisé comme justificatif.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
