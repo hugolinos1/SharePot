@@ -51,6 +51,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { tagExpense } from '@/ai/flows/tag-expense-with-ai';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -109,12 +110,13 @@ export default function EditExpensePage() {
   const [project, setProject] = useState<Project | null>(null);
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(true);
+  const [isSuggestingCategory, setIsSuggestingCategory] = useState(false);
 
   const form = useForm<EditExpenseFormValues>({
     resolver: zodResolver(editExpenseFormSchema),
     defaultValues: {
       title: '',
-      amount: undefined, 
+      amount: 0, 
       currency: 'EUR',
       projectId: '',
       paidById: '',
@@ -122,6 +124,8 @@ export default function EditExpensePage() {
       category: '',
     },
   });
+  
+  const watchedTitle = form.watch('title');
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -232,7 +236,8 @@ export default function EditExpensePage() {
         };
         transaction.update(expenseRef, updatedExpenseData);
 
-        const updatedRecentExpenses = (projectData.recentExpenses || [])
+        const existingRecentExpenses = projectData.recentExpenses || [];
+        let updatedRecentExpenses = existingRecentExpenses
             .map(expSummary => {
                 if (expSummary.id === originalExpense.id) {
                     return {
@@ -282,6 +287,43 @@ export default function EditExpensePage() {
     } catch (error) {
       console.error("Erreur de déconnexion:", error);
       toast({ title: "Erreur de déconnexion", variant: "destructive" });
+    }
+  };
+
+  const handleSuggestCategory = async () => {
+    const description = form.getValues("title"); // Description is in the 'title' field for expenses
+    if (!description || description.trim().length < 3) {
+      toast({
+        title: "Description manquante",
+        description: "Veuillez entrer une description d'au moins 3 caractères pour suggérer une catégorie.",
+        variant: "destructive"
+      });
+      return;
+    }
+    setIsSuggestingCategory(true);
+    try {
+      const result = await tagExpense({ description });
+      if (result && result.category) {
+        form.setValue("category", result.category);
+        toast({
+          title: "Catégorie suggérée",
+          description: `La catégorie "${result.category}" a été ajoutée. Vous pouvez la modifier.`,
+        });
+      } else {
+        toast({
+          title: "Aucune catégorie suggérée",
+          description: "L'IA n'a pas pu suggérer de catégorie pour cette description.",
+        });
+      }
+    } catch (error) {
+      console.error("Erreur lors de la suggestion de catégorie:", error);
+      toast({
+        title: "Erreur de suggestion",
+        description: "Impossible de suggérer une catégorie.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSuggestingCategory(false);
     }
   };
 
@@ -523,12 +565,25 @@ export default function EditExpensePage() {
                 name="category"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Catégorie (optionnel)</FormLabel>
+                    <div className="flex items-center justify-between">
+                      <FormLabel>Catégorie (optionnel)</FormLabel>
+                       <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSuggestCategory}
+                        disabled={isSuggestingCategory || !watchedTitle || watchedTitle.trim().length < 3}
+                      >
+                        {isSuggestingCategory && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                        <Icons.sparkles className="mr-2 h-4 w-4" />
+                        Suggérer (IA)
+                      </Button>
+                    </div>
                     <FormControl>
                       <Input placeholder="Ex: Nourriture, Transport..." {...field} value={field.value ?? ''} data-ai-hint="expense category"/>
                     </FormControl>
                     <FormDescription>
-                      Entrez une catégorie pour cette dépense.
+                      Entrez une catégorie ou utilisez la suggestion IA basée sur la description.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -539,7 +594,7 @@ export default function EditExpensePage() {
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isUpdating || isLoadingUsersForDropdown}>
+                <Button type="submit" disabled={isUpdating || isLoadingUsersForDropdown || isSuggestingCategory}>
                   {isUpdating ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
