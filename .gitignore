@@ -1,11 +1,10 @@
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
 /.pnp
 .pnp.js
-# pnpm
-pnpm-lock.yaml
 
 # testing
 /coverage
@@ -20,30 +19,44 @@ pnpm-lock.yaml
 # misc
 .DS_Store
 *.pem
-*.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-dump.rdb
-debug.log
-error.log
+.pnpm-debug.log*
 
-# Editor directories and files
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/launch.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# local env files
+.env*.local
+.env
 
-# turbo
-.turbo
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDX
+.idx/
+*.idx/*
+*.idx
+.idx/**/*
+!.idx/extensions.json
+!.idx/workspace.json
+!.idx/dev.nix
+!.idx/icon.png
+!.idx/ಉ.icon.png
+
+# Firebase Studio - IDX specific (if any, otherwise standard Next.js ignores are good)
+# Example: If Studio stores temporary build artifacts in a specific folder
+# .firebase-studio-cache/
+
+# Firebase Emulators
+firebase-debug.log
+*.log
+firestore.indexes.json
+database-debug.log
+pubsub-debug.log
+storage-debug.log
+*.snapshot

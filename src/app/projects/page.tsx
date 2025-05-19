@@ -35,7 +35,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where, arrayUnion, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where, arrayUnion, getDoc as firestoreGetDoc } from 'firebase/firestore'; // Renamed getDoc to firestoreGetDoc
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -52,7 +52,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
+  if (name && name.trim() !== '') {
     const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
@@ -65,7 +65,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return singleName[0].toUpperCase();
     }
   }
-  if (email) {
+  if (email && email.trim() !== '') {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
       return emailPrefix.substring(0, 2).toUpperCase();
@@ -150,25 +150,21 @@ export default function ProjectsPage() {
       setAllUserProfiles([]);
       return;
     }
-    if (!isAdmin) { // Non-admins don't need all profiles upfront, modal fetches project-specific ones
-        console.log("ProjectsPage: Non-admin, skipping fetchAllUserProfiles. Project-specific members fetched in modal.");
-        setAllUserProfiles(userProfile ? [userProfile] : []); // Start with self
-        setIsLoadingAllUserProfiles(false);
-        return;
-    }
 
-
-    console.log("ProjectsPage: Admin is fetching ALL user profiles.");
+    console.log("ProjectsPage: fetchAllUserProfiles - Fetching relevant user profiles. isAdmin:", isAdmin);
     setIsLoadingAllUserProfiles(true);
     try {
+      // For both admin and non-admin, we need to fetch user profiles.
+      // Admin will fetch all, non-admin will fetch profiles relevant to their projects
+      // This list is primarily used for the "Add existing member" modal.
       const usersCollectionRef = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollectionRef);
+      const usersSnapshot = await getDocs(usersCollectionRef); // Admin can list all users, non-admin also if rules allow.
       const usersList = usersSnapshot.docs.map(docSnap => ({
         id: docSnap.id,
         ...docSnap.data(),
       } as AppUserType));
       setAllUserProfiles(usersList);
-      console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
+      console.log("ProjectsPage: Successfully fetched allUserProfiles (may be all or limited by rules):", usersList.length);
     } catch (error: any) {
       console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
       toast({
@@ -180,7 +176,7 @@ export default function ProjectsPage() {
     } finally {
       setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, isAdmin, userProfile, toast]);
+  }, [currentUser, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -222,20 +218,22 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); // Combined loading state for page
+      setIsLoading(false); 
     }
   }, [currentUser, toast]);
 
-  useEffect(() => {
-    console.log("ProjectsPage: useEffect (core data) - currentUser:", !!currentUser, "isAdmin from context:", isAdmin);
+ useEffect(() => {
+    console.log("ProjectsPage: useEffect - currentUser exists. isAdmin from context:", isAdmin);
     if (currentUser) {
-      console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects and potentially all user profiles (if admin).");
+      console.log("ProjectsPage: useEffect - currentUser exists. Fetching projects and all user profiles.");
       fetchProjects();
-      fetchAllUserProfiles(); // Will only fetch all if isAdmin is true.
+      fetchAllUserProfiles(); // Fetch all users for the "Add existing member" modal
     } else {
-      console.log("ProjectsPage: useEffect (core data) - currentUser is null, cannot fetch data.");
+      console.log("ProjectsPage: useEffect - currentUser is null, cannot fetch data.");
+      setProjects([]);
       setAllUserProfiles([]);
-      setIsLoadingAllUserProfiles(true); // Reset loading state
+      setIsFetchingProjects(true);
+      setIsLoadingAllUserProfiles(true);
     }
   }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
 
@@ -258,7 +256,7 @@ export default function ProjectsPage() {
         for (const uid of project.members) {
           console.log(`ProjectsPage (handleViewProjectDetails): Attempting to fetch profile for UID: ${uid}`);
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await getDoc(userDocRef);
+          const docSnapshot = await firestoreGetDoc(userDocRef); // Use aliased import
           if (docSnapshot.exists()) {
             const profileData = { id: docSnapshot.id, ...docSnapshot.data() } as AppUserType;
             console.log(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} EXISTS. Data:`, JSON.stringify(profileData));
@@ -402,17 +400,9 @@ export default function ProjectsPage() {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-
-    // Ensure allUserProfiles is loaded if admin, otherwise it should have self or be empty.
-    // If not admin and allUserProfiles is still just self, it will be repopulated if it's an older state.
-    if (isAdmin && allUserProfiles.length <=1 && !isLoadingAllUserProfiles) { // <=1 to account for self if non-admin list wasn't cleared
-        console.log("ProjectsPage (handleOpenAddMemberDialog): Admin, allUserProfiles might be incomplete, attempting to fetch all for dialog.");
-        await fetchAllUserProfiles(); // Refetch to ensure the list is complete for admin
+    if (isLoadingAllUserProfiles) {
+        await fetchAllUserProfiles(); // ensure list is populated
     }
-    // After any potential refetch for admin.
-    // The global allUserProfiles is used here because admin should see all users.
-    // Non-admins will not use this "add existing" functionality if they can't list all users.
-    // For non-admins, the invite by email is the primary way to add new people.
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
     setAvailableUsersForProject(available);
@@ -449,7 +439,7 @@ export default function ProjectsPage() {
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await getDoc(userDocRef);
+          const docSnapshot = await firestoreGetDoc(userDocRef); // Use aliased import
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
@@ -480,16 +470,46 @@ export default function ProjectsPage() {
     }
 
     setIsSendingInvite(true);
-    console.log(`[ProjectsPage] Simulating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
+    console.log(`[ProjectsPage] Initiating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
+    
+    // Générer un lien d'invitation basique. Pour une vraie application, ce lien devrait contenir un token unique.
+    const baseUrl = window.location.origin;
+    const invitationLink = `${baseUrl}/register?projectId=${selectedProject.id}&invitedEmail=${encodeURIComponent(values.email)}`;
 
-    setTimeout(() => {
-      toast({
-        title: "Invitation (simulée) envoyée",
-        description: `Une invitation (simulée) a été envoyée à ${values.email} pour rejoindre le projet "${selectedProject.name}".`,
+    try {
+      const response = await fetch('/api/send-invitation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          toEmail: values.email, 
+          projectName: selectedProject.name,
+          invitationLink: invitationLink 
+        }),
       });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast({
+          title: "Invitation envoyée",
+          description: `Une invitation a été envoyée à ${values.email} pour rejoindre le projet "${selectedProject.name}".`,
+        });
+        inviteMemberForm.reset();
+      } else {
+        throw new Error(result.error || 'Erreur inconnue lors de l\'envoi de l\'invitation.');
+      }
+    } catch (error: any) {
+      console.error("Erreur API lors de l'envoi de l'invitation:", error);
+      toast({
+        title: "Échec de l'invitation",
+        description: error.message || "Impossible d'envoyer l'invitation. Vérifiez la configuration du serveur d'e-mails.",
+        variant: "destructive",
+      });
+    } finally {
       setIsSendingInvite(false);
-      inviteMemberForm.reset();
-    }, 1500);
+    }
   };
 
 
@@ -528,7 +548,7 @@ export default function ProjectsPage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                  <AvatarImage
-                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
+                    src={userProfile?.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -630,11 +650,11 @@ export default function ProjectsPage() {
                             {displayableMemberProfilesOnCard.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={memberProfile.id || index} className="h-8 w-8 border-2 border-background">
                                 <AvatarImage
-                                  src={memberProfile.avatarUrl ? memberProfile.avatarUrl : undefined}
-                                  alt={memberProfile.name || 'Membre'}
+                                  src={memberProfile?.avatarUrl && memberProfile.avatarUrl.trim() !== '' ? memberProfile.avatarUrl : undefined}
+                                  alt={memberProfile?.name || 'Membre'}
                                   data-ai-hint="member avatar"
                                 />
-                                <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile.name, memberProfile.email)}</AvatarFallback>
+                                <AvatarFallback className="text-xs">{getAvatarFallbackText(memberProfile?.name, memberProfile?.email)}</AvatarFallback>
                             </Avatar>
                             ))}
                             {project.members.length > 3 && (
@@ -781,7 +801,7 @@ export default function ProjectsPage() {
                           <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
                               <AvatarImage
-                                src={member?.avatarUrl ? member.avatarUrl : undefined}
+                                src={member?.avatarUrl && member.avatarUrl.trim() !== '' ? member.avatarUrl : undefined}
                                 alt={member?.name || 'Membre'}
                                 data-ai-hint="member avatar small"
                               />
@@ -804,7 +824,7 @@ export default function ProjectsPage() {
                     <CardHeader>
                       <CardTitle>Inviter un nouveau membre</CardTitle>
                       <CardDescription>
-                        Envoyer une invitation par e-mail à une personne qui n'a pas encore de compte.
+                        Envoyer une invitation par e-mail.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -829,7 +849,7 @@ export default function ProjectsPage() {
                             ) : (
                               <Icons.mail className="mr-2 h-4 w-4" />
                             )}
-                            Envoyer l'invitation (simulée)
+                            Envoyer l'invitation
                           </Button>
                         </form>
                       </Form>
@@ -945,8 +965,8 @@ export default function ProjectsPage() {
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-3 max-h-72 overflow-y-auto">
-                    {isLoadingAllUserProfiles && isAdmin ? ( // Only show main loading if admin is fetching all users
-                        <p>Chargement des utilisateurs...</p>
+                    {isLoadingAllUserProfiles ? ( 
+                        <p className="text-sm text-muted-foreground text-center py-2">Chargement des utilisateurs disponibles...</p>
                     ) : availableUsersForProject.length > 0 ? (
                         availableUsersForProject.map(user => (
                             <div key={user.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md">
@@ -957,22 +977,22 @@ export default function ProjectsPage() {
                                 />
                                 <Avatar className="h-8 w-8">
                                   <AvatarImage
-                                    src={user.avatarUrl ? user.avatarUrl : undefined}
-                                    alt={user.name || user.email || 'Utilisateur'}
+                                    src={user?.avatarUrl && user.avatarUrl.trim() !== '' ? user.avatarUrl : undefined}
+                                    alt={user?.name || user?.email || 'Utilisateur'}
                                     data-ai-hint="user avatar"
                                   />
-                                  <AvatarFallback className="text-xs">{getAvatarFallbackText(user.name, user.email)}</AvatarFallback>
+                                  <AvatarFallback className="text-xs">{getAvatarFallbackText(user?.name, user?.email)}</AvatarFallback>
                                 </Avatar>
                                 <label
                                     htmlFor={`add-member-${user.id}`}
                                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 cursor-pointer"
                                 >
-                                    {user.name} ({user.email})
+                                    {user.name || user.email}
                                 </label>
                             </div>
                         ))
                     ) : (
-                        <p className="text-muted-foreground text-sm text-center">
+                        <p className="text-muted-foreground text-sm text-center py-2">
                            {allUserProfiles.length > 0 ? "Tous les utilisateurs existants sont déjà membres de ce projet ou aucun autre utilisateur disponible." : "Aucun utilisateur trouvé dans la base de données."}
                         </p>
                     )}
@@ -989,4 +1009,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
