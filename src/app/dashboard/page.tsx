@@ -30,7 +30,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Icons } from '@/components/icons';
 import { Separator } from '@/components/ui/separator';
@@ -88,7 +87,7 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
 
 interface DisplayExpenseItem extends ExpenseItem {
   displayIcon: React.ElementType;
-  category?: string; 
+  category?: string;
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
@@ -127,7 +126,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return emailPrefix[0].toUpperCase();
     }
   }
-  return 'SP'; 
+  return 'SP';
 };
 
 
@@ -233,9 +232,9 @@ export default function DashboardPage() {
         setIsLoadingRecentExpenses(false);
     }
   }, [currentUser, isAdmin, toast]);
-
-  const fetchAllUserProfiles = useCallback(async () => {
-    console.log("DashboardPage: fetchAllUserProfiles - Fetching all user profiles (admin).");
+  
+  const fetchAllUserProfilesGlobal = useCallback(async () => {
+    console.log("DashboardPage: fetchAllUserProfilesGlobal - Fetching all user profiles (admin).");
     setIsLoadingUserProfiles(true);
     try {
       const usersCollectionRef = collection(db, "users");
@@ -357,7 +356,7 @@ export default function DashboardPage() {
           const querySnapshot = await getDocs(q);
           querySnapshot.docs.forEach(docSnap => {
              const data = docSnap.data() as ExpenseItem;
-             if (data.paidById && data.amount != null) { // Ensure paidById and amount are present
+             if (data.paidById && data.amount != null) { 
                 fetchedExpenses.push({id: docSnap.id, ...data});
              } else {
                 console.warn("Chart: Filtered out expense due to missing paidById or amount:", docSnap.id, data);
@@ -376,8 +375,9 @@ export default function DashboardPage() {
       const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmount]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
         const userName = user?.name || paidById; 
-        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}. allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
-        return { user: userName, Dépenses: totalAmount };
+        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}`);
+        console.log(`Chart (User): allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
+        return { user: userName, Dépenses: totalAmount * 100 }; // Multiply by 100 for cents for Recharts formatter
       });
       console.log("Chart (User): Final formattedUserChartData:", formattedUserChartData);
       setUserExpenseChartData(formattedUserChartData);
@@ -389,7 +389,7 @@ export default function DashboardPage() {
       });
       console.log("Chart: Aggregated expenses by category (tag):", aggregatedExpensesByCategory);
       const formattedCategoryChartData = Object.entries(aggregatedExpensesByCategory).map(([category, totalAmount]) => {
-        return { category: category, Dépenses: totalAmount };
+        return { category: category, Dépenses: totalAmount * 100 }; // Multiply by 100 for cents
       });
       console.log("Chart (Category): Final formattedCategoryChartData:", formattedCategoryChartData);
       setCategoryChartData(formattedCategoryChartData);
@@ -418,12 +418,11 @@ export default function DashboardPage() {
     if (currentUser) {
       if (isAdmin) {
         console.log("DashboardPage: useEffect (User Profiles) - Admin is fetching all user profiles globally.");
-        fetchAllUserProfiles();
+        fetchAllUserProfilesGlobal();
       } else {
         console.log("DashboardPage: useEffect (User Profiles) - Not admin. Profile handling based on selectedProjectId.");
         if (selectedProjectId === 'all') {
-          if (!isLoadingProjects) {
-            if (projects.length > 0) {
+          if (!isLoadingProjects && projects.length > 0) {
               console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected. Fetching profiles for all their project members.");
               const allMemberUIDs = new Set<string>();
               projects.forEach(p => {
@@ -431,7 +430,7 @@ export default function DashboardPage() {
                   p.members.forEach(uid => allMemberUIDs.add(uid));
                 }
               });
-              if (currentUser) allMemberUIDs.add(currentUser.uid); // Ensure current user is included
+              if (currentUser) allMemberUIDs.add(currentUser.uid); 
 
               if (allMemberUIDs.size > 0) {
                 const fetchProfilesForUIDs = async (uids: string[]) => {
@@ -455,11 +454,10 @@ export default function DashboardPage() {
                  if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
                  setIsLoadingUserProfiles(false);
               }
-            } else { 
+          } else if (!isLoadingProjects && projects.length === 0) {
               console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, but no projects. Setting self profile.");
               if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
               setIsLoadingUserProfiles(false);
-            }
           } else {
             console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, but projects still loading. Setting self profile as fallback for now.");
              if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
@@ -474,37 +472,41 @@ export default function DashboardPage() {
       setAllUserProfiles([]);
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, fetchAllUserProfiles, fetchSelectedProjectMembersProfiles, userProfile]);
+  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, fetchAllUserProfilesGlobal, fetchSelectedProjectMembersProfiles, userProfile]);
 
 
   useEffect(() => {
     console.log(
-        "DashboardPage: useEffect (chart data) triggered. Conditions - currentUser:", !!currentUser,
-        "isLoadingProjects:", isLoadingProjects,
-        "isLoadingUserProfiles:", isLoadingUserProfiles,
-        "allUserProfiles.length:", allUserProfiles.length,
-        "Content of allUserProfiles for chart useEffect:", JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name})))
+        `DashboardPage: useEffect (chart data) triggered. Conditions - currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, isLoadingUserProfiles: ${isLoadingUserProfiles}, allUserProfiles.length: ${allUserProfiles.length}`
     );
+    console.log(`DashboardPage: Content of allUserProfiles for chart useEffect:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
+
     if (currentUser && !isLoadingProjects && !isLoadingUserProfiles ) {
        console.log(`DashboardPage: useEffect (chart data) - Conditions MET. allUserProfiles.length: ${allUserProfiles.length}`);
+       // Allow processing even if allUserProfiles is empty if no projects exist (to clear chart)
        if (allUserProfiles.length > 0 || (projects.length === 0 && selectedProjectId === 'all' ) ) {
            console.log("DashboardPage: useEffect (chart data) - Calling fetchAndProcessExpensesForChart.");
            fetchAndProcessExpensesForChart();
+       } else if (!isLoadingProjects && !isLoadingUserProfiles && allUserProfiles.length === 0 && projects.length > 0) {
+           console.warn("DashboardPage: useEffect (chart data) - Profiles might be loading for selected project, or no profiles found for members. Chart data might be incomplete or empty.");
+           // Optionally, still call fetchAndProcess to clear or show empty state for chart
+           fetchAndProcessExpensesForChart(); 
        } else {
-           console.warn("DashboardPage: useEffect (chart data) - Profiles loaded but empty, or other data still pending. Clearing chart data.");
+           console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g. profiles empty but projects exist). Clearing chart data for safety.");
            setUserExpenseChartData([]);
            setCategoryChartData([]);
            setIsLoadingExpenseChartData(false);
        }
     } else {
-      console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET for fetching chart data.");
-       if(!currentUser || (!isLoadingProjects && !isLoadingUserProfiles && allUserProfiles.length === 0)) {
+      console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET for fetching chart data (waiting for projects or profiles).");
+      // If not loading and no current user, clear chart
+       if(!currentUser && !isLoadingProjects && !isLoadingUserProfiles) {
         setUserExpenseChartData([]);
         setCategoryChartData([]);
         setIsLoadingExpenseChartData(false);
       }
     }
-  }, [currentUser, selectedProjectId, allUserProfiles, isLoadingProjects, isLoadingUserProfiles, fetchAndProcessExpensesForChart]);
+  }, [currentUser, selectedProjectId, allUserProfiles, projects, isLoadingProjects, isLoadingUserProfiles, fetchAndProcessExpensesForChart]);
 
 
   const handleLogout = async () => {
@@ -577,7 +579,11 @@ export default function DashboardPage() {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar className="border-r bg-sidebar text-sidebar-foreground" collapsible="icon">
+      <Sidebar 
+        className="border-r text-sidebar-foreground" 
+        style={{ backgroundColor: '#5b43d7' }} 
+        collapsible="icon"
+      >
         <SidebarHeader className="p-4">
            <Link href="/dashboard" className="block w-full">
              <Image
@@ -730,7 +736,7 @@ export default function DashboardPage() {
 
           <BalanceSummary
             project={selectedProject}
-            allUsersProfiles={allUserProfiles} // Pass allUserProfiles here
+            allUsersProfiles={allUserProfiles} 
             isLoadingUserProfiles={isLoadingUserProfiles}
           />
 
