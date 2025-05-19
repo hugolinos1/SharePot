@@ -65,12 +65,13 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
+  newReceiptFile: z.instanceof(File).optional(), 
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
+  if (name && name.trim() !== '') {
     const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
@@ -83,7 +84,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return singleName[0].toUpperCase();
     }
   }
-  if (email) {
+  if (email && email.trim() !== '') {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
       return emailPrefix.substring(0, 2).toUpperCase();
@@ -120,6 +121,7 @@ export default function EditExpensePage() {
       paidById: '',
       expenseDate: new Date(),
       tags: '',
+      newReceiptFile: undefined,
     },
   });
 
@@ -169,6 +171,7 @@ export default function EditExpensePage() {
           paidById: expenseData.paidById,
           expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
+          newReceiptFile: undefined,
         });
 
       } else {
@@ -192,6 +195,7 @@ export default function EditExpensePage() {
 
 
   async function onSubmit(values: EditExpenseFormValues) {
+    console.log("[EditExpensePage onSubmit] Form values:", values);
     if (!currentUser || !originalExpense || !project) {
       toast({ title: "Données manquantes", description: "Impossible de traiter la modification.", variant: "destructive" });
       return;
@@ -204,6 +208,42 @@ export default function EditExpensePage() {
         setIsUpdating(false);
         return;
     }
+    console.log("[EditExpensePage onSubmit Attempting upload] User UID:", currentUser.uid, "Project ID:", originalExpense.projectId, "Expense ID (for path):", originalExpense.id);
+
+    let newReceiptUrl: string | null = originalExpense.receiptUrl || null;
+    let newReceiptStoragePath: string | null = originalExpense.receiptStoragePath || null;
+
+    // File upload logic is commented out as per user request to remove receipt storage
+    /*
+    if (values.newReceiptFile) {
+      console.log("[EditExpensePage onSubmit] New receipt file selected:", values.newReceiptFile.name);
+      const oldReceiptStoragePath = originalExpense.receiptStoragePath;
+      const storageRefPath = `receipts/${originalExpense.projectId}/${originalExpense.id}/${Date.now()}-${values.newReceiptFile.name}`;
+      const fileRef = ref(storage, storageRefPath);
+      try {
+        if (oldReceiptStoragePath) {
+          console.log("[EditExpensePage onSubmit] Attempting to delete old receipt from Storage:", oldReceiptStoragePath);
+          const oldFileRef = ref(storage, oldReceiptStoragePath);
+          await deleteObject(oldFileRef);
+          console.log("[EditExpensePage onSubmit] Old receipt deleted successfully from Storage.");
+        }
+        const uploadResult = await uploadBytes(fileRef, values.newReceiptFile);
+        newReceiptUrl = await getDownloadURL(uploadResult.ref);
+        newReceiptStoragePath = storageRefPath;
+        console.log("[EditExpensePage onSubmit] New receipt uploaded. URL:", newReceiptUrl, "Path:", newReceiptStoragePath);
+      } catch (error: any) {
+        console.error("Erreur lors du téléversement du nouveau justificatif:", error);
+        toast({
+          title: "Échec du téléversement du nouveau justificatif",
+          description: `La dépense sera mise à jour sans changer le justificatif. Erreur: ${error.message}`,
+          variant: "destructive",
+        });
+        // Revert to original URLs if new upload fails but old one existed
+        newReceiptUrl = originalExpense.receiptUrl || null;
+        newReceiptStoragePath = originalExpense.receiptStoragePath || null;
+      }
+    }
+    */
 
     try {
       const expenseRef = doc(db, "expenses", originalExpense.id);
@@ -227,24 +267,27 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+          // receiptUrl: newReceiptUrl, // Feature removed
+          // receiptStoragePath: newReceiptStoragePath, // Feature removed
           updatedAt: serverTimestamp(),
         };
         transaction.update(expenseRef, updatedExpenseData);
 
-        let updatedRecentExpenses = (projectData.recentExpenses || []).map(expSummary => {
-          if (expSummary.id === originalExpense.id) {
-            return {
-              ...expSummary,
-              name: values.title,
-              date: Timestamp.fromDate(values.expenseDate),
-              amount: values.amount,
-              payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
-            };
-          }
-          return expSummary;
-        });
-        updatedRecentExpenses.sort((a,b) => b.date.toMillis() - a.date.toMillis());
-        updatedRecentExpenses = updatedRecentExpenses.slice(0,5);
+        const updatedRecentExpenses = (projectData.recentExpenses || [])
+            .map(expSummary => {
+                if (expSummary.id === originalExpense.id) {
+                    return {
+                    ...expSummary,
+                    name: values.title,
+                    date: Timestamp.fromDate(values.expenseDate),
+                    amount: values.amount,
+                    payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
+                    };
+                }
+                return expSummary;
+            })
+            .sort((a,b) => b.date.toMillis() - a.date.toMillis())
+            .slice(0,5);
 
 
         transaction.update(projectRef, {
@@ -308,7 +351,7 @@ export default function EditExpensePage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImagePrimitive
-                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
+                    src={userProfile?.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -532,6 +575,7 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
+              {/* Receipt upload field removed as per user request */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>

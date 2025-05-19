@@ -39,7 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db, storage } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -52,7 +52,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -69,14 +68,14 @@ const expenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  invoiceForAnalysis: z.instanceof(File).optional().nullable(),
-  receipt: z.instanceof(File).optional().nullable(),
+  invoiceForAnalysis: z.instanceof(File).optional(),
+  receipt: z.instanceof(File).optional(),
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
+  if (name && name.trim() !== '') {
     const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
@@ -89,7 +88,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return singleName[0].toUpperCase();
     }
   }
-  if (email) {
+  if (email && email.trim() !== '') {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
       return emailPrefix.substring(0, 2).toUpperCase();
@@ -134,8 +133,8 @@ export default function NewExpensePage() {
       paidById: '',
       expenseDate: new Date(),
       tags: '',
-      invoiceForAnalysis: null,
-      receipt: null,
+      invoiceForAnalysis: undefined,
+      receipt: undefined,
     },
   });
 
@@ -160,8 +159,8 @@ export default function NewExpensePage() {
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
-        invoiceForAnalysis: null,
-        receipt: null,
+        invoiceForAnalysis: undefined,
+        receipt: undefined,
       });
       console.log("[NewExpensePage useEffect currentUser] Default paidById set to:", currentUser.uid);
     }
@@ -206,10 +205,8 @@ export default function NewExpensePage() {
     }
   }, [currentUser, fetchProjects]);
 
-  useEffect(() => {
-    console.log("[NewExpensePage useEffect searchParams] searchParams projectId:", searchParams.get('projectId'));
-    // No specific logic for projectId from URL as per user request to keep form consistent.
-    // The form will always require manual project selection.
+ useEffect(() => {
+    // console.log("[NewExpensePage useEffect searchParams] searchParams projectId:", searchParams.get('projectId'));
   }, [searchParams, form]);
 
 
@@ -433,9 +430,13 @@ export default function NewExpensePage() {
         const context = canvas.getContext('2d');
         if (context) {
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9); // Use JPEG for smaller size
-            setInvoiceFile(null); // Clear any previously uploaded file for IA
-            form.setValue('invoiceForAnalysis', null); // Clear from form state
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Set this captured image as the invoiceFile for potential automatic storage
+            const blob = await (await fetch(imageDataUrl)).blob();
+            const capturedFile = new File([blob], `facture-scannée-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            setInvoiceFile(capturedFile);
+            form.setValue('invoiceForAnalysis', capturedFile); // Also update the form field
             
             await performInvoiceAnalysis(imageDataUrl, 'image/jpeg');
         }
@@ -476,31 +477,30 @@ export default function NewExpensePage() {
 
     const newExpenseRef = doc(collection(db, "expenses"));
     
-    // Determine which file to use for the receipt
-    const receiptFileToUpload = values.receipt || invoiceFile; // Prioritize specific receipt, fallback to analyzed invoice
+    const receiptFileToUpload = values.receipt || invoiceFile;
     let receiptDownloadUrl: string | null = null;
     let receiptStoragePath: string | null = null;
 
-    console.log("[NewExpensePage onSubmit] File chosen for receipt:", receiptFileToUpload ? receiptFileToUpload.name : "None");
-
     if (receiptFileToUpload) {
-      try {
-        console.log(`[NewExpensePage onSubmit Attempting upload] User UID: ${currentUser.uid}, Project ID: ${selectedProject.id}, Expense ID (for path): ${newExpenseRef.id}, File: ${receiptFileToUpload.name}`);
-        const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${Date.now()}-${receiptFileToUpload.name}`;
-        const fileRef = ref(storage, storageRefPath);
-        const uploadResult = await uploadBytes(fileRef, receiptFileToUpload);
-        receiptDownloadUrl = await getDownloadURL(uploadResult.ref);
-        receiptStoragePath = storageRefPath; 
-        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePath);
-      } catch (error) {
-        console.error("Erreur lors du téléversement du justificatif:", error);
-        toast({
-          title: "Échec du téléversement du justificatif",
-          description: "La dépense sera enregistrée sans justificatif. Vous pourrez l'ajouter plus tard.",
-          variant: "destructive",
-        });
-        // Continue to save expense without receipt if upload fails
-      }
+        console.warn("File upload to Firebase Storage not implemented. Receipt will not be saved.");
+        // TODO: Implement Firebase Storage upload logic here
+        // const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${Date.now()}-${receiptFileToUpload.name}`;
+        // const fileRef = ref(storage, storageRefPath);
+        // try {
+        //   const uploadResult = await uploadBytes(fileRef, receiptFileToUpload);
+        //   receiptDownloadUrl = await getDownloadURL(uploadResult.ref);
+        //   receiptStoragePath = storageRefPath; 
+        //   console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePath);
+        // } catch (error) {
+        //   console.error("Erreur lors du téléversement du justificatif:", error);
+        //   toast({
+        //     title: "Échec du téléversement du justificatif",
+        //     description: "La dépense sera enregistrée sans justificatif.",
+        //     variant: "destructive",
+        //   });
+        // }
+    } else {
+        console.log("[NewExpensePage onSubmit] No receipt file to upload.");
     }
 
 
@@ -547,11 +547,11 @@ export default function NewExpensePage() {
           amount: expenseAmount,
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
-
-        let updatedRecentExpenses = projectData.recentExpenses ? [...projectData.recentExpenses] : [];
-        updatedRecentExpenses.unshift(recentExpenseSummary);
-        updatedRecentExpenses.sort((a, b) => b.date.toMillis() - a.date.toMillis());
-        updatedRecentExpenses = updatedRecentExpenses.slice(0, 5); // Keep only the last 5
+        
+        const existingRecentExpenses = projectData.recentExpenses || [];
+        const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
+                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis())
+                                     .slice(0, 5);
 
 
         const projectUpdateData: Partial<Project> = {
@@ -578,8 +578,8 @@ export default function NewExpensePage() {
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
-         invoiceForAnalysis: null,
-         receipt: null,
+         invoiceForAnalysis: undefined,
+         receipt: undefined,
       });
       setInvoiceFile(null);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
@@ -694,7 +694,7 @@ export default function NewExpensePage() {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { onChange: rhfOnChange, ...restOfField } }) => (
+                        render={({ field: { onChange: rhfOnChange, value: _value, ...restOfField } }) => (
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse IA</FormLabel>
                                 <FormControl>
@@ -973,9 +973,9 @@ export default function NewExpensePage() {
               <FormField
                   control={form.control}
                   name="receipt"
-                  render={({ field: { onChange: rhfOnChange, ...restOfField } }) => (
+                  render={({ field: { onChange: rhfOnChange, value: _val, ...restField } }) => (
                       <FormItem>
-                          <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
+                          <FormLabel>Justificatif (optionnel)</FormLabel>
                           <FormControl>
                               <Input
                                   type="file"
@@ -984,13 +984,13 @@ export default function NewExpensePage() {
                                   data-ai-hint="invoice file upload for storage"
                                   onChange={(e) => {
                                       const file = e.target.files ? e.target.files[0] : null;
-                                      rhfOnChange(file); // Important for react-hook-form
+                                      rhfOnChange(file);
                                   }}
-                                  {...restOfField}
+                                  {...restField}
                               />
                           </FormControl>
                           <FormDescription>
-                              Ce fichier sera stocké avec la dépense. Si aucun fichier n'est sélectionné ici, le fichier utilisé pour l'analyse IA (si fourni) sera utilisé comme justificatif.
+                              Ce fichier sera stocké avec la dépense si la fonctionnalité est activée.
                           </FormDescription>
                           <FormMessage />
                       </FormItem>
