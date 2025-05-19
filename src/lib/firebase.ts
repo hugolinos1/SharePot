@@ -2,7 +2,7 @@
 import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
-// import { getStorage, type FirebaseStorage } from 'firebase/storage'; // Commented out as receipt storage is removed
+import { getStorage, type FirebaseStorage } from 'firebase/storage'; // Décommenté
 import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig = {
@@ -25,7 +25,7 @@ if (!getApps().length) {
 
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
-// const storage: FirebaseStorage = getStorage(app); // Commented out as receipt storage is removed
+const storage: FirebaseStorage = getStorage(app); // Décommenté
 let analytics: Analytics | null = null;
 
 if (typeof window !== 'undefined') {
@@ -36,6 +36,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export { app, auth, db, /* storage, */ analytics }; // storage export removed
-
-    
+export { app, auth, db, storage, analytics }; // storage ré-exporté
