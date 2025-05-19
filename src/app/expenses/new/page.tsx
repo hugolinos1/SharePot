@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -68,9 +68,8 @@ const expenseFormSchema = z.object({
   expenseDate: z.date({
     required_error: "Veuillez sélectionner une date.",
   }),
-  tags: z.string().optional(),
+  category: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional(),
-  // receipt: z.instanceof(File).optional().nullable(), // Retiré - fonctionnalité de stockage des justificatifs supprimée
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -104,7 +103,6 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 
 export default function NewExpensePage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // Retiré
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
 
@@ -116,7 +114,6 @@ export default function NewExpensePage() {
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
-  // const [isProjectSelectDisabled, setIsProjectSelectDisabled] = useState(false); // Retiré
 
   const isMobile = useIsMobile();
   const [showCamera, setShowCamera] = useState(false);
@@ -137,9 +134,8 @@ export default function NewExpensePage() {
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
-      tags: '',
+      category: '',
       invoiceForAnalysis: undefined,
-      // receipt: null, // Retiré
     },
   });
 
@@ -163,9 +159,8 @@ export default function NewExpensePage() {
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
-        tags: form.getValues('tags') || '',
+        category: form.getValues('category') || '',
         invoiceForAnalysis: undefined,
-        // receipt: null, // Retiré
       });
     }
   }, [currentUser, form, authLoading]);
@@ -553,12 +548,10 @@ const handleSwitchCamera = async () => {
             paidById: payerProfile.id,
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
-            tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+            category: values.category || null,
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
-            // receiptUrl: receiptDownloadUrl, // Retiré
-            // receiptStoragePath: receiptStoragePath, // Retiré
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
@@ -581,8 +574,8 @@ const handleSwitchCamera = async () => {
         
         const existingRecentExpenses = projectData.recentExpenses || [];
         const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
-                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Sort by date descending
-                                     .slice(0, 5); // Keep only the last 5
+                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis()) 
+                                     .slice(0, 5); 
 
 
         const projectUpdateData: Partial<Project> = {
@@ -607,12 +600,10 @@ const handleSwitchCamera = async () => {
          projectId: '', 
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
-         tags: '',
+         category: '',
          invoiceForAnalysis: undefined,
-         // receipt: null, // Retiré
       });
       setInvoiceFile(null);
-      // setIsProjectSelectDisabled(false); // Retiré
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -650,7 +641,7 @@ const handleSwitchCamera = async () => {
     if (!description || description.trim().length < 3) {
       toast({
         title: "Description manquante",
-        description: "Veuillez entrer une description d'au moins 3 caractères pour suggérer des tags.",
+        description: "Veuillez entrer une description d'au moins 3 caractères pour suggérer une catégorie.",
         variant: "destructive"
       });
       return;
@@ -658,23 +649,23 @@ const handleSwitchCamera = async () => {
     setIsSuggestingTags(true);
     try {
       const result = await tagExpense({ description });
-      if (result && result.tags && result.tags.length > 0) {
-        form.setValue("tags", result.tags.join(", "));
+      if (result && result.category) {
+        form.setValue("category", result.category);
         toast({
-          title: "Tags suggérés",
-          description: "Les tags ont été ajoutés. Vous pouvez les modifier.",
+          title: "Catégorie suggérée",
+          description: "La catégorie a été ajoutée. Vous pouvez la modifier.",
         });
       } else {
         toast({
-          title: "Aucun tag suggéré",
-          description: "L'IA n'a pas pu suggérer de tags pour cette description.",
+          title: "Aucune catégorie suggérée",
+          description: "L'IA n'a pas pu suggérer de catégorie pour cette description.",
         });
       }
     } catch (error) {
-      console.error("Erreur lors de la suggestion de tags:", error);
+      console.error("Erreur lors de la suggestion de catégorie:", error);
       toast({
         title: "Erreur de suggestion",
-        description: "Impossible de suggérer des tags.",
+        description: "Impossible de suggérer une catégorie.",
         variant: "destructive",
       });
     } finally {
@@ -763,7 +754,7 @@ const handleSwitchCamera = async () => {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { onChange, onBlur, name, ref } }) => ( // value is removed
+                        render={({ field: { onChange, onBlur, name, ref } }) => ( 
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse</FormLabel>
                                 <FormControl>
@@ -774,7 +765,7 @@ const handleSwitchCamera = async () => {
                                     data-ai-hint="invoice file upload for AI analysis"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : undefined;
-                                        onChange(file); // Pass the file or undefined to react-hook-form
+                                        onChange(file); 
                                         setInvoiceFile(file || null); 
                                     }}
                                     onBlur={onBlur}
@@ -1038,11 +1029,11 @@ const handleSwitchCamera = async () => {
 
               <FormField
                 control={form.control}
-                name="tags"
+                name="category"
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between">
-                      <FormLabel>Tags (optionnel)</FormLabel>
+                      <FormLabel>Catégorie (optionnel)</FormLabel>
                       <Button
                         type="button"
                         variant="outline"
@@ -1057,20 +1048,19 @@ const handleSwitchCamera = async () => {
                     </div>
                     <FormControl>
                       <Input
-                        placeholder="Ex: nourriture, transport (séparés par une virgule)"
+                        placeholder="Ex: Nourriture, Transport..."
                         {...field}
                         value={field.value ?? ''}
-                        data-ai-hint="expense tags"
+                        data-ai-hint="expense category"
                       />
                     </FormControl>
                     <FormDescription>
-                      Séparez les tags par une virgule, ou utilisez la suggestion IA basée sur la description.
+                      Entrez une catégorie ou utilisez la suggestion IA basée sur la description.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              {/* Section pour "Justificatif à enregistrer" supprimée */}
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
                   Annuler

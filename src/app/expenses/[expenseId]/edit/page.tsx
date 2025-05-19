@@ -64,10 +64,7 @@ const editExpenseFormSchema = z.object({
   expenseDate: z.date({
     required_error: "Veuillez sélectionner une date.",
   }),
-  tags: z.string().optional(),
-  // newReceiptFile: z.instanceof(File).optional(), // Retiré
-  // currentReceiptUrl: z.string().nullable().optional(), // Retiré
-  // currentReceiptStoragePath: z.string().nullable().optional(), // Retiré
+  category: z.string().optional(),
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -122,10 +119,7 @@ export default function EditExpensePage() {
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
-      tags: '',
-      // newReceiptFile: undefined, // Retiré
-      // currentReceiptUrl: null, // Retiré
-      // currentReceiptStoragePath: null, // Retiré
+      category: '',
     },
   });
 
@@ -174,9 +168,7 @@ export default function EditExpensePage() {
           projectId: expenseData.projectId,
           paidById: expenseData.paidById,
           expenseDate: expenseData.expenseDate.toDate(),
-          tags: expenseData.tags.join(', '),
-          // currentReceiptUrl: expenseData.receiptUrl || null, // Retiré
-          // currentReceiptStoragePath: expenseData.receiptStoragePath || null, // Retiré
+          category: expenseData.category || '',
         });
 
       } else {
@@ -235,9 +227,8 @@ export default function EditExpensePage() {
           paidById: payerProfile.id,
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
-          tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+          category: values.category || null,
           updatedAt: serverTimestamp(),
-          // receiptUrl et receiptStoragePath retirés de la mise à jour
         };
         transaction.update(expenseRef, updatedExpenseData);
 
@@ -529,23 +520,21 @@ export default function EditExpensePage() {
 
               <FormField
                 control={form.control}
-                name="tags"
+                name="category"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tags (optionnel)</FormLabel>
+                    <FormLabel>Catégorie (optionnel)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} value={field.value || ''} data-ai-hint="expense tags"/>
+                      <Input placeholder="Ex: Nourriture, Transport..." {...field} value={field.value ?? ''} data-ai-hint="expense category"/>
                     </FormControl>
                     <FormDescription>
-                      Séparez les tags par une virgule.
+                      Entrez une catégorie pour cette dépense.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               
-              {/* Les champs relatifs aux justificatifs ont été retirés */}
-
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
                   Annuler
