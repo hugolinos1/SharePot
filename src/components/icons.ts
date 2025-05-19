@@ -1,5 +1,59 @@
 
-import {ArrowRight, Check, ChevronsUpDown, Circle, Copy, Edit, ExternalLink, File, HelpCircle, Home, Loader2, Mail, MessageSquare, Moon, PanelLeft, Plus, PlusCircle, Search, Server, Settings, Share2, Shield, Sun, Trash, User, X, Workflow, Lock, TrendingUp, Repeat, Users, Eye, DollarSign, LayoutDashboard, Receipt, PlusSquare, Folders, BarChart3, ChevronsLeft, Euro, FileText, LineChart, Bell, UserCircle2, FolderKanban, BarChartBig, CheckCircle, ArrowLeft, Save, CalendarIcon, LogOut, ScanLine } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronsUpDown,
+  Circle,
+  Copy,
+  Edit,
+  ExternalLink,
+  File,
+  HelpCircle,
+  Home,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Moon,
+  PanelLeft,
+  Plus,
+  PlusCircle,
+  Search,
+  Server,
+  Settings,
+  Share2,
+  Shield,
+  Sun,
+  Trash,
+  User,
+  X,
+  Workflow,
+  Lock,
+  TrendingUp,
+  Repeat,
+  Users,
+  Eye,
+  DollarSign,
+  LayoutDashboard,
+  Receipt,
+  PlusSquare,
+  Folders,
+  BarChart3,
+  ChevronsLeft,
+  Euro,
+  FileText,
+  LineChart,
+  Bell,
+  UserCircle2,
+  FolderKanban,
+  BarChartBig,
+  CheckCircle,
+  ArrowLeft,
+  Save,
+  CalendarIcon,
+  LogOut,
+  ScanLine,
+  Camera // Assurez-vous que Camera est bien importé ici
+} from 'lucide-react';
 
 const Icons = {
   arrowRight: ArrowRight,
@@ -49,12 +103,13 @@ const Icons = {
   fileText: FileText,
   lineChart: LineChart,
   bell: Bell,
-  folderKanban: FolderKanban, 
-  barChartBig: BarChartBig, 
+  folderKanban: FolderKanban,
+  barChartBig: BarChartBig,
   save: Save,
   calendar: CalendarIcon,
   logOut: LogOut,
-  scan: ScanLine, // Added ScanLine for invoice scan
+  scan: ScanLine,
+  camera: Camera, // Assurez-vous que 'camera' est assigné ici
 };
 
-export {Icons};
+export { Icons };
