@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; 
+import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,9 +56,7 @@ export interface ExpenseItem {
   expenseDate: Timestamp;
   amount: number;
   currency: string;
-  category?: string; // Changed from tags: string[]
-  // receiptUrl?: string; // Feature removed
-  // receiptStoragePath?: string; // Feature removed
+  category?: string;
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
@@ -111,16 +109,14 @@ export default function ExpensesPage() {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
-  // const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false); // Feature removed
-  // const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null); // Feature removed
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
       console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
       setProjects([]);
       setAllExpenses([]);
-      setIsLoadingProjects(true); 
-      setIsLoadingExpenses(true); 
+      setIsLoadingProjects(true);
+      setIsLoadingExpenses(true);
       return;
     }
     setIsLoadingProjects(true);
@@ -133,11 +129,11 @@ export default function ExpensesPage() {
         getDocs(memberQuery),
         getDocs(ownerQuery)
       ]);
-      
+
       const projectsMap = new Map<string, Project>();
       memberSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
       ownerSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
-      
+
       const projectsList = Array.from(projectsMap.values());
 
       setProjects(projectsList);
@@ -156,11 +152,11 @@ export default function ExpensesPage() {
   }, [currentUser, toast]);
 
   const fetchExpenses = useCallback(async () => {
-    if(!currentUser) {
-        console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
-        setAllExpenses([]);
-        setIsLoadingExpenses(false);
-        return;
+    if (!currentUser) {
+      console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
+      setAllExpenses([]);
+      setIsLoadingExpenses(false);
+      return;
     }
     setIsLoadingExpenses(true);
     console.log("ExpensesPage: fetchExpenses - Called. projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
@@ -173,26 +169,26 @@ export default function ExpensesPage() {
 
         if (projectIds.length > 0) {
           let expensesList: ExpenseItem[] = [];
-          const chunkSize = 30; 
-           for (let i = 0; i < projectIds.length; i += chunkSize) {
-                const chunk = projectIds.slice(i, i + chunkSize);
-                if (chunk.length > 0) {
-                    const q = query(expensesCollectionRef, where("projectId", "in", chunk));
-                    const querySnapshot = await getDocs(q);
-                    querySnapshot.docs.forEach(docSnap => {
-                        expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
-                    });
-                }
+          const chunkSize = 30;
+          for (let i = 0; i < projectIds.length; i += chunkSize) {
+            const chunk = projectIds.slice(i, i + chunkSize);
+            if (chunk.length > 0) {
+              const q = query(expensesCollectionRef, where("projectId", "in", chunk));
+              const querySnapshot = await getDocs(q);
+              querySnapshot.docs.forEach(docSnap => {
+                expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
+              });
             }
-            console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e=>({id: e.id, title: e.title}))));
-            setAllExpenses(expensesList);
+          }
+          console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e => ({ id: e.id, title: e.title }))));
+          setAllExpenses(expensesList);
         } else {
-            console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map, setting empty expenses.");
-            setAllExpenses([]);
+          console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map, setting empty expenses.");
+          setAllExpenses([]);
         }
       } else {
-         console.log("ExpensesPage: fetchExpenses - No projects available for current user, setting empty expenses.");
-         setAllExpenses([]);
+        console.log("ExpensesPage: fetchExpenses - No projects available for current user, setting empty expenses.");
+        setAllExpenses([]);
       }
     } catch (error) {
       console.error("Erreur lors de la récupération des dépenses: ", error);
@@ -208,11 +204,6 @@ export default function ExpensesPage() {
     }
   }, [currentUser, projects, toast]);
 
-  useEffect(() => {
-    if (!authLoading && !currentUser) {
-      router.replace('/login');
-    }
-  }, [authLoading, currentUser, router]);
 
   useEffect(() => {
     console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
@@ -225,7 +216,7 @@ export default function ExpensesPage() {
       setIsLoadingProjects(true);
       setIsLoadingExpenses(true);
     }
-  }, [currentUser, authLoading, fetchProjects]); 
+  }, [currentUser, fetchProjects]);
 
   useEffect(() => {
     console.log("ExpensesPage: useEffect for fetchExpenses triggered. currentUser:", !!currentUser, "projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
@@ -239,13 +230,13 @@ export default function ExpensesPage() {
         setIsLoadingExpenses(false);
       }
     } else if (currentUser && isLoadingProjects) {
-        console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
+      console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
     } else {
-        console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-        if (!isLoadingProjects && !currentUser) { 
-            setAllExpenses([]);
-            setIsLoadingExpenses(false);
-        }
+      console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
+      if (!isLoadingProjects && !currentUser) {
+        setAllExpenses([]);
+        setIsLoadingExpenses(false);
+      }
     }
   }, [currentUser, projects, isLoadingProjects, fetchExpenses]);
 
@@ -254,7 +245,7 @@ export default function ExpensesPage() {
     let expensesToFilter = allExpenses;
 
     if (selectedProjectId !== 'all' && !isLoadingProjects) {
-        expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
+      expensesToFilter = expensesToFilter.filter(expense => expense.projectId === selectedProjectId);
     }
 
     if (searchTerm) {
@@ -263,13 +254,13 @@ export default function ExpensesPage() {
         expense.title.toLowerCase().includes(lowerCaseSearch) ||
         (expense.projectName && expense.projectName.toLowerCase().includes(lowerCaseSearch)) ||
         (expense.paidByName && expense.paidByName.toLowerCase().includes(lowerCaseSearch)) ||
-        (expense.category && expense.category.toLowerCase().includes(lowerCaseSearch)) || // Changed to category
+        (expense.category && expense.category.toLowerCase().includes(lowerCaseSearch)) ||
         expense.amount.toString().includes(lowerCaseSearch)
       );
     }
     return expensesToFilter.sort((a, b) =>
-        (b.createdAt?.toMillis() || b.expenseDate?.toMillis() || 0) -
-        (a.createdAt?.toMillis() || a.expenseDate?.toMillis() || 0)
+      (b.createdAt?.toMillis() || b.expenseDate?.toMillis() || 0) -
+      (a.createdAt?.toMillis() || a.expenseDate?.toMillis() || 0)
     );
   }, [selectedProjectId, searchTerm, allExpenses, isLoadingProjects]);
 
@@ -288,11 +279,12 @@ export default function ExpensesPage() {
         const projectData = projectDoc.data() as Project;
         const newTotalExpenses = (projectData.totalExpenses || 0) - expenseToDelete.amount;
 
-        const existingRecentExpenses = projectData.recentExpenses || [];
-        const updatedRecentExpenses = existingRecentExpenses
+        let updatedRecentExpenses = projectData.recentExpenses || [];
+        updatedRecentExpenses = updatedRecentExpenses
           .filter((expSummary) => expSummary.id !== expenseToDelete.id)
-          .sort((a,b) => b.date.toMillis() - a.date.toMillis())
-          .slice(0,5);
+          .sort((a, b) => b.date.toMillis() - a.date.toMillis())
+          .slice(0, 5);
+
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
@@ -329,10 +321,6 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
-  // const openReceiptModal = (receiptUrl: string) => { // Feature removed
-  //   setSelectedReceiptUrl(receiptUrl);
-  //   setIsReceiptModalOpen(true);
-  // };
 
   const handleLogout = async () => {
     try {
@@ -344,6 +332,12 @@ export default function ExpensesPage() {
       toast({ title: "Erreur de déconnexion", variant: "destructive" });
     }
   };
+
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      router.replace('/login');
+    }
+  }, [authLoading, currentUser, router]);
 
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
 
@@ -358,11 +352,11 @@ export default function ExpensesPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
-          <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
-             <Icons.dollarSign className="mr-2 h-7 w-7"/>
-            <span>SharePot</span>
-          </Link>
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
+        <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
+          <Icons.dollarSign className="mr-2 h-7 w-7" />
+          <span>SharePot</span>
+        </Link>
         <div className="flex flex-1 items-center justify-end gap-4">
           <Button variant="ghost" size="icon" className="rounded-full">
             <Icons.bell className="h-5 w-5" />
@@ -397,154 +391,139 @@ export default function ExpensesPage() {
         </div>
       </header>
 
-    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">Gestion des Dépenses</h1>
-          <p className="text-lg text-muted-foreground">
-            Visualisez et filtrez toutes les dépenses enregistrées.
-          </p>
-        </div>
-        <div className="flex items-center gap-4 mt-4 md:mt-0">
-          <Link href="/dashboard" passHref>
-            <Button variant="outline">
-              <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Tableau de bord
-            </Button>
-          </Link>
-           <Link href="/expenses/new" passHref>
+      <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold mb-1">Gestion des Dépenses</h1>
+            <p className="text-lg text-muted-foreground">
+              Visualisez et filtrez toutes les dépenses enregistrées.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 mt-4 md:mt-0">
+            <Link href="/dashboard" passHref>
+              <Button variant="outline">
+                <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Tableau de bord
+              </Button>
+            </Link>
+            <Link href="/expenses/new" passHref>
               <Button><Icons.plus className="mr-2 h-4 w-4" /> Nouvelle Dépense</Button>
             </Link>
+          </div>
         </div>
-      </div>
 
-      <Card className="shadow-lg">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-            <div>
+        <Card className="shadow-lg">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div>
                 <CardTitle>Liste des Dépenses ({isLoadingExpenses && projects.length > 0 ? '...' : filteredExpenses.length})</CardTitle>
                 <CardDescription>
-                Filtrez par projet ou recherchez par mots-clés.
+                  Filtrez par projet ou recherchez par mots-clés.
                 </CardDescription>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <Select value={selectedProjectId} onValueChange={setSelectedProjectId} disabled={isLoadingProjects}>
-                    <SelectTrigger className="w-full sm:w-[200px] md:w-[250px] py-2.5 text-base" data-ai-hint="project filter select">
-                        <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Filtrer par projet"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Tous les projets</SelectItem>
-                        {projects.map(project => (
-                            <SelectItem key={project.id} value={project.id}>
-                            {project.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
+                  <SelectTrigger className="w-full sm:w-[200px] md:w-[250px] py-2.5 text-base" data-ai-hint="project filter select">
+                    <SelectValue placeholder={isLoadingProjects ? "Chargement..." : "Filtrer par projet"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les projets</SelectItem>
+                    {projects.map(project => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
                 <div className="relative w-full sm:w-[200px] md:w-[250px]">
-                    <Icons.search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        type="search"
-                        placeholder="Rechercher dépenses..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                        data-ai-hint="search expenses input"
-                    />
+                  <Icons.search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Rechercher dépenses..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                    data-ai-hint="search expenses input"
+                  />
                 </div>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Projet</TableHead>
-                  <TableHead>Payé par</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Montant</TableHead>
-                  <TableHead>Catégorie</TableHead> {/* Changed from Tags */}
-                  {/* Justificatif column removed */}
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead>Description</TableHead><TableHead>Projet</TableHead><TableHead>Payé par</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Montant</TableHead><TableHead>Catégorie</TableHead><TableHead className="text-right">Actions</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32"> 
-                            <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
-                            Chargement des dépenses...
-                        </TableCell>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                        <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
+                        Chargement des dépenses...
+                      </TableCell>
                     </TableRow>
-                )}
-                {!isLoadingExpenses && filteredExpenses.map((expense) => {
-                  console.log("Rendering expense in table:", JSON.stringify(expense, null, 2));
-                  return (
-                  <TableRow key={expense.id}>
-                    <TableCell className="font-medium">{expense.title}</TableCell>
-                    <TableCell className="text-muted-foreground">{expense.projectName}</TableCell>
-                    <TableCell className="text-muted-foreground">{expense.paidByName}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDateFromTimestamp(expense.expenseDate)}</TableCell>
-                    <TableCell className="text-right font-semibold">
-                        {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
-                    </TableCell>
-                    <TableCell>
-                      {expense.category && (
-                        <Badge variant="secondary" className="text-xs px-1.5 py-0.5">{expense.category}</Badge>
-                      )}
-                    </TableCell>
-                    {/* Receipt cell removed */}
-                    <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
+                  )}
+                  {!isLoadingExpenses && filteredExpenses.map((expense) => {
+                    console.log("Rendering expense in table:", JSON.stringify(expense, null, 2));
+                    return (
+                      <TableRow key={expense.id}>
+                        <TableCell className="font-medium">{expense.title}</TableCell>
+                        <TableCell className="text-muted-foreground">{expense.projectName}</TableCell>
+                        <TableCell className="text-muted-foreground">{expense.paidByName}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDateFromTimestamp(expense.expenseDate)}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
+                        </TableCell>
+                        <TableCell>
+                          {expense.category && (
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">{expense.category}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
                             <span className="sr-only">Modifier</span>
-                        </Button>
-                         <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
-                              <Icons.trash className="h-4 w-4" />
-                              <span className="sr-only">Supprimer</span>
                           </Button>
-                    </TableCell>
-                  </TableRow>
-                )})}
-                {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32"> 
-                      {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => openDeleteConfirmDialog(expense)}>
+                            <Icons.trash className="h-4 w-4" />
+                            <span className="sr-only">Supprimer</span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                  {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32">
+                        {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
-      <AlertDialog open={!!expenseToDelete} onOpenChange={(open) => !open && setExpenseToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
-            <AlertDialogDescription>
-              Êtes-vous sûr de vouloir supprimer la dépense "{expenseToDelete?.title}"?
-              Cette action est irréversible et mettra à jour le total des dépenses du projet associé.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setExpenseToDelete(null)} disabled={isDeleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteExpense} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-              {isDeleting ? <Icons.loader className="mr-2 h-4 w-4 animate-spin" /> : <Icons.trash className="mr-2 h-4 w-4" />}
-              Supprimer
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Receipt Modal Dialog removed */}
-    </div>
+        <AlertDialog open={!!expenseToDelete} onOpenChange={(open) => !open && setExpenseToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+              <AlertDialogDescription>
+                Êtes-vous sûr de vouloir supprimer la dépense "{expenseToDelete?.title}"?
+                Cette action est irréversible et mettra à jour le total des dépenses du projet associé.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setExpenseToDelete(null)} disabled={isDeleting}>Annuler</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteExpense} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                {isDeleting ? <Icons.loader className="mr-2 h-4 w-4 animate-spin" /> : <Icons.trash className="mr-2 h-4 w-4" />}
+                Supprimer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </div>
   );
 }
-
-    
-
-    
