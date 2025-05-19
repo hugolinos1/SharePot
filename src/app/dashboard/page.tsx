@@ -87,7 +87,6 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, icon, descripti
 
 interface DisplayExpenseItem extends ExpenseItem {
   displayIcon: React.ElementType;
-  category?: string;
 }
 
 const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
@@ -202,7 +201,18 @@ export default function DashboardPage() {
         if (isAdmin) {
           q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
         } else {
-          q = query(expensesRef, where("createdBy", "==", currentUser.uid), orderBy("createdAt", "desc"), limit(5));
+          const userProjectIds = projects.map(p => p.id);
+          if (userProjectIds.length === 0 && !isLoadingProjects) { // No projects, no expenses to fetch
+            setRecentGlobalExpenses([]);
+            setIsLoadingRecentExpenses(false);
+            return;
+          }
+          if(userProjectIds.length === 0 && isLoadingProjects) { // Projects still loading, wait
+             setIsLoadingRecentExpenses(false); // Or true, depending on desired UX
+             return;
+          }
+          // Query expenses for projects the user is a member of
+          q = query(expensesRef, where("projectId", "in", userProjectIds), orderBy("createdAt", "desc"), limit(5));
         }
         
         const querySnapshot = await getDocs(q);
@@ -231,7 +241,7 @@ export default function DashboardPage() {
     } finally {
         setIsLoadingRecentExpenses(false);
     }
-  }, [currentUser, isAdmin, toast]);
+  }, [currentUser, isAdmin, toast, projects, isLoadingProjects]);
   
   const fetchAllUserProfilesGlobal = useCallback(async () => {
     console.log("DashboardPage: fetchAllUserProfilesGlobal - Fetching all user profiles (admin).");
@@ -375,8 +385,8 @@ export default function DashboardPage() {
       const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmount]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
         const userName = user?.name || paidById; 
+        console.log(`Chart: (Inside map) paidById: ${paidById}. allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
         console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}`);
-        console.log(`Chart (User): allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
         return { user: userName, Dépenses: totalAmount * 100 }; // Multiply by 100 for cents for Recharts formatter
       });
       console.log("Chart (User): Final formattedUserChartData:", formattedUserChartData);
@@ -446,7 +456,7 @@ export default function DashboardPage() {
                   }
                   const uniqueProfiles = profiles.filter((p, index, self) => index === self.findIndex(t => t.id === p.id));
                   setAllUserProfiles(uniqueProfiles);
-                  console.log("DashboardPage: useEffect (User Profiles) - Non-admin, All Projects, Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
+                  console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
                   setIsLoadingUserProfiles(false);
                 };
                 fetchProfilesForUIDs(Array.from(allMemberUIDs));
@@ -483,13 +493,11 @@ export default function DashboardPage() {
 
     if (currentUser && !isLoadingProjects && !isLoadingUserProfiles ) {
        console.log(`DashboardPage: useEffect (chart data) - Conditions MET. allUserProfiles.length: ${allUserProfiles.length}`);
-       // Allow processing even if allUserProfiles is empty if no projects exist (to clear chart)
        if (allUserProfiles.length > 0 || (projects.length === 0 && selectedProjectId === 'all' ) ) {
            console.log("DashboardPage: useEffect (chart data) - Calling fetchAndProcessExpensesForChart.");
            fetchAndProcessExpensesForChart();
        } else if (!isLoadingProjects && !isLoadingUserProfiles && allUserProfiles.length === 0 && projects.length > 0) {
            console.warn("DashboardPage: useEffect (chart data) - Profiles might be loading for selected project, or no profiles found for members. Chart data might be incomplete or empty.");
-           // Optionally, still call fetchAndProcess to clear or show empty state for chart
            fetchAndProcessExpensesForChart(); 
        } else {
            console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g. profiles empty but projects exist). Clearing chart data for safety.");
@@ -499,7 +507,6 @@ export default function DashboardPage() {
        }
     } else {
       console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET for fetching chart data (waiting for projects or profiles).");
-      // If not loading and no current user, clear chart
        if(!currentUser && !isLoadingProjects && !isLoadingUserProfiles) {
         setUserExpenseChartData([]);
         setCategoryChartData([]);
@@ -580,12 +587,12 @@ export default function DashboardPage() {
   return (
     <SidebarProvider defaultOpen>
       <Sidebar 
-        className="border-r text-sidebar-foreground" 
+        className="border-r text-white" 
         style={{ backgroundColor: '#5b43d7' }} 
         collapsible="icon"
       >
         <SidebarHeader className="p-4">
-           <Link href="/dashboard" className="block w-full">
+           <Link href="/dashboard" className="block w-full text-white">
              <Image
               src="https://i.ibb.co/Swfy8wfX/logo-Share-Pot-full.png"
               alt="SharePot Logo"
@@ -625,7 +632,7 @@ export default function DashboardPage() {
             <>
               <Separator className="my-4" />
               <SidebarGroup>
-                <SidebarGroupLabel>ADMINISTRATION</SidebarGroupLabel>
+                <SidebarGroupLabel className="text-white/70">ADMINISTRATION</SidebarGroupLabel>
                 <SidebarMenu>
                     <SidebarMenuItem>
                     <SidebarMenuButton asChild>
@@ -646,7 +653,7 @@ export default function DashboardPage() {
            <Button
               variant="ghost"
               onClick={handleLogout}
-              className="text-sidebar-foreground border border-sidebar-foreground/50 hover:bg-sidebar-accent hover:border-sidebar-accent-foreground w-full justify-start"
+              className="text-white border border-white/50 hover:bg-purple-700 hover:border-purple-500 w-full justify-start"
             >
                 <Icons.logOut className="mr-2 h-4 w-4" /> Déconnexion
           </Button>
@@ -784,7 +791,7 @@ export default function DashboardPage() {
                       <div className="flex-1">
                         <div className="flex justify-between items-center">
                           <p className="font-medium">{expense.title}</p>
-                          <p className="font-semibold text-sm">{expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency})}</p>
+                          <p className="font-semibold text-sm">{expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency || 'EUR'})}</p>
                         </div>
                         <p className="text-xs text-muted-foreground">{expense.projectName} • {formatDateFromTimestamp(expense.expenseDate ? expense.expenseDate.toString() : undefined)}</p>
                         {expense.category && <Badge variant="outline" className="text-xs mt-1">{expense.category}</Badge>}
