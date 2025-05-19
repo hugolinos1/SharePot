@@ -49,6 +49,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from '@/components/ui/badge'; // Added import for Badge
 
 import type { Project, User as AppUserType } from '@/data/mock-data';
 import { BalanceSummary } from '@/components/dashboard/balance-summary';
@@ -202,16 +203,16 @@ export default function DashboardPage() {
           q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
         } else {
           const userProjectIds = projects.map(p => p.id);
-          if (userProjectIds.length === 0 && !isLoadingProjects) { // No projects, no expenses to fetch
+          if (userProjectIds.length === 0 && !isLoadingProjects) { 
             setRecentGlobalExpenses([]);
             setIsLoadingRecentExpenses(false);
             return;
           }
-          if(userProjectIds.length === 0 && isLoadingProjects) { // Projects still loading, wait
-             setIsLoadingRecentExpenses(false); // Or true, depending on desired UX
+          if(userProjectIds.length === 0 && isLoadingProjects) { 
+             setIsLoadingRecentExpenses(false); 
              return;
           }
-          // Query expenses for projects the user is a member of
+          
           q = query(expensesRef, where("projectId", "in", userProjectIds), orderBy("createdAt", "desc"), limit(5));
         }
         
@@ -224,7 +225,7 @@ export default function DashboardPage() {
         setRecentGlobalExpenses(fetchedExpenses);
     } catch (error: any) {
         console.error("Erreur lors de la récupération des dépenses récentes: ", error);
-        if (error.code === 'failed-precondition') {
+        if (error.code === 'failed-precondition' && error.message.includes("index")) {
              toast({
                 title: "Index Firestore manquant",
                 description: "Un index est requis pour cette requête. Veuillez vérifier la console Firebase pour le créer.",
@@ -592,7 +593,7 @@ export default function DashboardPage() {
         collapsible="icon"
       >
         <SidebarHeader className="p-4">
-           <Link href="/dashboard" className="block w-full text-white">
+           <Link href="/dashboard" className="block w-full">
              <Image
               src="https://i.ibb.co/Swfy8wfX/logo-Share-Pot-full.png"
               alt="SharePot Logo"
