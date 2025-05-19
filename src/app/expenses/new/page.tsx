@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -54,7 +54,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { tagExpense } from '@/ai/flows/tag-expense-with-ai';
+import { tagExpense, type TagExpenseOutput } from '@/ai/flows/tag-expense-with-ai';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -154,13 +154,13 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || undefined,
+        amount: form.getValues('amount') || undefined, // Keep existing or undefined
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         category: form.getValues('category') || '',
-        invoiceForAnalysis: undefined,
+        invoiceForAnalysis: undefined, // Ensure this is always reset
       });
     }
   }, [currentUser, form, authLoading]);
@@ -485,7 +485,7 @@ const handleSwitchCamera = async () => {
             const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
             
             const blob = await (await fetch(imageDataUrl)).blob();
-            const capturedFile = new File([blob], `facture-scannée-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            const capturedFile = new File([blob], `facture-scannee-${Date.now()}.jpg`, { type: 'image/jpeg' });
             setInvoiceFile(capturedFile); 
             form.setValue('invoiceForAnalysis', capturedFile); 
             
@@ -532,7 +532,7 @@ const handleSwitchCamera = async () => {
       const projectRef = doc(db, "projects", selectedProject.id);
       
       await runTransaction(db, async (transaction) => {
-        const projectDoc = await transaction.get(projectRef);
+        const projectDoc = await transaction.get(projectRef); // LECTURE
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
@@ -555,7 +555,7 @@ const handleSwitchCamera = async () => {
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
-        transaction.set(newExpenseRef, newExpenseDocData);
+        transaction.set(newExpenseRef, newExpenseDocData); // ECRITURE (Dépense)
 
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); 
@@ -585,7 +585,7 @@ const handleSwitchCamera = async () => {
             updatedAt: serverTimestamp(),
         };
         
-        transaction.update(projectRef, projectUpdateData);
+        transaction.update(projectRef, projectUpdateData); // ECRITURE (Projet)
       });
 
 
@@ -638,6 +638,7 @@ const handleSwitchCamera = async () => {
 
   const handleSuggestTags = async () => {
     const description = form.getValues("description");
+    console.log("[handleSuggestTags] Description for AI:", description);
     if (!description || description.trim().length < 3) {
       toast({
         title: "Description manquante",
@@ -648,12 +649,13 @@ const handleSwitchCamera = async () => {
     }
     setIsSuggestingTags(true);
     try {
-      const result = await tagExpense({ description });
-      if (result && result.category) {
-        form.setValue("category", result.category);
+      const suggestedCategory = await tagExpense({ description });
+      console.log("[handleSuggestTags] Suggested category from AI:", suggestedCategory);
+      if (suggestedCategory && suggestedCategory.trim() !== "") {
+        form.setValue("category", suggestedCategory);
         toast({
           title: "Catégorie suggérée",
-          description: "La catégorie a été ajoutée. Vous pouvez la modifier.",
+          description: `La catégorie "${suggestedCategory}" a été ajoutée. Vous pouvez la modifier.`,
         });
       } else {
         toast({

@@ -51,7 +51,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { tagExpense } from '@/ai/flows/tag-expense-with-ai';
+import { tagExpense, type TagExpenseOutput } from '@/ai/flows/tag-expense-with-ai';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -215,7 +215,7 @@ export default function EditExpensePage() {
       const projectRef = doc(db, "projects", originalExpense.projectId);
 
       await runTransaction(db, async (transaction) => {
-        const projectDoc = await transaction.get(projectRef);
+        const projectDoc = await transaction.get(projectRef); // LECTURE
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
@@ -234,7 +234,7 @@ export default function EditExpensePage() {
           category: values.category || null,
           updatedAt: serverTimestamp(),
         };
-        transaction.update(expenseRef, updatedExpenseData);
+        transaction.update(expenseRef, updatedExpenseData); // ECRITURE (Dépense)
 
         const existingRecentExpenses = projectData.recentExpenses || [];
         let updatedRecentExpenses = existingRecentExpenses
@@ -254,7 +254,7 @@ export default function EditExpensePage() {
             .slice(0,5);
 
 
-        transaction.update(projectRef, {
+        transaction.update(projectRef, { // ECRITURE (Projet)
           totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
           recentExpenses: updatedRecentExpenses,
           lastActivity: serverTimestamp(),
@@ -292,6 +292,7 @@ export default function EditExpensePage() {
 
   const handleSuggestCategory = async () => {
     const description = form.getValues("title"); // Description is in the 'title' field for expenses
+    console.log("[EditExpensePage handleSuggestCategory] Description for AI:", description);
     if (!description || description.trim().length < 3) {
       toast({
         title: "Description manquante",
@@ -302,12 +303,13 @@ export default function EditExpensePage() {
     }
     setIsSuggestingCategory(true);
     try {
-      const result = await tagExpense({ description });
-      if (result && result.category) {
-        form.setValue("category", result.category);
+      const suggestedCategory = await tagExpense({ description });
+      console.log("[EditExpensePage handleSuggestCategory] Suggested category from AI:", suggestedCategory);
+      if (suggestedCategory && suggestedCategory.trim() !== "") {
+        form.setValue("category", suggestedCategory);
         toast({
           title: "Catégorie suggérée",
-          description: `La catégorie "${result.category}" a été ajoutée. Vous pouvez la modifier.`,
+          description: `La catégorie "${suggestedCategory}" a été ajoutée. Vous pouvez la modifier.`,
         });
       } else {
         toast({
