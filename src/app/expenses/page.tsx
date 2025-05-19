@@ -44,7 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; // Renamed AvatarImage to avoid conflict
+import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,13 +65,15 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
+  // receiptUrl?: string; // Temporarily removed
+  // receiptStoragePath?: string; // Temporarily removed
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
+  if (name && name.trim() !== '') {
     const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
@@ -84,7 +86,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return singleName[0].toUpperCase();
     }
   }
-  if (email) {
+  if (email && email.trim() !== '') {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
       return emailPrefix.substring(0, 2).toUpperCase();
@@ -370,7 +372,7 @@ export default function ExpensesPage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImagePrimitive
-                  src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
+                  src={userProfile?.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined}
                   alt={userProfile?.name || currentUser?.email || "User"}
                   data-ai-hint="user avatar"
                 />
@@ -463,6 +465,7 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
+                  {/* <TableHead>Justificatif</TableHead> */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -493,6 +496,28 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
+                    {/* 
+                    <TableCell>
+                      {expense.receiptUrl && (
+                        <button
+                          onClick={() => {
+                            setSelectedReceiptUrl(expense.receiptUrl!);
+                            setIsReceiptModalOpen(true);
+                          }}
+                          className="focus:outline-none"
+                        >
+                          <Image
+                            src={expense.receiptUrl}
+                            alt={`Justificatif pour ${expense.title}`}
+                            width={24}
+                            height={24}
+                            className="rounded-sm object-contain hover:opacity-80 transition-opacity"
+                            data-ai-hint="receipt thumbnail"
+                          />
+                        </button>
+                      )}
+                    </TableCell>
+                    */}
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -536,8 +561,36 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 
+      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Aperçu du Justificatif</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 flex justify-center items-center max-h-[calc(80vh-100px)] overflow-auto">
+            {selectedReceiptUrl && (
+              <Image
+                src={selectedReceiptUrl}
+                alt="Justificatif en grand"
+                width={800} 
+                height={800}
+                className="max-w-full max-h-full object-contain rounded-md"
+                data-ai-hint="large receipt"
+              />
+            )}
+          </div>
+           <DialogFooter className="sm:justify-end mt-4">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Fermer
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      */}
     </div>
     </div>
   );
 }
-
