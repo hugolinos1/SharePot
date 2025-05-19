@@ -13,7 +13,7 @@ import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { setDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { setDoc, doc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
@@ -52,19 +52,20 @@ export default function RegisterPage() {
       // Create user document in Firestore
       const userDocRef = doc(db, "users", user.uid);
       await setDoc(userDocRef, {
-        id: user.uid, // Storing uid as id in the document
+        id: user.uid, 
         name: data.name,
         email: data.email,
-        isAdmin: data.email === ADMIN_EMAIL,
-        createdAt: serverTimestamp(),
-        avatarUrl: '', // Initialize with empty or default avatar
+        isAdmin: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase(),
+        createdAt: serverTimestamp() as Timestamp, // Cast to Timestamp for type consistency
+        avatarUrl: '', 
+        avatarStoragePath: '',
       });
 
       toast({
         title: "Inscription réussie",
         description: "Votre compte a été créé. Vous allez être redirigé.",
       });
-      router.push('/dashboard'); 
+      router.push('/dashboard');
     } catch (error: any) {
       console.error("Erreur d'inscription:", error);
       let errorMessage = "Une erreur est survenue lors de l'inscription.";
@@ -103,7 +104,7 @@ export default function RegisterPage() {
          <div className="bg-primary p-8 md:p-12 flex flex-col justify-center items-center text-primary-foreground order-last lg:order-first">
           <div className="text-center">
             <DollarSignIcon />
-            <h1 className="text-4xl md:text-5xl font-bold mt-4">Dépense Partagée</h1>
+            <h1 className="text-4xl md:text-5xl font-bold mt-4">Sharepot</h1>
             <p className="mt-3 text-lg md:text-xl">
               Rejoignez-nous et simplifiez vos finances de groupe !
             </p>
