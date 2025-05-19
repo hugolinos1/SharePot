@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet" // Added SheetHeader, SheetTitle
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -183,9 +183,10 @@ const Sidebar = React.forwardRef<
       return (
         <div
           className={cn(
-            "flex h-full w-[--sidebar-width] flex-col bg-sidebar text-sidebar-foreground",
+            "flex h-full w-[--sidebar-width] flex-col text-sidebar-foreground",
             className
           )}
+          style={{ backgroundColor: "#5b43d7" }}
           ref={ref}
           {...props}
         >
@@ -200,16 +201,19 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] p-0 [&>button]:hidden" // Removed bg-sidebar and text-sidebar-foreground
+            className="w-[--sidebar-width] p-0 [&>button]:hidden" 
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-                backgroundColor: "#5b43d7", // Direct style for background
-                color: "white", // Direct style for text color
+                backgroundColor: "#5b43d7", 
+                color: "white", 
               } as React.CSSProperties
             }
             side={side}
           >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Navigation principale</SheetTitle>
+            </SheetHeader>
             <div className="flex h-full w-full flex-col">{children}</div>
           </SheetContent>
         </Sheet>
@@ -219,12 +223,12 @@ const Sidebar = React.forwardRef<
     return (
       <div
         ref={ref}
-        className={cn("group peer hidden md:block", className)} // Removed text-sidebar-foreground here, should be applied via style or direct class on the inner div
+        className={cn("group peer hidden md:block", className)} 
         data-state={state}
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-variant={variant}
         data-side={side}
-        {...props} // Spread props here for the outer div
+        {...props} 
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div
@@ -243,17 +247,15 @@ const Sidebar = React.forwardRef<
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-            // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
               : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l"
-            // className prop for this inner div is removed as it was on the outer div from the parent component
           )}
-          // {...props} // Props were moved to the outer div
         >
           <div
             data-sidebar="sidebar"
-            className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
+            className="flex h-full w-full flex-col text-sidebar-foreground group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow"
+             style={{ backgroundColor: "#5b43d7" }} 
           >
             {children}
           </div>
@@ -732,7 +734,6 @@ export {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  // SidebarGroupContent, // This component was defined but not exported and seemed unused.
   SidebarGroupAction,
   SidebarGroupLabel,
   SidebarHeader,
