@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -39,7 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -52,6 +52,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -67,6 +70,7 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional().nullable(),
+  receipt: z.instanceof(File).optional().nullable(),
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -100,6 +104,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 
 export default function NewExpensePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
 
@@ -111,6 +116,13 @@ export default function NewExpensePage() {
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  
+  const isMobile = useIsMobile();
+  const [showCamera, setShowCamera] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
@@ -123,6 +135,7 @@ export default function NewExpensePage() {
       expenseDate: new Date(),
       tags: '',
       invoiceForAnalysis: null,
+      receipt: null,
     },
   });
 
@@ -148,6 +161,7 @@ export default function NewExpensePage() {
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: null,
+        receipt: null,
       });
       console.log("[NewExpensePage useEffect currentUser] Default paidById set to:", currentUser.uid);
     }
@@ -191,6 +205,13 @@ export default function NewExpensePage() {
       fetchProjects();
     }
   }, [currentUser, fetchProjects]);
+
+  useEffect(() => {
+    console.log("[NewExpensePage useEffect searchParams] searchParams projectId:", searchParams.get('projectId'));
+    // No specific logic for projectId from URL as per user request to keep form consistent.
+    // The form will always require manual project selection.
+  }, [searchParams, form]);
+
 
   useEffect(() => {
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
@@ -285,31 +306,19 @@ export default function NewExpensePage() {
     }
   }, [watchedProjectId, currentUser, userProfile, toast, form]);
 
-
-  const handleAnalyzeInvoice = async () => {
-    if (!invoiceFile) {
-      toast({ title: "Aucun fichier", description: "Veuillez sélectionner un fichier de facture à analyser.", variant: "destructive" });
-      return;
-    }
+  const performInvoiceAnalysis = async (base64Image: string, fileType: string) => {
     setIsAnalyzing(true);
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(invoiceFile);
-      reader.onloadend = async () => {
-        const base64Image = reader.result as string;
-        const fileType = invoiceFile.type;
-
         const response = await fetch('/api/extract-invoice-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Image, fileType }),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64Image, fileType }),
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || errorData.message || `Erreur HTTP: ${response.status}`);
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || `Erreur HTTP: ${response.status}`);
         }
-
         const data = await response.json();
 
         form.setValue('description', data.nom_fournisseur || data.nom_client || "Facture analysée");
@@ -349,17 +358,88 @@ export default function NewExpensePage() {
             toast({ title: "Avertissement", description: "Format de date de facture non reconnu. Veuillez vérifier la date."});
           }
         }
-
         toast({ title: "Analyse réussie", description: "Les champs ont été pré-remplis." });
-      };
-      reader.onerror = () => {
-        throw new Error("Erreur de lecture du fichier.");
-      };
     } catch (error: any) {
-      console.error("Erreur lors de l'analyse de la facture:", error);
-      toast({ title: "Erreur d'analyse", description: error.message || "Impossible d'analyser la facture.", variant: "destructive" });
+        console.error("Erreur lors de l'analyse de la facture:", error);
+        toast({ title: "Erreur d'analyse", description: error.message || "Impossible d'analyser la facture.", variant: "destructive" });
     } finally {
-      setIsAnalyzing(false);
+        setIsAnalyzing(false);
+    }
+  };
+
+
+  const handleAnalyzeUploadedFile = async () => {
+    if (!invoiceFile) {
+      toast({ title: "Aucun fichier", description: "Veuillez sélectionner un fichier de facture à analyser.", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.readAsDataURL(invoiceFile);
+    reader.onloadend = async () => {
+        const base64Image = reader.result as string;
+        const fileType = invoiceFile.type;
+        await performInvoiceAnalysis(base64Image, fileType);
+    };
+    reader.onerror = () => {
+        toast({ title: "Erreur de lecture", description: "Impossible de lire le fichier sélectionné.", variant: "destructive" });
+        setIsAnalyzing(false);
+    };
+  };
+
+  const handleOpenCamera = async () => {
+    setShowCamera(true);
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            setHasCameraPermission(true);
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (error) {
+            console.error("Erreur d'accès à la caméra:", error);
+            setHasCameraPermission(false);
+            toast({
+                variant: "destructive",
+                title: "Accès Caméra Refusé",
+                description: "Veuillez autoriser l'accès à la caméra dans les paramètres de votre navigateur.",
+            });
+            setShowCamera(false);
+        }
+    } else {
+        setHasCameraPermission(false);
+        toast({
+            variant: "destructive",
+            title: "Caméra non supportée",
+            description: "Votre navigateur ne supporte pas l'accès à la caméra.",
+        });
+        setShowCamera(false);
+    }
+  };
+
+  const handleCloseCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+    }
+    setShowCamera(false);
+  };
+
+  const handleCaptureAndAnalyze = async () => {
+    if (videoRef.current && canvasRef.current) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        if (context) {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9); // Use JPEG for smaller size
+            setInvoiceFile(null); // Clear any previously uploaded file for IA
+            form.setValue('invoiceForAnalysis', null); // Clear from form state
+            
+            await performInvoiceAnalysis(imageDataUrl, 'image/jpeg');
+        }
+        handleCloseCamera();
     }
   };
 
@@ -395,16 +475,38 @@ export default function NewExpensePage() {
     }
 
     const newExpenseRef = doc(collection(db, "expenses"));
+    
+    // Determine which file to use for the receipt
+    const receiptFileToUpload = values.receipt || invoiceFile; // Prioritize specific receipt, fallback to analyzed invoice
+    let receiptDownloadUrl: string | null = null;
+    let receiptStoragePath: string | null = null;
+
+    console.log("[NewExpensePage onSubmit] File chosen for receipt:", receiptFileToUpload ? receiptFileToUpload.name : "None");
+
+    if (receiptFileToUpload) {
+      try {
+        console.log(`[NewExpensePage onSubmit Attempting upload] User UID: ${currentUser.uid}, Project ID: ${selectedProject.id}, Expense ID (for path): ${newExpenseRef.id}, File: ${receiptFileToUpload.name}`);
+        const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${Date.now()}-${receiptFileToUpload.name}`;
+        const fileRef = ref(storage, storageRefPath);
+        const uploadResult = await uploadBytes(fileRef, receiptFileToUpload);
+        receiptDownloadUrl = await getDownloadURL(uploadResult.ref);
+        receiptStoragePath = storageRefPath; 
+        console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePath);
+      } catch (error) {
+        console.error("Erreur lors du téléversement du justificatif:", error);
+        toast({
+          title: "Échec du téléversement du justificatif",
+          description: "La dépense sera enregistrée sans justificatif. Vous pourrez l'ajouter plus tard.",
+          variant: "destructive",
+        });
+        // Continue to save expense without receipt if upload fails
+      }
+    }
+
 
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
       
-      const projectDoc = await getDoc(projectRef);
-      if (!projectDoc.exists()) {
-        throw new Error("Le projet associé n'existe plus.");
-      }
-      const projectData = projectDoc.data() as Project;
-
       const newExpenseDocData = {
           id: newExpenseRef.id,
           title: values.description,
@@ -416,41 +518,49 @@ export default function NewExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+          receiptUrl: receiptDownloadUrl, 
+          receiptStoragePath: receiptStoragePath,
           createdAt: serverTimestamp(),
           createdBy: currentUser.uid,
           updatedAt: serverTimestamp(),
       };
       console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
-      const currentTotalExpenses = projectData.totalExpenses || 0;
-      const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
-      if (isNaN(expenseAmount)) {
-          throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
-      }
-      const newTotalExpenses = currentTotalExpenses + expenseAmount;
-
-      const recentExpenseSummary = {
-        id: newExpenseRef.id,
-        name: values.description,
-        date: Timestamp.fromDate(values.expenseDate),
-        amount: expenseAmount,
-        payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
-      };
-
-      let updatedRecentExpenses = projectData.recentExpenses ? [...projectData.recentExpenses] : [];
-      updatedRecentExpenses.unshift(recentExpenseSummary);
-      updatedRecentExpenses.sort((a, b) => b.date.toMillis() - a.date.toMillis());
-      updatedRecentExpenses = updatedRecentExpenses.slice(0, 5);
-
-
-      const projectUpdateData: Partial<Project> = {
-          totalExpenses: newTotalExpenses,
-          recentExpenses: updatedRecentExpenses,
-          lastActivity: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-      };
-
       await runTransaction(db, async (transaction) => {
+        const projectDoc = await transaction.get(projectRef);
+        if (!projectDoc.exists()) {
+          throw new Error("Le projet associé n'existe plus.");
+        }
+        const projectData = projectDoc.data() as Project;
+
+        const currentTotalExpenses = projectData.totalExpenses || 0;
+        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
+        if (isNaN(expenseAmount)) {
+            throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
+        }
+        const newTotalExpenses = currentTotalExpenses + expenseAmount;
+
+        const recentExpenseSummary = {
+          id: newExpenseRef.id,
+          name: values.description,
+          date: Timestamp.fromDate(values.expenseDate),
+          amount: expenseAmount,
+          payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
+        };
+
+        let updatedRecentExpenses = projectData.recentExpenses ? [...projectData.recentExpenses] : [];
+        updatedRecentExpenses.unshift(recentExpenseSummary);
+        updatedRecentExpenses.sort((a, b) => b.date.toMillis() - a.date.toMillis());
+        updatedRecentExpenses = updatedRecentExpenses.slice(0, 5); // Keep only the last 5
+
+
+        const projectUpdateData: Partial<Project> = {
+            totalExpenses: newTotalExpenses,
+            recentExpenses: updatedRecentExpenses,
+            lastActivity: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        };
+        
         transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
@@ -469,6 +579,7 @@ export default function NewExpensePage() {
          expenseDate: new Date(),
          tags: '',
          invoiceForAnalysis: null,
+         receipt: null,
       });
       setInvoiceFile(null);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
@@ -528,7 +639,7 @@ export default function NewExpensePage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImage
-                  src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
+                  src={userProfile?.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined}
                   alt={userProfile?.name || currentUser?.email || "User"}
                   data-ai-hint="user avatar"
                 />
@@ -583,54 +694,89 @@ export default function NewExpensePage() {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field }) => {
-                          const { value, onChange: rhfOnChange, ...restOfField } = field;
-                          return (
+                        render={({ field: { onChange: rhfOnChange, ...restOfField } }) => (
                             <FormItem>
-                               <FormLabel>Fichier de facture pour analyse</FormLabel>
+                               <FormLabel>Fichier de facture pour analyse IA</FormLabel>
                                 <FormControl>
                                 <Input
                                     type="file"
                                     accept="image/png, image/jpeg, image/webp"
+                                    className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                                    data-ai-hint="invoice file upload for AI analysis"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : null;
                                         rhfOnChange(file);
                                         setInvoiceFile(file);
                                     }}
-                                    className="pt-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                                    data-ai-hint="invoice file upload for AI analysis"
                                     {...restOfField}
                                 />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
-                          );
-                        }}
-                    />
-                    <Button
-                        type="button"
-                        onClick={handleAnalyzeInvoice}
-                        disabled={!invoiceFile || isAnalyzing || isSubmitting}
-                        className="mt-3 w-full"
-                        variant="outline"
-                    >
-                        {isAnalyzing ? (
-                            <>
-                            <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
-                            Analyse en cours...
-                            </>
-                        ) : (
-                            <>
-                            <Icons.scan className="mr-2 h-4 w-4" />
-                            Analyser la facture
-                            </>
                         )}
-                    </Button>
+                    />
+                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <Button
+                            type="button"
+                            onClick={handleAnalyzeUploadedFile}
+                            disabled={!invoiceFile || isAnalyzing || isSubmitting || showCamera}
+                            className="flex-1"
+                            variant="outline"
+                        >
+                            {isAnalyzing && invoiceFile ? (
+                                <>
+                                <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
+                                Analyse en cours...
+                                </>
+                            ) : (
+                                <>
+                                <Icons.scan className="mr-2 h-4 w-4" />
+                                Analyser la facture chargée
+                                </>
+                            )}
+                        </Button>
+                        {isMobile && (
+                             <Button
+                                type="button"
+                                onClick={handleOpenCamera}
+                                disabled={isAnalyzing || isSubmitting || showCamera}
+                                className="flex-1"
+                                variant="outline"
+                            >
+                                <Icons.camera className="mr-2 h-4 w-4" />
+                                Scanner une facture (Caméra)
+                            </Button>
+                        )}
+                    </div>
+                     {showCamera && (
+                        <div className="mt-4 space-y-3 p-4 border rounded-md bg-background">
+                            <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline/>
+                            <canvas ref={canvasRef} className="hidden"></canvas>
+                            {hasCameraPermission === false && (
+                                 <Alert variant="destructive">
+                                    <AlertTitle>Accès Caméra Requis</AlertTitle>
+                                    <AlertDescription>
+                                        Veuillez autoriser l'accès à la caméra dans les paramètres de votre navigateur pour utiliser cette fonctionnalité.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                           {hasCameraPermission && (
+                               <div className="flex gap-2">
+                                    <Button type="button" onClick={handleCaptureAndAnalyze} className="w-full" disabled={isAnalyzing}>
+                                        {isAnalyzing ? <Icons.loader className="animate-spin mr-2"/> : <Icons.scan className="mr-2 h-4 w-4" />}
+                                        Capturer et Analyser
+                                    </Button>
+                                    <Button type="button" variant="outline" onClick={handleCloseCamera} disabled={isAnalyzing}>
+                                        <Icons.close className="mr-2 h-4 w-4" /> Annuler
+                                    </Button>
+                               </div>
+                           )}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
             <Separator className="my-6" />
-
 
               <FormField
                 control={form.control}
@@ -823,6 +969,34 @@ export default function NewExpensePage() {
                   </FormItem>
                 )}
               />
+              
+              <FormField
+                  control={form.control}
+                  name="receipt"
+                  render={({ field: { onChange: rhfOnChange, ...restOfField } }) => (
+                      <FormItem>
+                          <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
+                          <FormControl>
+                              <Input
+                                  type="file"
+                                  accept="image/png, image/jpeg, image/webp"
+                                  className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                                  data-ai-hint="invoice file upload for storage"
+                                  onChange={(e) => {
+                                      const file = e.target.files ? e.target.files[0] : null;
+                                      rhfOnChange(file); // Important for react-hook-form
+                                  }}
+                                  {...restOfField}
+                              />
+                          </FormControl>
+                          <FormDescription>
+                              Ce fichier sera stocké avec la dépense. Si aucun fichier n'est sélectionné ici, le fichier utilisé pour l'analyse IA (si fourni) sera utilisé comme justificatif.
+                          </FormDescription>
+                          <FormMessage />
+                      </FormItem>
+                  )}
+              />
+
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
