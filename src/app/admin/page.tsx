@@ -4,7 +4,11 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { User, Project } from '@/data/mock-data';
+import type { User, Project } from '@/data/mock-data'; // Ensure Project type is correctly imported/defined
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+
 import {
   Table,
   TableBody,
@@ -20,13 +24,36 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -63,6 +90,14 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
   return '??';
 };
 
+const editProjectFormSchema = z.object({
+  name: z.string().min(2, { message: "Le nom du projet doit comporter au moins 2 caractères." }),
+  description: z.string().optional(),
+  status: z.string().min(1, {message: "Le statut est requis."})
+});
+type EditProjectFormValues = z.infer<typeof editProjectFormSchema>;
+
+
 export default function AdminProjectsPage() {
     const router = useRouter();
     const { toast } = useToast();
@@ -71,6 +106,23 @@ export default function AdminProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
     const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+
+    const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
+    const [isEditProjectModalOpen, setIsEditProjectModalOpen] = useState(false);
+    const [isUpdatingProject, setIsUpdatingProject] = useState(false);
+
+    const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+    const [isDeleteProjectConfirmModalOpen, setIsDeleteProjectConfirmModalOpen] = useState(false);
+    const [isDeletingProject, setIsDeletingProject] = useState(false);
+
+    const editForm = useForm<EditProjectFormValues>({
+        resolver: zodResolver(editProjectFormSchema),
+        defaultValues: {
+          name: "",
+          description: "",
+          status: "Actif",
+        },
+    });
 
     useEffect(() => {
         if (!authLoading && !currentUser) {
@@ -121,17 +173,64 @@ export default function AdminProjectsPage() {
          return projects.filter(project =>
              project.name.toLowerCase().includes(lowerCaseSearch) ||
              (project.description && project.description.toLowerCase().includes(lowerCaseSearch)) ||
-             project.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch))
+             (project.tags && Array.isArray(project.tags) && project.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch)))
          );
      }, [projects, searchTerm, isLoadingProjects]);
     
-    const handleProjectAction = (actionType: 'edit' | 'delete', projectId: string) => {
-        toast({
-            title: "Fonctionnalité en cours de développement",
-            description: `L'action de "${actionType}" pour le projet ${projectId} n'est pas encore connectée à Firestore.`,
-            variant: "default",
+    const handleOpenEditProjectModal = (project: Project) => {
+        setProjectToEdit(project);
+        editForm.reset({
+            name: project.name,
+            description: project.description || "",
+            status: project.status || "Actif",
         });
+        setIsEditProjectModalOpen(true);
     };
+
+    const handleSaveProjectEdit = async (values: EditProjectFormValues) => {
+        if (!projectToEdit || !isAdmin) return;
+        setIsUpdatingProject(true);
+        try {
+            const projectRef = doc(db, "projects", projectToEdit.id);
+            await updateDoc(projectRef, {
+                name: values.name,
+                description: values.description || "",
+                status: values.status,
+                updatedAt: serverTimestamp(),
+            });
+            toast({ title: "Projet mis à jour", description: `Le projet "${values.name}" a été modifié.` });
+            fetchProjects(); // Re-fetch projects to update the list
+            setIsEditProjectModalOpen(false);
+        } catch (error) {
+            console.error("Erreur lors de la mise à jour du projet:", error);
+            toast({ title: "Erreur de mise à jour", description: "Impossible de modifier le projet.", variant: "destructive" });
+        } finally {
+            setIsUpdatingProject(false);
+        }
+    };
+
+    const handleOpenDeleteProjectModal = (project: Project) => {
+        setProjectToDelete(project);
+        setIsDeleteProjectConfirmModalOpen(true);
+    };
+
+    const handleConfirmDeleteProject = async () => {
+        if (!projectToDelete || !isAdmin) return;
+        setIsDeletingProject(true);
+        try {
+            await deleteDoc(doc(db, "projects", projectToDelete.id));
+            toast({ title: "Projet supprimé", description: `Le projet "${projectToDelete.name}" a été supprimé.` });
+            fetchProjects(); // Re-fetch projects
+            setIsDeleteProjectConfirmModalOpen(false);
+            setProjectToDelete(null);
+        } catch (error) {
+            console.error("Erreur lors de la suppression du projet:", error);
+            toast({ title: "Erreur de suppression", description: "Impossible de supprimer le projet.", variant: "destructive" });
+        } finally {
+            setIsDeletingProject(false);
+        }
+    };
+
 
     const handleLogout = async () => {
       try {
@@ -276,33 +375,33 @@ export default function AdminProjectsPage() {
                                     </Badge>
                                 </TableCell>
                                 <TableCell>
-                                    <div className="flex -space-x-2 overflow-hidden" title={project.members.join(', ')}>
-                                    {project.members.slice(0, 3).map((member, index) => (
+                                    <div className="flex -space-x-2 overflow-hidden" title={(project.members || []).join(', ')}>
+                                    {(project.members || []).slice(0, 3).map((member, index) => (
                                         <Avatar key={index} className="h-6 w-6 border-2 border-card">
                                             <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar"/>
                                             <AvatarFallback>{getAvatarFallbackText(member)}</AvatarFallback>
                                         </Avatar>
                                     ))}
-                                    {project.members.length > 3 && (
+                                    {(project.members || []).length > 3 && (
                                         <Avatar className="h-6 w-6 border-2 border-card bg-muted text-muted-foreground">
-                                            <AvatarFallback className="text-xs">+{project.members.length - 3}</AvatarFallback>
+                                            <AvatarFallback className="text-xs">+{ (project.members || []).length - 3}</AvatarFallback>
                                         </Avatar>
                                     )}
                                     </div>
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex flex-wrap gap-1">
-                                        {project.tags.map(tag => (
+                                        {(project.tags || []).map(tag => (
                                             <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                                         ))}
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleProjectAction('edit', project.id)}>
+                                    <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleOpenEditProjectModal(project)}>
                                     <Icons.edit className="h-4 w-4" />
                                         <span className="sr-only">Modifier</span>
                                     </Button>
-                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleProjectAction('delete', project.id)}>
+                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleOpenDeleteProjectModal(project)}>
                                     <Icons.trash className="h-4 w-4" />
                                         <span className="sr-only">Supprimer</span>
                                     </Button>
@@ -322,6 +421,93 @@ export default function AdminProjectsPage() {
                 </CardContent>
             </Card>
         </div>
+
+        {/* Edit Project Modal */}
+        <Dialog open={isEditProjectModalOpen} onOpenChange={setIsEditProjectModalOpen}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Modifier le Projet: {projectToEdit?.name}</DialogTitle>
+                    <DialogDescription>
+                        Mettez à jour les informations du projet ci-dessous.
+                    </DialogDescription>
+                </DialogHeader>
+                <Form {...editForm}>
+                    <form onSubmit={editForm.handleSubmit(handleSaveProjectEdit)} className="space-y-4 py-4">
+                        <FormField
+                            control={editForm.control}
+                            name="name"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Nom du Projet</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="Nom du projet" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={editForm.control}
+                            name="description"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                        <Textarea placeholder="Description du projet" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={editForm.control}
+                            name="status"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Statut</FormLabel>
+                                    <FormControl>
+                                        {/* For simplicity, using Input. A Select would be better for predefined statuses */}
+                                        <Input placeholder="Ex: Actif, Terminé, En attente" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <DialogFooter>
+                            <DialogClose asChild>
+                                <Button type="button" variant="outline" disabled={isUpdatingProject}>
+                                    Annuler
+                                </Button>
+                            </DialogClose>
+                            <Button type="submit" disabled={isUpdatingProject}>
+                                {isUpdatingProject && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                                Enregistrer
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+
+        {/* Delete Project Confirmation Modal */}
+        <AlertDialog open={isDeleteProjectConfirmModalOpen} onOpenChange={setIsDeleteProjectConfirmModalOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Êtes-vous sûr de vouloir supprimer le projet "{projectToDelete?.name}"? Cette action est irréversible.
+                        Les dépenses associées à ce projet ne seront pas supprimées mais pourraient devenir orphelines.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setIsDeleteProjectConfirmModalOpen(false)} disabled={isDeletingProject}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmDeleteProject} disabled={isDeletingProject} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                        {isDeletingProject ? <Icons.loader className="mr-2 h-4 w-4 animate-spin" /> : <Icons.trash className="mr-2 h-4 w-4" />}
+                        Supprimer
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
     );
 }
