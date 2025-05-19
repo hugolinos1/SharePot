@@ -39,7 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; // storage import removed
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { tagExpense } from '@/ai/flows/tag-expense-with-ai';
 
 
 const currencies = ["EUR", "USD", "GBP", "CZK"];
@@ -69,7 +70,6 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional(),
-  // receipt field removed
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -122,24 +122,25 @@ export default function NewExpensePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
+  const [isSuggestingTags, setIsSuggestingTags] = useState(false);
 
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: undefined, // Changed from '' as unknown as number to undefined for better handling
+      amount: undefined,
       currency: 'EUR',
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
       tags: '',
       invoiceForAnalysis: undefined,
-      // receipt: undefined removed
     },
   });
 
   const watchedProjectId = form.watch('projectId');
+  const watchedDescription = form.watch('description');
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -153,14 +154,13 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || undefined, // Ensure consistent default for amount
+        amount: form.getValues('amount') || undefined,
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: undefined,
-        // receipt: undefined removed
       });
     }
   }, [currentUser, form, authLoading]);
@@ -549,7 +549,6 @@ const handleSwitchCamera = async () => {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            // receiptUrl and receiptStoragePath removed
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
@@ -557,7 +556,7 @@ const handleSwitchCamera = async () => {
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
         const currentTotalExpenses = projectData.totalExpenses || 0;
-        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); // Ensure amount is number
+        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); 
         if (isNaN(expenseAmount)) {
             throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
         }
@@ -597,15 +596,13 @@ const handleSwitchCamera = async () => {
          description: '',
          amount: undefined,
          currency: 'EUR',
-         projectId: '', // Reset projectId to allow new selection
+         projectId: '', 
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
          invoiceForAnalysis: undefined,
-         // receipt: undefined removed
       });
       setInvoiceFile(null);
-      // Reset usersForDropdown to default (current user) if no project is selected
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -637,6 +634,44 @@ const handleSwitchCamera = async () => {
       toast({ title: "Erreur de déconnexion", variant: "destructive" });
     }
   };
+
+  const handleSuggestTags = async () => {
+    const description = form.getValues("description");
+    if (!description || description.trim().length < 3) {
+      toast({
+        title: "Description manquante",
+        description: "Veuillez entrer une description d'au moins 3 caractères pour suggérer des tags.",
+        variant: "destructive"
+      });
+      return;
+    }
+    setIsSuggestingTags(true);
+    try {
+      const result = await tagExpense({ description });
+      if (result && result.tags && result.tags.length > 0) {
+        form.setValue("tags", result.tags.join(", "));
+        toast({
+          title: "Tags suggérés",
+          description: "Les tags ont été ajoutés. Vous pouvez les modifier.",
+        });
+      } else {
+        toast({
+          title: "Aucun tag suggéré",
+          description: "L'IA n'a pas pu suggérer de tags pour cette description.",
+        });
+      }
+    } catch (error) {
+      console.error("Erreur lors de la suggestion de tags:", error);
+      toast({
+        title: "Erreur de suggestion",
+        description: "Impossible de suggérer des tags.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSuggestingTags(false);
+    }
+  };
+
 
   if (authLoading || !currentUser) {
     return (
@@ -718,7 +753,7 @@ const handleSwitchCamera = async () => {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { value: _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
+                        render={({ field: { _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse</FormLabel>
                                 <FormControl>
@@ -997,25 +1032,36 @@ const handleSwitchCamera = async () => {
                 name="tags"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tags (optionnel)</FormLabel>
+                    <div className="flex items-center justify-between">
+                      <FormLabel>Tags (optionnel)</FormLabel>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSuggestTags}
+                        disabled={isSuggestingTags || !watchedDescription || watchedDescription.trim().length < 3}
+                      >
+                        {isSuggestingTags && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                        <Icons.sparkles className="mr-2 h-4 w-4" />
+                        Suggérer (IA)
+                      </Button>
+                    </div>
                     <FormControl>
                       <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags"/>
                     </FormControl>
                     <FormDescription>
-                      Séparez les tags par une virgule.
+                      Séparez les tags par une virgule, ou utilisez la suggestion IA basée sur la description.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               
-              {/* Receipt field removed */}
-
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown || isAnalyzing}>
+                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown || isAnalyzing || isSuggestingTags}>
                   {isSubmitting ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />

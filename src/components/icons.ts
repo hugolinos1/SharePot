@@ -52,7 +52,8 @@ import {
   CalendarIcon,
   LogOut,
   ScanLine,
-  Camera // Assurez-vous que Camera est bien importé ici
+  Camera,
+  Sparkles // Ajout de l'icône Sparkles
 } from 'lucide-react';
 
 const Icons = {
@@ -109,7 +110,10 @@ const Icons = {
   calendar: CalendarIcon,
   logOut: LogOut,
   scan: ScanLine,
-  camera: Camera, // Assurez-vous que 'camera' est assigné ici
+  camera: Camera,
+  sparkles: Sparkles, // Ajout de l'icône Sparkles
 };
 
 export { Icons };
+
+    
