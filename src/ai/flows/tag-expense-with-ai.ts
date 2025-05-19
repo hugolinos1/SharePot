@@ -36,10 +36,11 @@ const prompt = ai.definePrompt({
     // We will parse the text() from the model response directly.
     // No Zod schema is needed here if the model is instructed to return plain text.
   },
-  // Updated prompt to ask for a single category string directly
+  // Updated prompt to ask for a single category string directly and include examples
   prompt: `You are an AI assistant specialized in categorizing expenses.
   Based on the description of the expense provided below, generate a single, concise,
-  and relevant thematic category (e.g., Food, Transport, Entertainment, Restaurant, Groceries, Utilities, Rent, Travel, Shopping).
+  and relevant thematic category.
+  Examples of categories include: Alimentation, Transport, Alcool, Restaurant, Divertissement, Hébergement, Bar, Produits d'entretien, Sport, Shopping, Utilitaires, Loyer, Voyage, Santé, Éducation, Cadeaux, Animaux, Non catégorisé.
   Output ONLY the category name as a plain string, without any JSON formatting or extra text.
 
   Expense Description: {{{description}}}
@@ -73,3 +74,4 @@ const tagExpenseFlow = ai.defineFlow(
     return modelOutput.trim();
   }
 );
+
