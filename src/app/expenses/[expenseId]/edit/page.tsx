@@ -10,6 +10,7 @@ import * as z from 'zod';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp, doc, getDoc, updateDoc, runTransaction, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
+import Image from 'next/image';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -39,7 +40,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; 
+import { db, storage } from '@/lib/firebase'; 
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from '@/contexts/AuthContext';
 import type { ExpenseItem } from '@/app/expenses/page'; 
 import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar';
@@ -66,6 +68,8 @@ const editExpenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   newReceiptFile: z.instanceof(File).optional(), 
+  currentReceiptUrl: z.string().optional().nullable(), // Added to hold existing URL for display
+  currentReceiptStoragePath: z.string().optional().nullable(), // Added to hold existing storage path for deletion
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -122,6 +126,8 @@ export default function EditExpensePage() {
       expenseDate: new Date(),
       tags: '',
       newReceiptFile: undefined,
+      currentReceiptUrl: null,
+      currentReceiptStoragePath: null,
     },
   });
 
@@ -172,6 +178,8 @@ export default function EditExpensePage() {
           expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
           newReceiptFile: undefined,
+          currentReceiptUrl: expenseData.receiptUrl || null,
+          currentReceiptStoragePath: expenseData.receiptStoragePath || null,
         });
 
       } else {
@@ -213,11 +221,10 @@ export default function EditExpensePage() {
     let newReceiptUrl: string | null = originalExpense.receiptUrl || null;
     let newReceiptStoragePath: string | null = originalExpense.receiptStoragePath || null;
 
-    // File upload logic is commented out as per user request to remove receipt storage
-    /*
     if (values.newReceiptFile) {
       console.log("[EditExpensePage onSubmit] New receipt file selected:", values.newReceiptFile.name);
       const oldReceiptStoragePath = originalExpense.receiptStoragePath;
+      // Ensure expenseId for path is originalExpense.id, not a new one
       const storageRefPath = `receipts/${originalExpense.projectId}/${originalExpense.id}/${Date.now()}-${values.newReceiptFile.name}`;
       const fileRef = ref(storage, storageRefPath);
       try {
@@ -243,7 +250,6 @@ export default function EditExpensePage() {
         newReceiptStoragePath = originalExpense.receiptStoragePath || null;
       }
     }
-    */
 
     try {
       const expenseRef = doc(db, "expenses", originalExpense.id);
@@ -267,8 +273,8 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          // receiptUrl: newReceiptUrl, // Feature removed
-          // receiptStoragePath: newReceiptStoragePath, // Feature removed
+          receiptUrl: newReceiptUrl, 
+          receiptStoragePath: newReceiptStoragePath,
           updatedAt: serverTimestamp(),
         };
         transaction.update(expenseRef, updatedExpenseData);
@@ -575,7 +581,50 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
-              {/* Receipt upload field removed as per user request */}
+              
+              {form.getValues('currentReceiptUrl') && (
+                <FormItem>
+                  <FormLabel>Justificatif actuel</FormLabel>
+                  <div className="mt-2">
+                    <Image
+                      src={form.getValues('currentReceiptUrl')!}
+                      alt="Justificatif actuel"
+                      width={200}
+                      height={200}
+                      className="rounded-md object-contain border"
+                      data-ai-hint="current receipt"
+                    />
+                  </div>
+                </FormItem>
+              )}
+
+              <FormField
+                control={form.control}
+                name="newReceiptFile"
+                render={({ field: { value: _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
+                  <FormItem>
+                    <FormLabel>Remplacer le justificatif (optionnel)</FormLabel>
+                    <FormControl>
+                       <Input
+                        type="file"
+                        accept="image/*"
+                        className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                        data-ai-hint="new receipt file upload"
+                        onChange={(e) => {
+                            const file = e.target.files ? e.target.files[0] : undefined;
+                            onChange(file);
+                        }}
+                        onBlur={onBlur}
+                        name={name}
+                        ref={ref}
+                        {...otherFieldProps}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
