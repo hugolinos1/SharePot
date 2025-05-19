@@ -235,7 +235,7 @@ export default function DashboardPage() {
   }, [currentUser, isAdmin, toast]);
 
   const fetchAllUserProfiles = useCallback(async () => {
-    console.log("DashboardPage: fetchAllUserProfiles - Fetching relevant user profiles.");
+    console.log("DashboardPage: fetchAllUserProfiles - Fetching all user profiles (admin).");
     setIsLoadingUserProfiles(true);
     try {
       const usersCollectionRef = collection(db, "users");
@@ -246,7 +246,7 @@ export default function DashboardPage() {
       setAllUserProfiles(usersList);
       console.log("DashboardPage: Successfully fetched allUserProfiles:", usersList.length);
     } catch (error) {
-      console.error("Erreur lors de la récupération de tous les profils utilisateurs (Dashboard): ", error);
+      console.error("Erreur lors de la récupération de tous les profils utilisateurs (Dashboard Admin): ", error);
       toast({
         title: "Erreur de chargement (Profils)",
         description: "Impossible de charger tous les profils utilisateurs.",
@@ -287,7 +287,7 @@ export default function DashboardPage() {
             }
           }
           setAllUserProfiles(fetchedProfilesArray);
-          console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Successfully set allUserProfiles with ${fetchedProfilesArray.length} project members.`);
+          console.log(`DashboardPage: Successfully fetched members for selected project "${projectData.name}":`, fetchedProfilesArray.map(p => ({id: p.id, name: p.name})));
         } else {
           console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Project "${projectData.name}" has no members. Setting self profile.`);
            if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
@@ -349,7 +349,7 @@ export default function DashboardPage() {
     try {
       const expensesRef = collection(db, "expenses");
       let fetchedExpenses: ExpenseItem[] = [];
-      const CHUNK_SIZE = 30;
+      const CHUNK_SIZE = 30; 
       for (let i = 0; i < projectIdsToQuery.length; i += CHUNK_SIZE) {
         const chunk = projectIdsToQuery.slice(i, i + CHUNK_SIZE);
         if (chunk.length > 0) {
@@ -357,7 +357,7 @@ export default function DashboardPage() {
           const querySnapshot = await getDocs(q);
           querySnapshot.docs.forEach(docSnap => {
              const data = docSnap.data() as ExpenseItem;
-             if (data.paidById && data.amount != null) {
+             if (data.paidById && data.amount != null) { // Ensure paidById and amount are present
                 fetchedExpenses.push({id: docSnap.id, ...data});
              } else {
                 console.warn("Chart: Filtered out expense due to missing paidById or amount:", docSnap.id, data);
@@ -375,7 +375,7 @@ export default function DashboardPage() {
 
       const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmount]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
-        const userName = user?.name || paidById;
+        const userName = user?.name || paidById; 
         console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}. allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
         return { user: userName, Dépenses: totalAmount };
       });
@@ -387,7 +387,7 @@ export default function DashboardPage() {
         const category = expense.category || "Non catégorisé";
         aggregatedExpensesByCategory[category] = (aggregatedExpensesByCategory[category] || 0) + expense.amount;
       });
-      console.log("Chart: Aggregated expenses by category:", aggregatedExpensesByCategory);
+      console.log("Chart: Aggregated expenses by category (tag):", aggregatedExpensesByCategory);
       const formattedCategoryChartData = Object.entries(aggregatedExpensesByCategory).map(([category, totalAmount]) => {
         return { category: category, Dépenses: totalAmount };
       });
@@ -431,7 +431,7 @@ export default function DashboardPage() {
                   p.members.forEach(uid => allMemberUIDs.add(uid));
                 }
               });
-              if (currentUser) allMemberUIDs.add(currentUser.uid); 
+              if (currentUser) allMemberUIDs.add(currentUser.uid); // Ensure current user is included
 
               if (allMemberUIDs.size > 0) {
                 const fetchProfilesForUIDs = async (uids: string[]) => {
@@ -504,7 +504,7 @@ export default function DashboardPage() {
         setIsLoadingExpenseChartData(false);
       }
     }
-  }, [currentUser, selectedProjectId, projects, allUserProfiles, isLoadingProjects, isLoadingUserProfiles, fetchAndProcessExpensesForChart]);
+  }, [currentUser, selectedProjectId, allUserProfiles, isLoadingProjects, isLoadingUserProfiles, fetchAndProcessExpensesForChart]);
 
 
   const handleLogout = async () => {
@@ -579,8 +579,8 @@ export default function DashboardPage() {
     <SidebarProvider defaultOpen>
       <Sidebar className="border-r bg-sidebar text-sidebar-foreground" collapsible="icon">
         <SidebarHeader className="p-4">
-          <Link href="/dashboard" className="block w-full">
-            <Image
+           <Link href="/dashboard" className="block w-full">
+             <Image
               src="https://i.ibb.co/Swfy8wfX/logo-Share-Pot-full.png"
               alt="SharePot Logo"
               width={251} 
@@ -730,7 +730,7 @@ export default function DashboardPage() {
 
           <BalanceSummary
             project={selectedProject}
-            memberProfilesOfProject={allUserProfiles}
+            allUsersProfiles={allUserProfiles} // Pass allUserProfiles here
             isLoadingUserProfiles={isLoadingUserProfiles}
           />
 
@@ -801,5 +801,3 @@ export default function DashboardPage() {
   );
 }
 
-
-    

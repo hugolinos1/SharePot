@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    --background: 240 5% 96%; /* Light grey background */
+    --background: 240 4.8% 95.9%; /* Light grey background */
     --foreground: 240 10% 3.9%; /* Dark gray for text */
 
     --card: 0 0% 100%; /* White cards */
@@ -13,43 +13,42 @@
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
 
-    --primary: 250 65% 55%; /* Vibrant purple for primary elements */
+    --primary: 250 65% 55%; /* Main violet for primary actions */
     --primary-foreground: 0 0% 100%; /* White text on primary elements */
 
     --secondary: 240 4.8% 92.9%; /* Lighter gray for secondary elements */
     --secondary-foreground: 240 5.9% 10%; /* Darker text for secondary */
 
-    --muted: 240 4.8% 95.9%; /* Kept light for subtle backgrounds */
-    --muted-foreground: 240 4% 46%; /* Adjusted for better readability */
+    --muted: 240 4.8% 95.9%; 
+    --muted-foreground: 240 4% 46%;
 
-    --accent: 250 65% 55%; /* Using primary purple as accent */
-    --accent-foreground: 0 0% 100%; /* White text on accent */
+    --accent: 250 65% 60%; /* Slightly lighter violet for accents if needed */
+    --accent-foreground: 0 0% 100%; 
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 240 5.9% 90%; /* Light gray border */
     --input: 0 0% 100%; /* White input background */
-    --ring: 250 65% 55%; /* Primary purple for focus ring */
+    --ring: 250 65% 55%; /* Primary violet for focus ring */
 
     --radius: 0.5rem;
 
-    /* Sidebar specific colors - for a white sidebar as in screenshot */
-    --sidebar-background: 0 0% 100%; /* White sidebar */
-    --sidebar-foreground: 240 10% 20%; /* Darker text for sidebar items for clarity */
-    --sidebar-primary: 250 65% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 5% 95%; /* Very light gray for hover/active items on white sidebar */
-    --sidebar-accent-foreground: 250 65% 55%; /* Purple text on hover/active */
-    --sidebar-border: 240 5.9% 90%; /* Light border for sidebar elements if needed */
-    --sidebar-ring: 250 65% 55%;
+    /* Sidebar specific colors */
+    --sidebar-background: hsl(250, 65%, 55%); /* Specific violet #5b43d7 for sidebar */
+    --sidebar-foreground: hsl(0, 0%, 100%); /* White text for general sidebar items */
+    --sidebar-header-title-color: hsl(0, 0%, 100%); /* White for "SharePot" title */
+    --sidebar-accent: hsl(250, 65%, 50%); /* Darker violet for hover/active items */
+    --sidebar-accent-foreground: hsl(0, 0%, 100%); /* White text on hover/active */
+    --sidebar-border: hsl(250, 65%, 45%); /* Even darker violet for borders */
+    --sidebar-ring: hsl(250, 70%, 75%); /* Lighter violet for focus rings on sidebar */
 
     /* Chart colors */
-    --chart-1: 250 65% 55%; /* Primary purple for charts */
-    --chart-2: 250 55% 65%; /* Lighter purple */
-    --chart-3: 220 70% 50%; /* A contrasting blue if needed */
-    --chart-4: 280 65% 60%; /* Another purple shade */
-    --chart-5: 340 75% 55%; /* A pinkish shade if needed */
+    --chart-1: 250 65% 55%; 
+    --chart-2: 250 55% 65%; 
+    --chart-3: 220 70% 50%; 
+    --chart-4: 280 65% 60%; 
+    --chart-5: 340 75% 55%; 
   }
 
   .dark {
@@ -62,7 +61,7 @@
     --popover: 240 10% 3.9%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 250 60% 65%; /* Slightly lighter purple for dark mode */
+    --primary: 250 60% 65%; 
     --primary-foreground: 240 5.9% 10%;
 
     --secondary: 240 3.7% 15.9%;
@@ -78,20 +77,19 @@
     --destructive-foreground: 0 0% 98%;
 
     --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%; /* Darker input for dark mode */
+    --input: 240 3.7% 15.9%; 
     --ring: 250 60% 65%;
 
     /* Sidebar specific colors for dark mode */
-    --sidebar-background: 240 8% 12%; /* Dark sidebar background */
-    --sidebar-foreground: 0 0% 98%;  /* Light text on dark sidebar */
-    --sidebar-primary: 250 60% 65%;
-    --sidebar-primary-foreground: 240 5.9% 10%;
-    --sidebar-accent: 240 5% 20%; /* Dark accent for hover/active on dark sidebar */
-    --sidebar-accent-foreground: 250 60% 65%; /* Lighter purple text on hover/active */
-    --sidebar-border: 240 3.7% 20%;
-    --sidebar-ring: 250 60% 65%;
+    --sidebar-background: hsl(250, 65%, 55%); /* Specific violet #5b43d7 for sidebar also in dark mode if desired, or change to a dark theme */
+    --sidebar-foreground: hsl(0, 0%, 100%);  
+    --sidebar-header-title-color: hsl(0, 0%, 100%);
+    --sidebar-accent: hsl(250, 65%, 65%); 
+    --sidebar-accent-foreground: hsl(0, 0%, 100%);
+    --sidebar-border: hsl(250, 65%, 50%);
+    --sidebar-ring: hsl(250, 60% 70%);
 
-    /* Chart colors for dark mode - can be same as light or adjusted */
+    /* Chart colors for dark mode */
     --chart-1: 250 60% 65%;
     --chart-2: 250 50% 75%;
     --chart-3: 220 70% 60%;
@@ -114,5 +112,5 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0,0,0,0.03);
 }
 .card {
- @apply rounded-xl; /* More rounded cards like screenshot */
+ @apply rounded-xl; 
 }
