@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { User } from '@/data/mock-data'; 
+import type { User } from '@/data/mock-data';
 import {
   Table,
   TableBody,
@@ -29,13 +29,25 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Input } from '@/components/ui/input';
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, type DocumentData } from 'firebase/firestore';
+import { collection, getDocs, query, where, type DocumentData, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -50,7 +62,7 @@ import {
 interface UserProject {
   id: string;
   name: string;
-  members: string[]; 
+  members: string[];
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
@@ -87,12 +99,22 @@ export default function UsersPage() {
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [projects, setProjects] = useState<UserProject[]>([]);
-    
+
     const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-    const [isLoadingProjects, setIsLoadingProjects] = useState(true); 
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
     const [selectedUserForModal, setSelectedUserForModal] = useState<User | null>(null);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+    const [userToEdit, setUserToEdit] = useState<User | null>(null);
+    const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
+    const [newIsAdminStatus, setNewIsAdminStatus] = useState(false);
+    const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+
+    const [userToDelete, setUserToDelete] = useState<User | null>(null);
+    const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
+    const [isDeletingUser, setIsDeletingUser] = useState(false);
+
 
     useEffect(() => {
         if (!authLoading && !currentUser) {
@@ -118,7 +140,7 @@ export default function UsersPage() {
           id: docSnap.id,
           ...docSnap.data(),
         } as User));
-        console.log('Fetched usersList:', usersList); 
+        console.log('Fetched usersList:', usersList);
         setAllUsers(usersList);
       } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs: ", error);
@@ -143,7 +165,7 @@ export default function UsersPage() {
           return {
             id: docSnap.id,
             name: data.name || "Projet sans nom",
-            members: data.members || [], 
+            members: data.members || [],
           } as UserProject;
         });
         setProjects(projectsList);
@@ -158,11 +180,11 @@ export default function UsersPage() {
         setIsLoadingProjects(false);
       }
     }, [isAdmin, toast]);
-  
+
     useEffect(() => {
       if (isAdmin) {
         fetchAllUsers();
-        fetchProjectsForUsers(); 
+        fetchProjectsForUsers();
       }
     }, [isAdmin, fetchAllUsers, fetchProjectsForUsers]);
 
@@ -180,13 +202,82 @@ export default function UsersPage() {
         if (isLoadingProjects || !projects) return [];
         return projects.filter(project => project.members && Array.isArray(project.members) && project.members.includes(userIdToCheck));
     }, [projects, isLoadingProjects]);
-    
-    const handleUserAction = (actionType: 'edit' | 'delete', userId: string) => {
-        toast({
-            title: "Fonctionnalité en cours de développement",
-            description: `L'action de "${actionType}" pour l'utilisateur ${userId} n'est pas encore connectée à Firestore.`,
-        });
+
+    const handleOpenEditModal = (user: User) => {
+      setUserToEdit(user);
+      setNewIsAdminStatus(user.isAdmin);
+      setIsEditUserModalOpen(true);
     };
+
+    const handleUpdateUserAdminStatus = async () => {
+      if (!userToEdit || !isAdmin) return;
+      setIsUpdatingUser(true);
+      try {
+        const userDocRef = doc(db, "users", userToEdit.id);
+        await updateDoc(userDocRef, {
+          isAdmin: newIsAdminStatus
+        });
+        toast({
+          title: "Statut mis à jour",
+          description: `Le statut de ${userToEdit.name} a été modifié.`,
+        });
+        setAllUsers(prevUsers => prevUsers.map(u => u.id === userToEdit.id ? { ...u, isAdmin: newIsAdminStatus } : u));
+        setIsEditUserModalOpen(false);
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour du statut admin:", error);
+        toast({
+          title: "Erreur de mise à jour",
+          description: "Impossible de modifier le statut de l'utilisateur.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUpdatingUser(false);
+      }
+    };
+
+    const handleOpenDeleteModal = (user: User) => {
+      setUserToDelete(user);
+      setIsDeleteConfirmModalOpen(true);
+    };
+
+    const handleDeleteUser = async () => {
+      if (!userToDelete || !isAdmin) return;
+      // Prevent admin from deleting themselves from this interface
+      if (currentUser && userToDelete.id === currentUser.uid) {
+        toast({
+          title: "Action non autorisée",
+          description: "Vous ne pouvez pas supprimer votre propre compte administrateur depuis cette interface.",
+          variant: "destructive",
+        });
+        setIsDeleteConfirmModalOpen(false);
+        return;
+      }
+
+      setIsDeletingUser(true);
+      try {
+        // ONLY delete Firestore document. Auth user deletion requires Admin SDK.
+        await deleteDoc(doc(db, "users", userToDelete.id));
+        toast({
+          title: "Document utilisateur supprimé (Firestore)",
+          description: `Le document de ${userToDelete.name} a été supprimé de Firestore. Le compte d'authentification Firebase de l'utilisateur existe toujours.`,
+          variant: "default",
+          duration: 7000,
+        });
+        console.warn(`User document for ${userToDelete.email} (UID: ${userToDelete.id}) deleted from Firestore. Firebase Auth user NOT DELETED.`);
+        setAllUsers(prevUsers => prevUsers.filter(u => u.id !== userToDelete.id));
+        setIsDeleteConfirmModalOpen(false);
+      } catch (error) {
+        console.error("Erreur lors de la suppression du document utilisateur Firestore:", error);
+        toast({
+          title: "Erreur de suppression",
+          description: "Impossible de supprimer le document utilisateur de Firestore.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsDeletingUser(false);
+      }
+    };
+
 
     const handleOpenProfileModal = (user: User) => {
         setSelectedUserForModal(user);
@@ -212,8 +303,8 @@ export default function UsersPage() {
           </div>
         );
     }
-    
-    if (!isAdmin) { 
+
+    if (!isAdmin) {
          return (
             <div className="container mx-auto py-10 text-center">
                  <p className="text-2xl font-semibold mb-4">Accès non autorisé</p>
@@ -321,17 +412,17 @@ export default function UsersPage() {
                             </TableRow>
                             )}
                             {!isLoadingUsers && !isLoadingProjects && filteredUsers.map((user) => {
-                            const userProjectsList = getProjectsForSpecificUser(user.id); 
+                            const userProjectsList = getProjectsForSpecificUser(user.id);
                             return (
                                 <TableRow key={user.id}>
                                 <TableCell>
-                                    <button 
+                                    <button
                                         onClick={() => handleOpenProfileModal(user)}
                                         className="flex items-center gap-3 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-primary rounded-md p-1 -m-1"
                                     >
                                         <Avatar>
-                                            <AvatarImage src={user.avatarUrl} alt={user.name || user.email} data-ai-hint="user avatar placeholder"/>
-                                            <AvatarFallback>{getAvatarFallbackText(user.name || user.email)}</AvatarFallback>
+                                            <AvatarImage src={user.avatarUrl} alt={user.name || user.email || "Utilisateur"} data-ai-hint="user avatar placeholder"/>
+                                            <AvatarFallback>{getAvatarFallbackText(user.name, user.email)}</AvatarFallback>
                                         </Avatar>
                                         <span className="font-medium">{user.name || 'Utilisateur sans nom'}</span>
                                     </button>
@@ -352,11 +443,11 @@ export default function UsersPage() {
                                     )}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleUserAction('edit', user.id)}>
+                                <Button variant="ghost" size="sm" className="mr-1 h-8 w-8" onClick={() => handleOpenEditModal(user)}>
                                     <Icons.edit className="h-4 w-4" />
                                     <span className="sr-only">Modifier</span>
                                 </Button>
-                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleUserAction('delete', user.id)}>
+                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleOpenDeleteModal(user)}>
                                     <Icons.trash className="h-4 w-4" />
                                     <span className="sr-only">Supprimer</span>
                                 </Button>
@@ -377,13 +468,14 @@ export default function UsersPage() {
                 </CardContent>
             </Card>
 
+            {/* User Profile Details Modal */}
             {selectedUserForModal && (
                 <Dialog open={isProfileModalOpen} onOpenChange={setIsProfileModalOpen}>
                     <DialogContent className="sm:max-w-lg">
                         <DialogHeader className="items-center text-center pt-4">
                             <Avatar className="h-24 w-24 mb-3 ring-2 ring-primary ring-offset-2 ring-offset-background">
-                                <AvatarImage src={selectedUserForModal.avatarUrl} alt={selectedUserForModal.name || selectedUserForModal.email} data-ai-hint="user avatar large"/>
-                                <AvatarFallback className="text-3xl">{getAvatarFallbackText(selectedUserForModal.name || selectedUserForModal.email)}</AvatarFallback>
+                                <AvatarImage src={selectedUserForModal.avatarUrl} alt={selectedUserForModal.name || selectedUserForModal.email || "Avatar"} data-ai-hint="user avatar large"/>
+                                <AvatarFallback className="text-3xl">{getAvatarFallbackText(selectedUserForModal.name, selectedUserForModal.email)}</AvatarFallback>
                             </Avatar>
                             <DialogTitle className="text-2xl">{selectedUserForModal.name || 'Utilisateur sans nom'}</DialogTitle>
                             <DialogDescription>{selectedUserForModal.email}</DialogDescription>
@@ -400,7 +492,7 @@ export default function UsersPage() {
                                 {isLoadingProjects ? (
                                      <p className="text-sm text-muted-foreground">Chargement des projets...</p>
                                 ) : (
-                                    getProjectsForSpecificUser(selectedUserForModal.id).length > 0 ? ( 
+                                    getProjectsForSpecificUser(selectedUserForModal.id).length > 0 ? (
                                         <ul className="list-disc list-inside space-y-1 text-sm text-foreground max-h-32 overflow-y-auto">
                                             {getProjectsForSpecificUser(selectedUserForModal.id).map(proj => (
                                                 <li key={proj.id}>{proj.name}</li>
@@ -420,8 +512,78 @@ export default function UsersPage() {
                     </DialogContent>
                 </Dialog>
             )}
+
+            {/* Edit User Modal */}
+            {userToEdit && (
+              <Dialog open={isEditUserModalOpen} onOpenChange={setIsEditUserModalOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Modifier le statut de {userToEdit.name}</DialogTitle>
+                    <DialogDescription>
+                      Activez ou désactivez les droits d'administrateur pour cet utilisateur.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="py-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="isAdmin-switch"
+                        checked={newIsAdminStatus}
+                        onCheckedChange={setNewIsAdminStatus}
+                        disabled={isUpdatingUser || (currentUser?.id === userToEdit.id)}
+                      />
+                      <Label htmlFor="isAdmin-switch">Administrateur</Label>
+                    </div>
+                    {currentUser?.id === userToEdit.id && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Vous ne pouvez pas modifier votre propre statut administrateur.
+                        </p>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button type="button" variant="outline" disabled={isUpdatingUser}>
+                        Annuler
+                      </Button>
+                    </DialogClose>
+                    <Button type="button" onClick={handleUpdateUserAdminStatus} disabled={isUpdatingUser || (currentUser?.id === userToEdit.id)}>
+                      {isUpdatingUser && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                      Enregistrer
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+
+            {/* Delete User Confirmation Modal */}
+            {userToDelete && (
+              <AlertDialog open={isDeleteConfirmModalOpen} onOpenChange={setIsDeleteConfirmModalOpen}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Êtes-vous sûr de vouloir supprimer le document Firestore de l'utilisateur "{userToDelete.name}" ?
+                      <br />
+                      <span className="font-semibold text-destructive mt-2 block">
+                        Attention : Cette action ne supprime PAS le compte d'authentification Firebase de l'utilisateur.
+                        Elle supprime uniquement son profil de la base de données Firestore.
+                        Des données orphelines peuvent subsister.
+                      </span>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setIsDeleteConfirmModalOpen(false)} disabled={isDeletingUser}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteUser} disabled={isDeletingUser || (currentUser?.id === userToDelete.id)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                      {isDeletingUser ? <Icons.loader className="mr-2 h-4 w-4 animate-spin" /> : <Icons.trash className="mr-2 h-4 w-4" />}
+                      Supprimer le document
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
         </div>
     </div>
     );
 }
 
+
+      
