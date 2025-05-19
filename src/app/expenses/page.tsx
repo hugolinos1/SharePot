@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-// Image import removed
+import Image from 'next/image'; // Import Image from next/image
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Dialog imports for receipt removed
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -56,8 +56,9 @@ export interface ExpenseItem {
   expenseDate: Timestamp;
   amount: number;
   currency: string;
-  tags: string[];
-  // receiptUrl and receiptStoragePath removed
+  category?: string; // Changed from tags: string[]
+  // receiptUrl?: string; // Feature removed
+  // receiptStoragePath?: string; // Feature removed
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
@@ -110,7 +111,8 @@ export default function ExpensesPage() {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
-  // States for receipt modal removed
+  // const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false); // Feature removed
+  // const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null); // Feature removed
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
@@ -261,7 +263,7 @@ export default function ExpensesPage() {
         expense.title.toLowerCase().includes(lowerCaseSearch) ||
         (expense.projectName && expense.projectName.toLowerCase().includes(lowerCaseSearch)) ||
         (expense.paidByName && expense.paidByName.toLowerCase().includes(lowerCaseSearch)) ||
-        expense.tags.some(tag => tag.toLowerCase().includes(lowerCaseSearch)) ||
+        (expense.category && expense.category.toLowerCase().includes(lowerCaseSearch)) || // Changed to category
         expense.amount.toString().includes(lowerCaseSearch)
       );
     }
@@ -286,9 +288,11 @@ export default function ExpensesPage() {
         const projectData = projectDoc.data() as Project;
         const newTotalExpenses = (projectData.totalExpenses || 0) - expenseToDelete.amount;
 
-        const updatedRecentExpenses = (projectData.recentExpenses || []).filter(
-          (expSummary) => expSummary.id !== expenseToDelete.id
-        ).sort((a,b) => b.date.toMillis() - a.date.toMillis()).slice(0,5);
+        const existingRecentExpenses = projectData.recentExpenses || [];
+        const updatedRecentExpenses = existingRecentExpenses
+          .filter((expSummary) => expSummary.id !== expenseToDelete.id)
+          .sort((a,b) => b.date.toMillis() - a.date.toMillis())
+          .slice(0,5);
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
@@ -325,6 +329,10 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
+  // const openReceiptModal = (receiptUrl: string) => { // Feature removed
+  //   setSelectedReceiptUrl(receiptUrl);
+  //   setIsReceiptModalOpen(true);
+  // };
 
   const handleLogout = async () => {
     try {
@@ -456,7 +464,7 @@ export default function ExpensesPage() {
                   <TableHead>Payé par</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
-                  <TableHead>Tags</TableHead>
+                  <TableHead>Catégorie</TableHead> {/* Changed from Tags */}
                   {/* Justificatif column removed */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -482,11 +490,9 @@ export default function ExpensesPage() {
                         {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {expense.tags.map(tag => (
-                          <Badge key={tag} variant="secondary" className="text-xs px-1.5 py-0.5">{tag}</Badge>
-                        ))}
-                      </div>
+                      {expense.category && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0.5">{expense.category}</Badge>
+                      )}
                     </TableCell>
                     {/* Receipt cell removed */}
                     <TableCell className="text-right">
@@ -538,5 +544,7 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+    
 
     
