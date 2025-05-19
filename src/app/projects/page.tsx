@@ -2,8 +2,12 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -45,6 +49,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
@@ -71,18 +76,27 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
   return '??';
 };
 
-const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
+const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined | Date): string => {
   if (!timestamp) return 'N/A';
-  if (typeof timestamp === 'string') {
+  let dateToFormat: Date;
+  if (timestamp instanceof Date) {
+    dateToFormat = timestamp;
+  } else if (typeof timestamp === 'string') {
     try {
-      return format(new Date(timestamp), 'PP', { locale: fr });
+      dateToFormat = new Date(timestamp);
     } catch (e) { return 'Date invalide'; }
+  } else if (timestamp instanceof Timestamp) {
+    dateToFormat = timestamp.toDate();
+  } else {
+    return 'Date invalide';
   }
-  if (timestamp instanceof Timestamp) {
-    return format(timestamp.toDate(), 'PP', { locale: fr });
-  }
-  return 'Date invalide';
+  return format(dateToFormat, 'PP', { locale: fr });
 };
+
+const inviteMemberFormSchema = z.object({
+  email: z.string().email({ message: "Veuillez entrer une adresse e-mail valide." }),
+});
+type InviteMemberFormValues = z.infer<typeof inviteMemberFormSchema>;
 
 
 export default function ProjectsPage() {
@@ -91,7 +105,7 @@ export default function ProjectsPage() {
   const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
 
   const [projects, setProjects] = useState<ProjectType[]>([]);
-  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoading, setIsLoading] = useState(true);
   const [isFetchingProjects, setIsFetchingProjects] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
@@ -111,6 +125,15 @@ export default function ProjectsPage() {
   const [isAddMemberDialogOpen, setIsAddMemberDialogOpen] = useState(false);
   const [usersToAddToProject, setUsersToAddToProject] = useState<string[]>([]);
   const [availableUsersForProject, setAvailableUsersForProject] = useState<AppUserType[]>([]);
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
+
+
+  const inviteMemberForm = useForm<InviteMemberFormValues>({
+    resolver: zodResolver(inviteMemberFormSchema),
+    defaultValues: {
+      email: "",
+    },
+  });
 
 
   useEffect(() => {
@@ -126,30 +149,36 @@ export default function ProjectsPage() {
       setAllUserProfiles([]);
       return;
     }
-    // Allow all authenticated users to fetch all profiles for the add member dialog
-    console.log("ProjectsPage: fetchAllUserProfiles - Fetching ALL user profiles.");
-    setIsLoadingAllUserProfiles(true);
-    try {
-      const usersCollectionRef = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      const usersList = usersSnapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      } as AppUserType));
-      setAllUserProfiles(usersList);
-      console.log("ProjectsPage: fetchAllUserProfiles - Successfully fetched profiles:", usersList.length);
-    } catch (error: any) {
-      console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code);
-      toast({
-        title: "Erreur de chargement (Utilisateurs)",
-        description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
-        variant: "destructive",
-      });
-      setAllUserProfiles([]); 
-    } finally {
-      setIsLoadingAllUserProfiles(false);
+
+    if (isAdmin) {
+      console.log("ProjectsPage: useEffect (User Profiles) - Admin is fetching ALL user profiles for add member dialog.");
+      setIsLoadingAllUserProfiles(true);
+      try {
+        const usersCollectionRef = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        const usersList = usersSnapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as AppUserType));
+        setAllUserProfiles(usersList);
+        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
+      } catch (error: any) {
+        console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
+        toast({
+          title: "Erreur de chargement (Utilisateurs)",
+          description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
+          variant: "destructive",
+        });
+        setAllUserProfiles([]);
+      } finally {
+        setIsLoadingAllUserProfiles(false);
+      }
+    } else {
+       console.log("ProjectsPage: useEffect (User Profiles) - Non-admin, allUserProfiles will be empty for now (specific members fetched for modal).");
+       setAllUserProfiles([]);
+       setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, isAdmin, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -191,22 +220,22 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); 
+      setIsLoading(false);
     }
   }, [currentUser, toast]);
 
   useEffect(() => {
     console.log("ProjectsPage: useEffect (core data) - currentUser:", !!currentUser, "isAdmin from context:", isAdmin);
     if (currentUser) {
-      console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects and all user profiles.");
+      console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects and potentially all user profiles (if admin).");
       fetchProjects();
-      fetchAllUserProfiles(); 
+      fetchAllUserProfiles();
     } else {
       console.log("ProjectsPage: useEffect (core data) - currentUser is null, cannot fetch data.");
-      setAllUserProfiles([]); 
-      setIsLoadingAllUserProfiles(true); 
+      setAllUserProfiles([]);
+      setIsLoadingAllUserProfiles(true);
     }
-  }, [currentUser, fetchProjects, fetchAllUserProfiles]);
+  }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
 
 
   const handleViewProjectDetails = async (project: ProjectType) => {
@@ -234,7 +263,8 @@ export default function ProjectsPage() {
             fetchedProfilesArray.push(profileData);
           } else {
             console.warn(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} DOES NOT EXIST in 'users' collection. Will use fallback.`);
-            fetchedProfilesArray.push({ id: uid, name: uid.substring(0,6)+"...", email: "N/A", isAdmin: false, avatarUrl: '' });
+            // Fallback: Utiliser un objet partiel si le profil n'est pas trouvé
+            fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "N/A", isAdmin: false, avatarUrl: '' });
           }
         }
         setProjectModalMemberProfiles(fetchedProfilesArray);
@@ -246,7 +276,7 @@ export default function ProjectsPage() {
           description: `Impossible de charger les détails des membres du projet. Erreur: ${error.message}`,
           variant: "destructive",
         });
-        setProjectModalMemberProfiles([]);
+        setProjectModalMemberProfiles([]); // Réinitialiser en cas d'erreur
       } finally {
         setIsLoadingProjectModalMemberProfiles(false);
       }
@@ -262,6 +292,7 @@ export default function ProjectsPage() {
     setEditingBudget(false);
     setEditingNotes(false);
     setProjectModalMemberProfiles([]);
+    inviteMemberForm.reset(); // Réinitialiser le formulaire d'invitation
   };
 
   const handleSaveBudget = async () => {
@@ -353,8 +384,12 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    const profile = allUserProfiles.find(p => p.id === uid);
-    if (!profile && !isLoadingAllUserProfiles) console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found in allUserProfiles.`);
+    // Utilise la liste des membres du projet actuellement dans la modale si disponible, sinon la liste globale (pour les admins)
+    const profilesToSearch = projectModalMemberProfiles.length > 0 ? projectModalMemberProfiles : allUserProfiles;
+    const profile = profilesToSearch.find(p => p.id === uid);
+    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) {
+        console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found. projectModalMemberProfiles count: ${projectModalMemberProfiles.length}, allUserProfiles count: ${allUserProfiles.length}`);
+    }
     return profile;
   };
 
@@ -367,17 +402,15 @@ export default function ProjectsPage() {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-    
-    if (allUserProfiles.length === 0 && !isLoadingAllUserProfiles) { 
-        console.log("ProjectsPage (handleOpenAddMemberDialog): allUserProfiles is empty, attempting to fetch all for dialog.");
-        await fetchAllUserProfiles(); 
+    // S'assurer que allUserProfiles est chargé (surtout si l'utilisateur est admin)
+    if (isAdmin && allUserProfiles.length === 0 && !isLoadingAllUserProfiles) {
+        console.log("ProjectsPage (handleOpenAddMemberDialog): Admin, allUserProfiles is empty, attempting to fetch all for dialog.");
+        await fetchAllUserProfiles();
     }
-    
+    // Après le fetch (ou si non-admin, on utilise la liste potentiellement vide et on compte sur la recherche Firestore si besoin)
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
     setAvailableUsersForProject(available);
-    
-
     setUsersToAddToProject([]);
     setIsAddMemberDialogOpen(true);
   };
@@ -408,6 +441,7 @@ export default function ProjectsPage() {
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
 
+      // Mettre à jour projectModalMemberProfiles
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
@@ -415,7 +449,8 @@ export default function ProjectsPage() {
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
-            newModalProfiles.push({ id: uid, name: uid.substring(0,6)+"...", email: "N/A", isAdmin: false, avatarUrl: '' });
+            // Fallback si le profil n'est pas trouvé (ne devrait pas arriver si l'utilisateur existe)
+            newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}...`, email: "N/A", isAdmin: false, avatarUrl: '' });
           }
       }
       setProjectModalMemberProfiles(newModalProfiles);
@@ -430,6 +465,34 @@ export default function ProjectsPage() {
       setIsLoading(false);
     }
   };
+
+  const onInviteMemberSubmit = async (values: InviteMemberFormValues) => {
+    if (!selectedProject || !currentUser) {
+      toast({ title: "Erreur", description: "Projet non sélectionné ou utilisateur non connecté.", variant: "destructive" });
+      return;
+    }
+    if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
+      toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut inviter des membres.", variant: "destructive" });
+      return;
+    }
+
+    setIsSendingInvite(true);
+    console.log(`[ProjectsPage] Simulating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
+    // TODO: Implémenter la logique d'envoi d'e-mail via un backend/Firebase Function.
+    // L'e-mail devrait contenir un lien d'invitation unique avec le projectId.
+    // Exemple de données à envoyer au backend : { email: values.email, projectId: selectedProject.id, inviterName: userProfile?.name || currentUser.email }
+
+    // Simulation
+    setTimeout(() => {
+      toast({
+        title: "Invitation (simulée) envoyée",
+        description: `Une invitation (simulée) a été envoyée à ${values.email} pour rejoindre le projet "${selectedProject.name}".`,
+      });
+      setIsSendingInvite(false);
+      inviteMemberForm.reset();
+    }, 1500);
+  };
+
 
   const handleLogout = async () => {
     try {
@@ -451,7 +514,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="bg-background min-h-screen">
+    <div className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
           <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
              <Icons.dollarSign className="mr-2 h-7 w-7"/>
@@ -491,7 +554,7 @@ export default function ProjectsPage() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
+      <main className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex-grow">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
             <h2 className="text-3xl font-bold">Gestion des Projets</h2>
@@ -528,7 +591,7 @@ export default function ProjectsPage() {
             {projects.map((project) => {
               const displayableMemberProfilesOnCard = project.members.map(uid => {
                 const profile = getAnyUserProfileById(uid);
-                return profile || ({ id: uid, name: uid.substring(0,6)+"..." , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
+                return profile || ({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
               }).filter(Boolean) as AppUserType[];
 
               return (
@@ -731,11 +794,50 @@ export default function ProjectsPage() {
                     )}
                      {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                        <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isLoading || isLoadingAllUserProfiles }>
-                           <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre
+                           <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre existant
                        </Button>
                      )}
                   </CardContent>
                 </Card>
+
+                 {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Inviter un nouveau membre</CardTitle>
+                      <CardDescription>
+                        Envoyer une invitation par e-mail à une personne qui n'a pas encore de compte.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Form {...inviteMemberForm}>
+                        <form onSubmit={inviteMemberForm.handleSubmit(onInviteMemberSubmit)} className="space-y-4">
+                          <FormField
+                            control={inviteMemberForm.control}
+                            name="email"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Adresse e-mail</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="exemple@email.com" {...field} data-ai-hint="invite email input"/>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <Button type="submit" className="w-full" disabled={isSendingInvite}>
+                            {isSendingInvite ? (
+                              <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Icons.mail className="mr-2 h-4 w-4" />
+                            )}
+                            Envoyer l'invitation (simulée)
+                          </Button>
+                        </form>
+                      </Form>
+                    </CardContent>
+                  </Card>
+                )}
+
 
                 <Card>
                   <CardHeader>
@@ -790,18 +892,21 @@ export default function ProjectsPage() {
                 </div>
             </div>
             <DialogFooter className="border-t pt-4 flex flex-col sm:flex-row sm:justify-between">
-              <Button
-                variant="outline"
-                onClick={() => router.push(`/expenses/new?projectId=${selectedProject.id}`)}
-                disabled={isLoading}
-              >
-                <Icons.plusSquare className="mr-2 h-4 w-4" />
-                Ajouter une dépense
-              </Button>
+               <div>
+                 <Button
+                    variant="default"
+                    onClick={() => router.push(`/expenses/new?projectId=${selectedProject.id}`)}
+                    disabled={isLoading}
+                    className="w-full sm:w-auto"
+                  >
+                    <Icons.plusSquare className="mr-2 h-4 w-4" />
+                    Ajouter une dépense à ce projet
+                  </Button>
+               </div>
               <div className="flex flex-col sm:flex-row gap-2 mt-2 sm:mt-0">
                 {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
                   <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
-                    <Icons.trash className="mr-2 h-4 w-4" /> Supprimer
+                    <Icons.trash className="mr-2 h-4 w-4" /> Supprimer le Projet
                   </Button>
                 )}
                 <DialogClose asChild>
@@ -819,6 +924,7 @@ export default function ProjectsPage() {
                     <DialogTitle>Confirmer la suppression</DialogTitle>
                     <DialogDescription>
                         Êtes-vous sûr de vouloir supprimer le projet "{selectedProject?.name}"? Cette action est irréversible.
+                         Les dépenses associées à ce projet ne seront pas supprimées mais pourraient devenir orphelines.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
@@ -834,7 +940,7 @@ export default function ProjectsPage() {
         <Dialog open={isAddMemberDialogOpen} onOpenChange={setIsAddMemberDialogOpen}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Ajouter des membres au projet "{selectedProject?.name}"</DialogTitle>
+                    <DialogTitle>Ajouter des membres existants au projet "{selectedProject?.name}"</DialogTitle>
                     <DialogDescription>
                         Sélectionnez les utilisateurs à ajouter à ce projet.
                     </DialogDescription>
@@ -884,4 +990,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
