@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -199,10 +200,12 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className="w-[--sidebar-width] p-0 [&>button]:hidden" // Removed bg-sidebar and text-sidebar-foreground
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+                backgroundColor: "#5b43d7", // Direct style for background
+                color: "white", // Direct style for text color
               } as React.CSSProperties
             }
             side={side}
@@ -216,11 +219,12 @@ const Sidebar = React.forwardRef<
     return (
       <div
         ref={ref}
-        className="group peer hidden md:block text-sidebar-foreground"
+        className={cn("group peer hidden md:block", className)} // Removed text-sidebar-foreground here, should be applied via style or direct class on the inner div
         data-state={state}
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-variant={variant}
         data-side={side}
+        {...props} // Spread props here for the outer div
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div
@@ -242,10 +246,10 @@ const Sidebar = React.forwardRef<
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
-            className
+              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l"
+            // className prop for this inner div is removed as it was on the outer div from the parent component
           )}
-          {...props}
+          // {...props} // Props were moved to the outer div
         >
           <div
             data-sidebar="sidebar"
@@ -472,19 +476,6 @@ const SidebarGroupAction = React.forwardRef<
   )
 })
 SidebarGroupAction.displayName = "SidebarGroupAction"
-
-const SidebarGroupContent = React.forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<"div">
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    data-sidebar="group-content"
-    className={cn("w-full text-sm", className)}
-    {...props}
-  />
-))
-SidebarGroupContent.displayName = "SidebarGroupContent"
 
 const SidebarMenu = React.forwardRef<
   HTMLUListElement,
@@ -741,8 +732,8 @@ export {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  // SidebarGroupContent, // This component was defined but not exported and seemed unused.
   SidebarGroupAction,
-  SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
   SidebarInput,
