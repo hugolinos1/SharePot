@@ -1,3 +1,4 @@
+
 // src/app/api/extract-invoice-data/route.ts
 import {NextRequest, NextResponse} from 'next/server';
 import {GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, Part} from '@google/generative-ai';
@@ -130,3 +131,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({error: `Erreur serveur lors de l'analyse: ${error.message || 'Erreur inconnue'}`}, {status: 500});
   }
 }
+
+    

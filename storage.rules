@@ -4,58 +4,102 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Règles pour les justificatifs de dépenses sont commentées car la fonctionnalité est supprimée
-    /*
-    match /receipts/{projectId}/{expenseId}/{fileName} {
-      allow create: if request.auth != null &&
-                       request.resource.size < 5 * 1024 * 1024 &&
-                       request.resource.contentType.matches('image/.*') &&
-                       (
-                         exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                         (
-                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-                           request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
-                         )
-                       );
+    // Helper function to check if the user is a participant (member or owner) of a project
+    // This function is now only used for /avatars if needed, but not for /receipts
+    // function isProjectParticipant(projectId) {
+    //   let projectPath = /databases/$(database)/documents/projects/$(projectId);
+    //   return exists(projectPath) &&
+    //          projectData.members != null && // Ensure members field exists
+    //          projectData.members is list && // Ensure members is a list
+    //          (
+    //            request.auth.uid == get(projectPath).data.ownerId ||
+    //            request.auth.uid in get(projectPath).data.members
+    //          );
+    // }
 
-      allow read: if request.auth != null &&
-                     (
-                       exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                       (
-                         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
-                         request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
-                       )
-                     );
+    // // Règles pour les justificatifs de dépenses (COMMENTED OUT)
+    // // Chemin: receipts/{projectId}/{expenseId}/{fileName}
+    // match /receipts/{projectId}/{expenseId}/{fileName} {
+    //   // Autoriser la création (téléversement) si :
+    //   // 1. L'utilisateur est authentifié.
+    //   // 2. La taille du fichier est inférieure à 5 Mo.
+    //   // 3. Le type de contenu est une image.
+    //   // 4. L'utilisateur est propriétaire ou membre du projet (vérifié via Firestore).
+    //   allow create: if request.auth != null &&
+    //                    request.resource.size < 5 * 1024 * 1024 &&
+    //                    request.resource.contentType.matches('image/.*') &&
+    //                    ( // Inlined isProjectParticipant logic with null checks
+    //                      exists(/databases/$(database)/documents/projects/$(projectId)) &&
+    //                      get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId != null &&
+    //                      get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
+    //                      get(/databases/$(database)/documents/projects/$(projectId)).data.members is list &&
+    //                      (
+    //                        request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+    //                        request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+    //                      )
+    //                    );
 
-      allow delete: if request.auth != null &&
-                       exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
-                       get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
-                       (
-                         request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
-                         (
-                           exists(/databases/$(database)/documents/projects/$(projectId)) &&
-                           request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
-                         )
-                       );
-      allow update: if false;
-    }
-    */
+    //   // Autoriser la lecture si :
+    //   // 1. L'utilisateur est authentifié.
+    //   // 2. L'utilisateur est propriétaire ou membre du projet.
+    //   allow read: if request.auth != null &&
+    //                  ( // Inlined isProjectParticipant logic with null checks
+    //                    exists(/databases/$(database)/documents/projects/$(projectId)) &&
+    //                    get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId != null &&
+    //                    get(/databases/$(database)/documents/projects/$(projectId)).data.members != null &&
+    //                    get(/databases/$(database)/documents/projects/$(projectId)).data.members is list &&
+    //                    (
+    //                      request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId ||
+    //                      request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+    //                    )
+    //                  );
+
+    //   // Autoriser la suppression si :
+    //   // 1. L'utilisateur est authentifié.
+    //   // 2. Le document de la dépense correspondante existe et appartient bien au projet.
+    //   // 3. L'utilisateur est le créateur de la dépense OU le propriétaire du projet.
+    //   allow delete: if request.auth != null &&
+    //                    exists(/databases/$(database)/documents/expenses/$(expenseId)) &&
+    //                    get(/databases/$(database)/documents/expenses/$(expenseId)).data.projectId == projectId &&
+    //                    (
+    //                      request.auth.uid == get(/databases/$(database)/documents/expenses/$(expenseId)).data.createdBy ||
+    //                      (
+    //                        exists(/databases/$(database)/documents/projects/$(projectId)) &&
+    //                        request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+    //                      )
+    //                    );
+    //   // Les mises à jour sont généralement gérées par une suppression puis une nouvelle création.
+    //   allow update: if false;
+    // }
 
     // Règles pour les avatars des utilisateurs
+    // Chemin: avatars/{userId}/{fileName}
     match /avatars/{userId}/{fileName} {
-      allow read: if true; // Avatars are public
+      // Autoriser la lecture par tout le monde (les avatars sont souvent publics).
+      allow read: if true;
 
+      // Autoriser l'écriture (téléversement/modification) si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin (l'utilisateur ne peut modifier que son propre avatar).
+      // 3. La taille du fichier est inférieure à 2 Mo.
+      // 4. Le type de contenu est une image.
       allow write: if request.auth != null &&
                       request.auth.uid == userId &&
-                      request.resource.size < 2 * 1024 * 1024 && // Max 2MB
+                      request.resource.size < 2 * 1024 * 1024 &&
                       request.resource.contentType.matches('image/.*');
 
+      // Autoriser la suppression si :
+      // 1. L'utilisateur est authentifié.
+      // 2. L'UID de l'utilisateur correspond au {userId} dans le chemin.
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
     // Règle par défaut : refuser toutes les autres opérations sur tous les autres chemins.
+    // Sauf si un chemin plus spécifique ci-dessus l'autorise.
     match /{allPaths=**} {
       allow read, write: if false;
     }
   }
 }
+
+    

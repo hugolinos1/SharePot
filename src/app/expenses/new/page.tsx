@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -39,8 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
-import { db, storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db } from '@/lib/firebase'; // storage import removed
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -70,7 +69,7 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional(),
-  receipt: z.instanceof(File).optional(),
+  // receipt field removed
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -106,13 +105,11 @@ export default function NewExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
-  const searchParams = useSearchParams();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [isProjectSelectDisabled, setIsProjectSelectDisabled] = useState(false);
 
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
@@ -131,14 +128,14 @@ export default function NewExpensePage() {
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number, 
+      amount: undefined, // Changed from '' as unknown as number to undefined for better handling
       currency: 'EUR',
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
       tags: '',
       invoiceForAnalysis: undefined,
-      receipt: undefined,
+      // receipt: undefined removed
     },
   });
 
@@ -156,14 +153,14 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || '' as unknown as number,
+        amount: form.getValues('amount') || undefined, // Ensure consistent default for amount
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: undefined,
-        receipt: undefined,
+        // receipt: undefined removed
       });
     }
   }, [currentUser, form, authLoading]);
@@ -207,9 +204,7 @@ export default function NewExpensePage() {
   }, [currentUser, fetchProjects]);
 
  useEffect(() => {
-    const projectIdFromUrl = searchParams.get('projectId');
-    console.log("[NewExpensePage useEffect searchParams] projectIdFromUrl:", projectIdFromUrl);
-
+    console.log("[NewExpensePage useEffect paidById] Watched projectId:", watchedProjectId, ". CurrentUser:", !!currentUser, ", UserProfile:", !!userProfile);
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
       console.log("[NewExpensePage useEffect paidById] Fetching members for projectId:", projectId);
       if (!currentUser || !projectId) {
@@ -230,16 +225,22 @@ export default function NewExpensePage() {
         if (projectSnap.exists()) {
           const projectData = projectSnap.data() as Project;
           const memberUIDs = projectData.members || [];
+          console.log(`[NewExpensePage useEffect paidById] Project "${projectData.name}" members UIDs:`, memberUIDs);
 
           if (memberUIDs.length > 0) {
             const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
             const userDocs = await Promise.all(userPromises);
             fetchedProjectMembers = userDocs
-              .filter(d => d.exists())
+              .filter(d => {
+                if (!d.exists()) console.warn(`[NewExpensePage useEffect paidById] User document for UID ${d.id} not found.`);
+                return d.exists();
+              })
               .map(d => ({ id: d.id, ...d.data() } as AppUserType));
+             console.log(`[NewExpensePage useEffect paidById] Fetched profiles for project members:`, fetchedProjectMembers.map(u => ({id: u.id, name: u.name})));
           }
         } else {
           toast({ title: "Erreur", description: "Projet non trouvé pour charger les membres payeurs.", variant: "destructive" });
+           console.warn(`[NewExpensePage useEffect paidById] Project document with ID ${projectId} not found.`);
         }
         setUsersForDropdown(fetchedProjectMembers);
 
@@ -251,10 +252,10 @@ export default function NewExpensePage() {
                 form.setValue('paidById', currentUser.uid);
             } else if (fetchedProjectMembers.length > 0 && fetchedProjectMembers[0]) {
                 form.setValue('paidById', fetchedProjectMembers[0].id);
-            } else if (currentUser) { 
+            } else if (currentUser) {
                  form.setValue('paidById', currentUser.uid);
             } else {
-                form.setValue('paidById', ''); 
+                form.setValue('paidById', '');
             }
         }
 
@@ -286,7 +287,7 @@ export default function NewExpensePage() {
       setIsLoadingUsersForDropdown(false);
     }
 
-  }, [watchedProjectId, currentUser, userProfile, toast, form, searchParams]);
+  }, [watchedProjectId, currentUser, userProfile, toast, form]);
 
 
   const performInvoiceAnalysis = async (base64Image: string, fileType: string) => {
@@ -306,7 +307,7 @@ export default function NewExpensePage() {
 
         form.setValue('description', data.nom_fournisseur || data.nom_client || "Facture analysée");
 
-        let amountValue = 0;
+        let amountValue: number | undefined = undefined;
         let currencyValue = "EUR"; 
 
         if (data.montant_total_ttc) {
@@ -485,8 +486,8 @@ const handleSwitchCamera = async () => {
             
             const blob = await (await fetch(imageDataUrl)).blob();
             const capturedFile = new File([blob], `facture-scannée-${Date.now()}.jpg`, { type: 'image/jpeg' });
-            setInvoiceFile(capturedFile); // Set the captured file to invoiceFile state
-            form.setValue('invoiceForAnalysis', capturedFile); // Also set it in the form if needed for consistency
+            setInvoiceFile(capturedFile); 
+            form.setValue('invoiceForAnalysis', capturedFile); 
             
             await performInvoiceAnalysis(imageDataUrl, 'image/jpeg');
         }
@@ -525,42 +526,12 @@ const handleSwitchCamera = async () => {
         return;
     }
     
-    let receiptFileToUpload: File | null = values.receipt || null;
-    if (!receiptFileToUpload && invoiceFile) {
-        console.log("[NewExpensePage onSubmit] No specific receipt chosen, using invoiceForAnalysis file as receipt.");
-        receiptFileToUpload = invoiceFile;
-    }
-
-    let receiptDownloadUrl: string | null = null;
-    let receiptStoragePath: string | null = null;
-    const newExpenseRef = doc(collection(db, "expenses")); // Generate ID for expense path in storage
-
-    if (receiptFileToUpload) {
-        console.log(`[NewExpensePage onSubmit Attempting upload] User UID: ${currentUser.uid}, Project ID: ${values.projectId}, Expense ID (for path): ${newExpenseRef.id}, File: ${receiptFileToUpload.name}`);
-        const storageRefPath = `receipts/${values.projectId}/${newExpenseRef.id}/${Date.now()}-${receiptFileToUpload.name}`;
-        const fileRef = ref(storage, storageRefPath);
-        try {
-            const uploadResult = await uploadBytes(fileRef, receiptFileToUpload);
-            receiptDownloadUrl = await getDownloadURL(uploadResult.ref);
-            receiptStoragePath = storageRefPath; // Store the full path for potential deletion
-            console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl);
-        } catch (error: any) {
-            console.error("Erreur lors du téléversement du justificatif:", error);
-            toast({
-                title: "Échec du téléversement du justificatif",
-                description: `La dépense sera enregistrée sans justificatif. Erreur: ${error.message}`,
-                variant: "destructive",
-            });
-            // receiptDownloadUrl and receiptStoragePath will remain null
-        }
-    }
-
+    const newExpenseRef = doc(collection(db, "expenses")); 
 
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
       
       await runTransaction(db, async (transaction) => {
-        // IMPORTANT: All reads must come before all writes.
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
@@ -578,8 +549,7 @@ const handleSwitchCamera = async () => {
             paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
             expenseDate: Timestamp.fromDate(values.expenseDate),
             tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-            receiptUrl: receiptDownloadUrl, 
-            receiptStoragePath: receiptStoragePath,
+            // receiptUrl and receiptStoragePath removed
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
@@ -587,7 +557,7 @@ const handleSwitchCamera = async () => {
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
         const currentTotalExpenses = projectData.totalExpenses || 0;
-        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
+        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); // Ensure amount is number
         if (isNaN(expenseAmount)) {
             throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
         }
@@ -603,8 +573,8 @@ const handleSwitchCamera = async () => {
         
         const existingRecentExpenses = projectData.recentExpenses || [];
         const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
-                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Sort by date descending
-                                     .slice(0, 5); // Keep only the last 5
+                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis())
+                                     .slice(0, 5);
 
 
         const projectUpdateData: Partial<Project> = {
@@ -614,7 +584,6 @@ const handleSwitchCamera = async () => {
             updatedAt: serverTimestamp(),
         };
         
-        // Perform writes
         transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
@@ -626,16 +595,17 @@ const handleSwitchCamera = async () => {
       });
       form.reset({
          description: '',
-         amount: '' as unknown as number,
+         amount: undefined,
          currency: 'EUR',
-         projectId: '',
+         projectId: '', // Reset projectId to allow new selection
          paidById: currentUser?.uid || '',
          expenseDate: new Date(),
          tags: '',
          invoiceForAnalysis: undefined,
-         receipt: undefined,
+         // receipt: undefined removed
       });
       setInvoiceFile(null);
+      // Reset usersForDropdown to default (current user) if no project is selected
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -748,9 +718,9 @@ const handleSwitchCamera = async () => {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { value: _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => ( 
+                        render={({ field: { value: _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
                             <FormItem>
-                               <FormLabel>Fichier de facture pour analyse IA</FormLabel>
+                               <FormLabel>Fichier de facture pour analyse</FormLabel>
                                 <FormControl>
                                 <Input
                                     type="file"
@@ -765,7 +735,7 @@ const handleSwitchCamera = async () => {
                                     onBlur={onBlur}
                                     name={name}
                                     ref={ref}
-                                    {...otherFieldProps}
+                                    {...otherFieldProps} 
                                 />
                                 </FormControl>
                                 <FormMessage />
@@ -875,8 +845,8 @@ const handleSwitchCamera = async () => {
                           {...field}
                           step="0.01"
                           data-ai-hint="expense amount"
-                          value={field.value === undefined || field.value === null || field.value === '' ? '' : Number(field.value)}
-                          onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          value={field.value === undefined || field.value === null ? '' : Number(field.value)}
+                          onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -918,7 +888,7 @@ const handleSwitchCamera = async () => {
                     <Select
                         onValueChange={field.onChange}
                         value={field.value || ''}
-                        disabled={isLoadingProjects}
+                        disabled={isLoadingProjects} 
                     >
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
@@ -1039,36 +1009,7 @@ const handleSwitchCamera = async () => {
                 )}
               />
               
-              <FormField
-                control={form.control}
-                name="receipt"
-                render={({ field: { value: _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
-                  <FormItem>
-                    <FormLabel>Justificatif à enregistrer (optionnel)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="file"
-                        accept="image/png, image/jpeg, image/webp"
-                        className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                        data-ai-hint="receipt file upload"
-                        onChange={(e) => {
-                          const file = e.target.files ? e.target.files[0] : undefined;
-                          onChange(file);
-                        }}
-                        onBlur={onBlur}
-                        name={name}
-                        ref={ref}
-                        {...otherFieldProps}
-                      />
-                    </FormControl>
-                     <FormDescription>
-                      Ce fichier sera stocké avec la dépense. Si aucun fichier n'est sélectionné ici, le fichier utilisé pour l'analyse IA (si fourni) sera utilisé comme justificatif.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
+              {/* Receipt field removed */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
@@ -1097,3 +1038,4 @@ const handleSwitchCamera = async () => {
   );
 }
 
+    

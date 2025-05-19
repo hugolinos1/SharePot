@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+// Image import removed
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -21,15 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { 
-    Dialog, 
-    DialogContent, 
-    DialogHeader, 
-    DialogTitle, 
-    DialogDescription,
-    DialogFooter,
-    DialogClose
-} from '@/components/ui/dialog';
+// Dialog imports for receipt removed
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -65,8 +57,7 @@ export interface ExpenseItem {
   amount: number;
   currency: string;
   tags: string[];
-  // receiptUrl?: string; // Temporarily removed
-  // receiptStoragePath?: string; // Temporarily removed
+  // receiptUrl and receiptStoragePath removed
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
@@ -119,6 +110,7 @@ export default function ExpensesPage() {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
+  // States for receipt modal removed
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
@@ -465,14 +457,14 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
-                  {/* <TableHead>Justificatif</TableHead> */}
+                  {/* Justificatif column removed */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> 
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32"> 
                             <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
                             Chargement des dépenses...
                         </TableCell>
@@ -496,28 +488,7 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
-                    {/* 
-                    <TableCell>
-                      {expense.receiptUrl && (
-                        <button
-                          onClick={() => {
-                            setSelectedReceiptUrl(expense.receiptUrl!);
-                            setIsReceiptModalOpen(true);
-                          }}
-                          className="focus:outline-none"
-                        >
-                          <Image
-                            src={expense.receiptUrl}
-                            alt={`Justificatif pour ${expense.title}`}
-                            width={24}
-                            height={24}
-                            className="rounded-sm object-contain hover:opacity-80 transition-opacity"
-                            data-ai-hint="receipt thumbnail"
-                          />
-                        </button>
-                      )}
-                    </TableCell>
-                    */}
+                    {/* Receipt cell removed */}
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -532,7 +503,7 @@ export default function ExpensesPage() {
                 )})}
                 {(!isLoadingExpenses || (!isLoadingProjects && projects.length === 0)) && filteredExpenses.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-10 h-32"> 
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-10 h-32"> 
                       {!isLoadingProjects && projects.length === 0 ? "Aucun projet trouvé pour cet utilisateur. Ajoutez ou rejoignez un projet pour voir des dépenses." : "Aucune dépense trouvée pour les filtres actuels."}
                     </TableCell>
                   </TableRow>
@@ -562,35 +533,10 @@ export default function ExpensesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 
-      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>Aperçu du Justificatif</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 flex justify-center items-center max-h-[calc(80vh-100px)] overflow-auto">
-            {selectedReceiptUrl && (
-              <Image
-                src={selectedReceiptUrl}
-                alt="Justificatif en grand"
-                width={800} 
-                height={800}
-                className="max-w-full max-h-full object-contain rounded-md"
-                data-ai-hint="large receipt"
-              />
-            )}
-          </div>
-           <DialogFooter className="sm:justify-end mt-4">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Fermer
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      */}
+      {/* Receipt Modal Dialog removed */}
     </div>
     </div>
   );
 }
+
+    
