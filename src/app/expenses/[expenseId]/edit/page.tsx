@@ -4,7 +4,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-// Image import for receipt is no longer needed
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -40,10 +39,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; // storage import no longer needed for receipts
-// Storage related imports are no longer needed
+import { db } from '@/lib/firebase'; 
 import { useAuth } from '@/contexts/AuthContext';
-import type { ExpenseItem } from '@/app/expenses/page'; // Make sure this interface doesn't have receipt fields
+import type { ExpenseItem } from '@/app/expenses/page'; 
 import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -67,7 +65,6 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  // currentReceiptUrl and receipt fields are removed
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -78,20 +75,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -207,8 +205,6 @@ export default function EditExpensePage() {
         return;
     }
 
-    // Receipt upload logic is removed
-
     try {
       const expenseRef = doc(db, "expenses", originalExpense.id);
       const projectRef = doc(db, "projects", originalExpense.projectId);
@@ -232,7 +228,6 @@ export default function EditExpensePage() {
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
           updatedAt: serverTimestamp(),
-          // receiptUrl and receiptStoragePath are no longer updated
         };
         transaction.update(expenseRef, updatedExpenseData);
 
@@ -313,7 +308,7 @@ export default function EditExpensePage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImagePrimitive
-                    src={userProfile?.avatarUrl}
+                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -537,7 +532,6 @@ export default function EditExpensePage() {
                   </FormItem>
                 )}
               />
-              {/* Receipt upload field is removed */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
@@ -565,3 +559,4 @@ export default function EditExpensePage() {
     </div>
   );
 }
+

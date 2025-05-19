@@ -40,7 +40,6 @@ import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project } from '@/data/mock-data';
 import { db } from '@/lib/firebase';
-// Firebase Storage import is no longer needed for receipts
 import { useAuth } from '@/contexts/AuthContext';
 import type { User as AppUserType } from '@/data/mock-data';
 import { Separator } from '@/components/ui/separator';
@@ -68,7 +67,6 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional().nullable(),
-  // 'receipt' field for storing is removed
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -79,20 +77,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -250,10 +249,10 @@ export default function NewExpensePage() {
                 form.setValue('paidById', currentUser.uid);
             } else if (finalUsersList.length > 0 && finalUsersList[0]) {
                 form.setValue('paidById', finalUsersList[0].id);
-            } else if (currentUser) { // Fallback to current user if project has no members or fetched list is empty
+            } else if (currentUser) { 
                  form.setValue('paidById', currentUser.uid);
             } else {
-                form.setValue('paidById', ''); // Should not happen if currentUser is always present
+                form.setValue('paidById', ''); 
             }
         }
 
@@ -277,7 +276,6 @@ export default function NewExpensePage() {
     if (watchedProjectId) {
       fetchProjectMembersAndSetDropdown(watchedProjectId);
     } else {
-      // If no project is selected, set dropdown to current user or empty if no profile
       const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArray);
       if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0] && !form.getValues('paidById')) {
@@ -317,24 +315,22 @@ export default function NewExpensePage() {
         form.setValue('description', data.nom_fournisseur || data.nom_client || "Facture analysée");
 
         let amountValue = 0;
-        let currencyValue = "EUR"; // Default currency
+        let currencyValue = "EUR"; 
 
         if (data.montant_total_ttc) {
             if (typeof data.montant_total_ttc === 'number') {
                 amountValue = data.montant_total_ttc;
             } else if (typeof data.montant_total_ttc === 'string') {
-                // Try to parse amount and currency from string
-                const amountString = data.montant_total_ttc.replace(',', '.'); // Normalize decimal separator
+                const amountString = data.montant_total_ttc.replace(',', '.'); 
                 const numericMatch = amountString.match(/[\d.]+/);
                 if (numericMatch && numericMatch[0]) {
                     amountValue = parseFloat(numericMatch[0]);
                 }
 
-                // Try to find currency code in the string
                 const currencyMatch = amountString.match(/(EUR|USD|GBP|CZK)/i);
                 if (currencyMatch && currencyMatch[0]) {
                     const foundCurrency = currencyMatch[0].toUpperCase();
-                    if (currencies.includes(foundCurrency)) { // Check if found currency is in our list
+                    if (currencies.includes(foundCurrency)) { 
                         currencyValue = foundCurrency;
                     }
                 }
@@ -346,7 +342,7 @@ export default function NewExpensePage() {
 
         if (data.date_facture) {
           try {
-            const parsedDate = parseISO(data.date_facture); // Expects YYYY-MM-DD
+            const parsedDate = parseISO(data.date_facture); 
             form.setValue('expenseDate', parsedDate);
           } catch (dateError) {
             console.error("Erreur de parsing de la date de la facture:", dateError);
@@ -402,9 +398,8 @@ export default function NewExpensePage() {
 
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
-
-      // IMPORTANT: All reads must come before all writes in a transaction.
-      const projectDoc = await getDoc(projectRef); // READ project first
+      
+      const projectDoc = await getDoc(projectRef);
       if (!projectDoc.exists()) {
         throw new Error("Le projet associé n'existe plus.");
       }
@@ -424,7 +419,6 @@ export default function NewExpensePage() {
           createdAt: serverTimestamp(),
           createdBy: currentUser.uid,
           updatedAt: serverTimestamp(),
-          // receiptUrl and receiptStoragePath are no longer saved
       };
       console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
 
@@ -456,10 +450,7 @@ export default function NewExpensePage() {
           updatedAt: serverTimestamp(),
       };
 
-      // Now perform writes within a transaction
       await runTransaction(db, async (transaction) => {
-        // Note: projectDoc was read outside, but for safety, if projectData could be stale, re-read or pass.
-        // Here, we assume projectData from the initial getDoc is sufficient for this operation.
         transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
@@ -537,7 +528,7 @@ export default function NewExpensePage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImage
-                  src={userProfile?.avatarUrl}
+                  src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                   alt={userProfile?.name || currentUser?.email || "User"}
                   data-ai-hint="user avatar"
                 />
@@ -859,3 +850,4 @@ export default function NewExpensePage() {
     </div>
   );
 }
+

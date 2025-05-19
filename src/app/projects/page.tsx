@@ -57,20 +57,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -149,36 +150,37 @@ export default function ProjectsPage() {
       setAllUserProfiles([]);
       return;
     }
-
-    if (isAdmin) {
-      console.log("ProjectsPage: useEffect (User Profiles) - Admin is fetching ALL user profiles for add member dialog.");
-      setIsLoadingAllUserProfiles(true);
-      try {
-        const usersCollectionRef = collection(db, "users");
-        const usersSnapshot = await getDocs(usersCollectionRef);
-        const usersList = usersSnapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        } as AppUserType));
-        setAllUserProfiles(usersList);
-        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
-      } catch (error: any) {
-        console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
-        toast({
-          title: "Erreur de chargement (Utilisateurs)",
-          description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
-          variant: "destructive",
-        });
-        setAllUserProfiles([]);
-      } finally {
+    if (!isAdmin) { // Non-admins don't need all profiles upfront, modal fetches project-specific ones
+        console.log("ProjectsPage: Non-admin, skipping fetchAllUserProfiles. Project-specific members fetched in modal.");
+        setAllUserProfiles(userProfile ? [userProfile] : []); // Start with self
         setIsLoadingAllUserProfiles(false);
-      }
-    } else {
-       console.log("ProjectsPage: useEffect (User Profiles) - Non-admin, allUserProfiles will be empty for now (specific members fetched for modal).");
-       setAllUserProfiles([]);
-       setIsLoadingAllUserProfiles(false);
+        return;
     }
-  }, [currentUser, isAdmin, toast]);
+
+
+    console.log("ProjectsPage: Admin is fetching ALL user profiles.");
+    setIsLoadingAllUserProfiles(true);
+    try {
+      const usersCollectionRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const usersList = usersSnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      } as AppUserType));
+      setAllUserProfiles(usersList);
+      console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
+    } catch (error: any) {
+      console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
+      toast({
+        title: "Erreur de chargement (Utilisateurs)",
+        description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
+        variant: "destructive",
+      });
+      setAllUserProfiles([]);
+    } finally {
+      setIsLoadingAllUserProfiles(false);
+    }
+  }, [currentUser, isAdmin, userProfile, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -220,7 +222,7 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false);
+      setIsLoading(false); // Combined loading state for page
     }
   }, [currentUser, toast]);
 
@@ -229,11 +231,11 @@ export default function ProjectsPage() {
     if (currentUser) {
       console.log("ProjectsPage: useEffect (core data) - currentUser exists. Fetching projects and potentially all user profiles (if admin).");
       fetchProjects();
-      fetchAllUserProfiles();
+      fetchAllUserProfiles(); // Will only fetch all if isAdmin is true.
     } else {
       console.log("ProjectsPage: useEffect (core data) - currentUser is null, cannot fetch data.");
       setAllUserProfiles([]);
-      setIsLoadingAllUserProfiles(true);
+      setIsLoadingAllUserProfiles(true); // Reset loading state
     }
   }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
 
@@ -263,7 +265,6 @@ export default function ProjectsPage() {
             fetchedProfilesArray.push(profileData);
           } else {
             console.warn(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} DOES NOT EXIST in 'users' collection. Will use fallback.`);
-            // Fallback: Utiliser un objet partiel si le profil n'est pas trouvé
             fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "N/A", isAdmin: false, avatarUrl: '' });
           }
         }
@@ -276,7 +277,7 @@ export default function ProjectsPage() {
           description: `Impossible de charger les détails des membres du projet. Erreur: ${error.message}`,
           variant: "destructive",
         });
-        setProjectModalMemberProfiles([]); // Réinitialiser en cas d'erreur
+        setProjectModalMemberProfiles([]);
       } finally {
         setIsLoadingProjectModalMemberProfiles(false);
       }
@@ -292,7 +293,7 @@ export default function ProjectsPage() {
     setEditingBudget(false);
     setEditingNotes(false);
     setProjectModalMemberProfiles([]);
-    inviteMemberForm.reset(); // Réinitialiser le formulaire d'invitation
+    inviteMemberForm.reset();
   };
 
   const handleSaveBudget = async () => {
@@ -384,7 +385,6 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    // Utilise la liste des membres du projet actuellement dans la modale si disponible, sinon la liste globale (pour les admins)
     const profilesToSearch = projectModalMemberProfiles.length > 0 ? projectModalMemberProfiles : allUserProfiles;
     const profile = profilesToSearch.find(p => p.id === uid);
     if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) {
@@ -402,12 +402,17 @@ export default function ProjectsPage() {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-    // S'assurer que allUserProfiles est chargé (surtout si l'utilisateur est admin)
-    if (isAdmin && allUserProfiles.length === 0 && !isLoadingAllUserProfiles) {
-        console.log("ProjectsPage (handleOpenAddMemberDialog): Admin, allUserProfiles is empty, attempting to fetch all for dialog.");
-        await fetchAllUserProfiles();
+
+    // Ensure allUserProfiles is loaded if admin, otherwise it should have self or be empty.
+    // If not admin and allUserProfiles is still just self, it will be repopulated if it's an older state.
+    if (isAdmin && allUserProfiles.length <=1 && !isLoadingAllUserProfiles) { // <=1 to account for self if non-admin list wasn't cleared
+        console.log("ProjectsPage (handleOpenAddMemberDialog): Admin, allUserProfiles might be incomplete, attempting to fetch all for dialog.");
+        await fetchAllUserProfiles(); // Refetch to ensure the list is complete for admin
     }
-    // Après le fetch (ou si non-admin, on utilise la liste potentiellement vide et on compte sur la recherche Firestore si besoin)
+    // After any potential refetch for admin.
+    // The global allUserProfiles is used here because admin should see all users.
+    // Non-admins will not use this "add existing" functionality if they can't list all users.
+    // For non-admins, the invite by email is the primary way to add new people.
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
     setAvailableUsersForProject(available);
@@ -441,7 +446,6 @@ export default function ProjectsPage() {
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
 
-      // Mettre à jour projectModalMemberProfiles
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
@@ -449,7 +453,6 @@ export default function ProjectsPage() {
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
-            // Fallback si le profil n'est pas trouvé (ne devrait pas arriver si l'utilisateur existe)
             newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}...`, email: "N/A", isAdmin: false, avatarUrl: '' });
           }
       }
@@ -478,11 +481,7 @@ export default function ProjectsPage() {
 
     setIsSendingInvite(true);
     console.log(`[ProjectsPage] Simulating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
-    // TODO: Implémenter la logique d'envoi d'e-mail via un backend/Firebase Function.
-    // L'e-mail devrait contenir un lien d'invitation unique avec le projectId.
-    // Exemple de données à envoyer au backend : { email: values.email, projectId: selectedProject.id, inviterName: userProfile?.name || currentUser.email }
 
-    // Simulation
     setTimeout(() => {
       toast({
         title: "Invitation (simulée) envoyée",
@@ -529,7 +528,7 @@ export default function ProjectsPage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                  <AvatarImage
-                    src={userProfile?.avatarUrl}
+                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -631,7 +630,7 @@ export default function ProjectsPage() {
                             {displayableMemberProfilesOnCard.slice(0, 3).map((memberProfile, index) => (
                             <Avatar key={memberProfile.id || index} className="h-8 w-8 border-2 border-background">
                                 <AvatarImage
-                                  src={memberProfile.avatarUrl}
+                                  src={memberProfile.avatarUrl ? memberProfile.avatarUrl : undefined}
                                   alt={memberProfile.name || 'Membre'}
                                   data-ai-hint="member avatar"
                                 />
@@ -782,7 +781,7 @@ export default function ProjectsPage() {
                           <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
                             <Avatar className="h-8 w-8">
                               <AvatarImage
-                                src={member?.avatarUrl}
+                                src={member?.avatarUrl ? member.avatarUrl : undefined}
                                 alt={member?.name || 'Membre'}
                                 data-ai-hint="member avatar small"
                               />
@@ -946,7 +945,7 @@ export default function ProjectsPage() {
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-3 max-h-72 overflow-y-auto">
-                    {isLoadingAllUserProfiles ? (
+                    {isLoadingAllUserProfiles && isAdmin ? ( // Only show main loading if admin is fetching all users
                         <p>Chargement des utilisateurs...</p>
                     ) : availableUsersForProject.length > 0 ? (
                         availableUsersForProject.map(user => (
@@ -958,7 +957,7 @@ export default function ProjectsPage() {
                                 />
                                 <Avatar className="h-8 w-8">
                                   <AvatarImage
-                                    src={user.avatarUrl}
+                                    src={user.avatarUrl ? user.avatarUrl : undefined}
                                     alt={user.name || user.email || 'Utilisateur'}
                                     data-ai-hint="user avatar"
                                   />
@@ -990,3 +989,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+

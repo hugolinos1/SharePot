@@ -28,20 +28,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -52,7 +53,7 @@ const calculateBalances = (project: Project, memberProfiles: AppUserType[]): Mem
   console.log(`ProjectExpenseSettlement (calculateBalances): Project: ${project.name}, Members UIDs from project: ${project.members.join(', ')}`);
   console.log(`ProjectExpenseSettlement (calculateBalances): Received memberProfiles:`, JSON.stringify(memberProfiles.map(u => ({id: u.id, name: u.name}))));
 
-  if (!project || project.members.length === 0 || !memberProfiles || memberProfiles.length === 0) {
+  if (!project || !project.members || project.members.length === 0 || !memberProfiles || memberProfiles.length === 0) {
     console.warn(`ProjectExpenseSettlement (calculateBalances): Pre-conditions not met. Project members: ${project?.members?.length}, Member profiles provided: ${memberProfiles?.length}`);
     return [];
   }
@@ -80,6 +81,7 @@ const calculateBalances = (project: Project, memberProfiles: AppUserType[]): Mem
           console.warn(`ProjectExpenseSettlement (calculateBalances): Payer "${expense.payer}" (UID: ${payerProfile.id}) is NOT a member of project "${project.name}" based on project.members. Project Members UIDs: ${project.members.join(', ')}`);
       } else {
         totalPaidByMemberUid[payerProfile.id] = (totalPaidByMemberUid[payerProfile.id] || 0) + expense.amount;
+         console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${expense.amount} to UID ${payerProfile.id} (Name: ${payerProfile.name}) for expense "${expense.name}"`);
       }
     }
     currentProjectTotalExpenses += expense.amount;
@@ -95,9 +97,9 @@ const calculateBalances = (project: Project, memberProfiles: AppUserType[]): Mem
   return project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
     if (!memberProfile) {
-        console.warn(`ProjectExpenseSettlement (calculateBalances): Profile for member UID "${memberUid}" NOT FOUND in provided memberProfiles for project "${project.name}". This member's name will be their UID.`);
+        console.warn(`ProjectExpenseSettlement (calculateBalances): Profile for member UID "${memberUid}" NOT FOUND in memberProfilesOfProject for project "${project.name}". This member's name will be their UID.`);
     }
-    const memberName = memberProfile?.name || memberUid; 
+    const memberName = (memberProfile?.name && memberProfile.name.trim() !== '') ? memberProfile.name.trim() : memberUid; 
     const amountPaid = totalPaidByMemberUid[memberUid] || 0;
     return {
       uid: memberUid,
@@ -207,14 +209,14 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
             {memberBalances.map(({ uid, name, balance, amountPaid, share }) => {
               const userProfile = memberProfilesOfProject.find(u => u.id === uid); 
-              const displayName = userProfile?.name || name; 
+              const displayName = (userProfile?.name && userProfile.name.trim() !== '') ? userProfile.name.trim() : name; 
               const avatarUrl = userProfile?.avatarUrl;
 
               return (
                 <div key={uid} className="flex items-center justify-between p-2.5 bg-muted/50 rounded-md">
                   <div className="flex items-center gap-2.5">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={avatarUrl} alt={displayName} data-ai-hint="member avatar"/>
+                      <AvatarImage src={avatarUrl ? avatarUrl : undefined} alt={displayName} data-ai-hint="member avatar"/>
                       <AvatarFallback className="text-xs">{getAvatarFallbackText(displayName, userProfile?.email)}</AvatarFallback>
                     </Avatar>
                     <div>
@@ -258,13 +260,13 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
                 <div key={index} className="flex items-center justify-between p-2 border border-border/70 bg-card rounded-md shadow-xs">
                     <div className="flex items-center gap-1.5 text-xs">
                         <Avatar className="h-6 w-6">
-                            <AvatarImage src={fromAvatarUrl} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarImage src={fromAvatarUrl ? fromAvatarUrl : undefined} alt={settlement.from} data-ai-hint="payer avatar"/>
                             <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.from, fromUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-3 w-3 text-muted-foreground mx-0.5" />
                         <Avatar className="h-6 w-6">
-                             <AvatarImage src={toAvatarUrl} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarImage src={toAvatarUrl ? toAvatarUrl : undefined} alt={settlement.to} data-ai-hint="receiver avatar"/>
                              <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.to, toUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
@@ -292,3 +294,4 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
 
 
     
+

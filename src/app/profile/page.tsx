@@ -23,7 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import { db, storage } from '@/lib/firebase'; // Ensure storage is exported from firebase.ts
+import { db, storage } from '@/lib/firebase'; 
 import { doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from '@/contexts/AuthContext';
@@ -48,20 +48,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -83,7 +84,7 @@ export default function ProfilePage() {
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: userProfile?.name || '',
+      name: '', 
     },
   });
 
@@ -92,11 +93,13 @@ export default function ProfilePage() {
       router.replace('/login');
     }
     if (userProfile) {
-      form.reset({ name: userProfile.name });
-      // Ensure preview is cleared if user navigates away or profile updates elsewhere
+      console.log("[ProfilePage useEffect userProfile] userProfile loaded:", JSON.stringify(userProfile, null, 2));
+      form.reset({ name: userProfile.name || '' });
       if (!selectedAvatarFile) {
-        setAvatarPreviewUrl(null);
+        setAvatarPreviewUrl(null); 
       }
+    } else if (!authLoading && currentUser && !userProfile) {
+      console.warn("[ProfilePage useEffect userProfile] Auth loaded, currentUser exists, but userProfile is still null. This might indicate an issue with AuthContext profile loading.");
     }
   }, [authLoading, currentUser, userProfile, router, form, selectedAvatarFile]);
 
@@ -114,7 +117,7 @@ export default function ProfilePage() {
   const handleSaveAvatar = async () => {
     console.log("[ProfilePage handleSaveAvatar] Attempting to save avatar.");
     if (!currentUser || !selectedAvatarFile || !userProfile) {
-      console.error("[ProfilePage handleSaveAvatar] Pre-condition failed: currentUser, selectedAvatarFile, or userProfile missing.", { currentUser, selectedAvatarFile, userProfile });
+      console.error("[ProfilePage handleSaveAvatar] Pre-condition failed: currentUser, selectedAvatarFile, or userProfile missing.", { currentUserPresent: !!currentUser, selectedAvatarFilePresent: !!selectedAvatarFile, userProfilePresent: !!userProfile });
       toast({ title: "Erreur", description: "Informations utilisateur ou fichier manquant.", variant: "destructive" });
       return;
     }
@@ -135,7 +138,6 @@ export default function ProfilePage() {
       const newAvatarUrl = await getDownloadURL(avatarRef);
       console.log("[ProfilePage handleSaveAvatar] Got download URL:", newAvatarUrl);
 
-      // Delete old avatar if it exists and is different
       if (oldAvatarStoragePath && oldAvatarStoragePath !== newAvatarStoragePath) {
         console.log("[ProfilePage handleSaveAvatar] Attempting to delete old avatar from Storage:", oldAvatarStoragePath);
         try {
@@ -144,7 +146,6 @@ export default function ProfilePage() {
           console.log("[ProfilePage handleSaveAvatar] Old avatar deleted successfully from Storage.");
         } catch (deleteError: any) {
           console.error("[ProfilePage handleSaveAvatar] Error deleting old avatar from Storage:", deleteError.message, deleteError);
-          // Non-critical error, proceed with updating Firestore
           toast({ title: "Avertissement", description: "Impossible de supprimer l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
         }
       }
@@ -159,8 +160,12 @@ export default function ProfilePage() {
       console.log("[ProfilePage handleSaveAvatar] Firestore user document updated successfully.");
       
       if(setContextUserProfile) {
-        console.log("[ProfilePage handleSaveAvatar] Updating AuthContext userProfile.");
-        setContextUserProfile(prev => prev ? { ...prev, avatarUrl: newAvatarUrl, avatarStoragePath: newAvatarStoragePath } : null);
+        const updatedProfile = { ...userProfile, avatarUrl: newAvatarUrl, avatarStoragePath: newAvatarStoragePath };
+        setContextUserProfile(updatedProfile);
+        console.log("[ProfilePage handleSaveAvatar] AuthContext userProfile updated.");
+        setTimeout(() => {
+            console.log("[ProfilePage handleSaveAvatar AFTER CONTEXT UPDATE (timeout)] userProfile from context:", JSON.stringify(auth.currentUser, null, 2)); // This will show FirebaseUser, not our AppUserType
+        }, 0);
       }
 
       toast({
@@ -168,7 +173,7 @@ export default function ProfilePage() {
         description: "Votre nouvel avatar a été enregistré.",
       });
       setSelectedAvatarFile(null);
-      setAvatarPreviewUrl(null); // Clear preview after successful save
+      setAvatarPreviewUrl(null); 
     } catch (error: any) {
       console.error("[ProfilePage handleSaveAvatar] Error during avatar update process:", error.message, error);
       toast({
@@ -225,6 +230,7 @@ export default function ProfilePage() {
     }
   };
 
+  console.log("[ProfilePage Render] userProfile.avatarUrl at render time:", userProfile?.avatarUrl);
 
   if (authLoading || !currentUser || !userProfile) {
     return (
@@ -251,7 +257,7 @@ export default function ProfilePage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImage
-                    src={userProfile?.avatarUrl}
+                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -292,7 +298,7 @@ export default function ProfilePage() {
             <div className="relative group">
                 <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
                     <AvatarImage 
-                        src={avatarPreviewUrl || userProfile.avatarUrl} 
+                        src={avatarPreviewUrl || (userProfile.avatarUrl ? userProfile.avatarUrl : undefined)}
                         alt={userProfile.name || 'User'} 
                         data-ai-hint="user avatar large"
                     />
@@ -320,7 +326,7 @@ export default function ProfilePage() {
           {!isEditingName ? (
             <div className="flex items-center gap-2">
               <CardTitle className="text-2xl">{userProfile.name}</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => { form.setValue('name', userProfile.name); setIsEditingName(true); }} className="h-7 w-7">
+              <Button variant="ghost" size="icon" onClick={() => { form.setValue('name', userProfile.name || ''); setIsEditingName(true); }} className="h-7 w-7">
                 <Icons.edit className="h-4 w-4" />
               </Button>
             </div>
@@ -375,3 +381,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+

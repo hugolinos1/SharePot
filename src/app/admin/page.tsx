@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { User, Project } from '@/data/mock-data'; // Ensure Project type is correctly imported/defined
+import type { User, Project } from '@/data/mock-data'; 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -71,20 +71,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -199,7 +200,7 @@ export default function AdminProjectsPage() {
                 updatedAt: serverTimestamp(),
             });
             toast({ title: "Projet mis à jour", description: `Le projet "${values.name}" a été modifié.` });
-            fetchProjects(); // Re-fetch projects to update the list
+            fetchProjects(); 
             setIsEditProjectModalOpen(false);
         } catch (error) {
             console.error("Erreur lors de la mise à jour du projet:", error);
@@ -220,7 +221,7 @@ export default function AdminProjectsPage() {
         try {
             await deleteDoc(doc(db, "projects", projectToDelete.id));
             toast({ title: "Projet supprimé", description: `Le projet "${projectToDelete.name}" a été supprimé.` });
-            fetchProjects(); // Re-fetch projects
+            fetchProjects(); 
             setIsDeleteProjectConfirmModalOpen(false);
             setProjectToDelete(null);
         } catch (error) {
@@ -281,7 +282,7 @@ export default function AdminProjectsPage() {
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-9 w-9 cursor-pointer">
                   <AvatarImage
-                    src={userProfile?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile?.name || currentUser?.email || 'User')}&background=random&color=fff&size=32`}
+                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -378,7 +379,7 @@ export default function AdminProjectsPage() {
                                     <div className="flex -space-x-2 overflow-hidden" title={(project.members || []).join(', ')}>
                                     {(project.members || []).slice(0, 3).map((member, index) => (
                                         <Avatar key={index} className="h-6 w-6 border-2 border-card">
-                                            <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar"/>
+                                            <AvatarImage src={/* member.avatarUrl - need to fetch profile */ `https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar"/>
                                             <AvatarFallback>{getAvatarFallbackText(member)}</AvatarFallback>
                                         </Avatar>
                                     ))}
@@ -511,3 +512,4 @@ export default function AdminProjectsPage() {
     </div>
     );
 }
+

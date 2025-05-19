@@ -3,8 +3,8 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-// Image import for receipt is no longer needed
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -21,7 +21,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Dialog for receipt is removed
+import { 
+    Dialog, 
+    DialogContent, 
+    DialogHeader, 
+    DialogTitle, 
+    DialogDescription,
+    DialogFooter,
+    DialogClose
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
@@ -36,7 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar'; // Renamed AvatarImage to avoid conflict
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,7 +68,6 @@ export interface ExpenseItem {
   createdAt?: Timestamp;
   createdBy: string;
   updatedAt?: Timestamp;
-  // receiptUrl and receiptStoragePath are removed
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
@@ -69,20 +76,21 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
     }
-    if (parts[0] && parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
+    const singleName = parts[0];
+    if (singleName && singleName.length >= 2) {
+      return singleName.substring(0, 2).toUpperCase();
     }
-     if (parts[0] && parts[0].length === 1) {
-      return parts[0][0].toUpperCase();
+    if (singleName && singleName.length === 1) {
+      return singleName[0].toUpperCase();
     }
   }
   if (email) {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
-        return emailPrefix.substring(0, 2).toUpperCase();
+      return emailPrefix.substring(0, 2).toUpperCase();
     }
     if (emailPrefix && emailPrefix.length === 1) {
-        return emailPrefix[0].toUpperCase();
+      return emailPrefix[0].toUpperCase();
     }
   }
   return '??';
@@ -109,8 +117,6 @@ export default function ExpensesPage() {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
-  // Receipt modal state is removed
-
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
@@ -325,7 +331,6 @@ export default function ExpensesPage() {
     router.push(`/expenses/${expenseId}/edit`);
   };
 
-  // handleOpenReceiptModal is removed
 
   const handleLogout = async () => {
     try {
@@ -364,8 +369,8 @@ export default function ExpensesPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
-                <AvatarImage
-                  src={userProfile?.avatarUrl}
+                <AvatarImagePrimitive
+                  src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
                   alt={userProfile?.name || currentUser?.email || "User"}
                   data-ai-hint="user avatar"
                 />
@@ -458,7 +463,6 @@ export default function ExpensesPage() {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Montant</TableHead>
                   <TableHead>Tags</TableHead>
-                  {/* Receipt column removed */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -489,7 +493,6 @@ export default function ExpensesPage() {
                         ))}
                       </div>
                     </TableCell>
-                     {/* Receipt cell removed */}
                     <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleEditExpense(expense.id)}>
                             <Icons.edit className="h-4 w-4" />
@@ -533,10 +536,8 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Receipt Dialog is removed */}
-
     </div>
     </div>
   );
 }
+
