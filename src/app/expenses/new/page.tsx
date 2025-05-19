@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -70,6 +70,7 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional(),
+  // receipt: z.instanceof(File).optional().nullable(), // Retiré - fonctionnalité de stockage des justificatifs supprimée
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -103,6 +104,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 
 export default function NewExpensePage() {
   const router = useRouter();
+  const searchParams = useSearchParams(); // Retiré
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
 
@@ -114,7 +116,8 @@ export default function NewExpensePage() {
   const [usersForDropdown, setUsersForDropdown] = useState<AppUserType[]>([]);
   const [isLoadingUsersForDropdown, setIsLoadingUsersForDropdown] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
-  
+  // const [isProjectSelectDisabled, setIsProjectSelectDisabled] = useState(false); // Retiré
+
   const isMobile = useIsMobile();
   const [showCamera, setShowCamera] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -136,6 +139,7 @@ export default function NewExpensePage() {
       expenseDate: new Date(),
       tags: '',
       invoiceForAnalysis: undefined,
+      // receipt: null, // Retiré
     },
   });
 
@@ -161,6 +165,7 @@ export default function NewExpensePage() {
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: undefined,
+        // receipt: null, // Retiré
       });
     }
   }, [currentUser, form, authLoading]);
@@ -203,7 +208,7 @@ export default function NewExpensePage() {
     }
   }, [currentUser, fetchProjects]);
 
- useEffect(() => {
+  useEffect(() => {
     console.log("[NewExpensePage useEffect paidById] Watched projectId:", watchedProjectId, ". CurrentUser:", !!currentUser, ", UserProfile:", !!userProfile);
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
       console.log("[NewExpensePage useEffect paidById] Fetching members for projectId:", projectId);
@@ -552,9 +557,13 @@ const handleSwitchCamera = async () => {
             createdAt: serverTimestamp(),
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
+            // receiptUrl: receiptDownloadUrl, // Retiré
+            // receiptStoragePath: receiptStoragePath, // Retiré
         };
         console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
+        transaction.set(newExpenseRef, newExpenseDocData);
+
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); 
         if (isNaN(expenseAmount)) {
@@ -572,8 +581,8 @@ const handleSwitchCamera = async () => {
         
         const existingRecentExpenses = projectData.recentExpenses || [];
         const updatedRecentExpenses = [recentExpenseSummary, ...existingRecentExpenses]
-                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis())
-                                     .slice(0, 5);
+                                     .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Sort by date descending
+                                     .slice(0, 5); // Keep only the last 5
 
 
         const projectUpdateData: Partial<Project> = {
@@ -583,7 +592,6 @@ const handleSwitchCamera = async () => {
             updatedAt: serverTimestamp(),
         };
         
-        transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -601,8 +609,10 @@ const handleSwitchCamera = async () => {
          expenseDate: new Date(),
          tags: '',
          invoiceForAnalysis: undefined,
+         // receipt: null, // Retiré
       });
       setInvoiceFile(null);
+      // setIsProjectSelectDisabled(false); // Retiré
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
       if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
@@ -753,7 +763,7 @@ const handleSwitchCamera = async () => {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { _value, onChange, onBlur, name, ref, ...otherFieldProps } }) => (
+                        render={({ field: { onChange, onBlur, name, ref } }) => ( // value is removed
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse</FormLabel>
                                 <FormControl>
@@ -764,13 +774,12 @@ const handleSwitchCamera = async () => {
                                     data-ai-hint="invoice file upload for AI analysis"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : undefined;
-                                        onChange(file);
-                                        setInvoiceFile(file); 
+                                        onChange(file); // Pass the file or undefined to react-hook-form
+                                        setInvoiceFile(file || null); 
                                     }}
                                     onBlur={onBlur}
                                     name={name}
                                     ref={ref}
-                                    {...otherFieldProps} 
                                 />
                                 </FormControl>
                                 <FormMessage />
@@ -859,7 +868,7 @@ const handleSwitchCamera = async () => {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: Dîner d'équipe" {...field} data-ai-hint="expense description"/>
+                      <Input placeholder="Ex: Dîner d'équipe" {...field} value={field.value || ''} data-ai-hint="expense description"/>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -923,7 +932,7 @@ const handleSwitchCamera = async () => {
                     <Select
                         onValueChange={field.onChange}
                         value={field.value || ''}
-                        disabled={isLoadingProjects} 
+                        disabled={isLoadingProjects}
                     >
                       <FormControl>
                         <SelectTrigger data-ai-hint="project select">
@@ -1047,7 +1056,12 @@ const handleSwitchCamera = async () => {
                       </Button>
                     </div>
                     <FormControl>
-                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags"/>
+                      <Input
+                        placeholder="Ex: nourriture, transport (séparés par une virgule)"
+                        {...field}
+                        value={field.value ?? ''}
+                        data-ai-hint="expense tags"
+                      />
                     </FormControl>
                     <FormDescription>
                       Séparez les tags par une virgule, ou utilisez la suggestion IA basée sur la description.
@@ -1056,7 +1070,7 @@ const handleSwitchCamera = async () => {
                   </FormItem>
                 )}
               />
-              
+              {/* Section pour "Justificatif à enregistrer" supprimée */}
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
                   Annuler
@@ -1084,4 +1098,3 @@ const handleSwitchCamera = async () => {
   );
 }
 
-    

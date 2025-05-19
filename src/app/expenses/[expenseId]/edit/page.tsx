@@ -10,8 +10,6 @@ import * as z from 'zod';
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Timestamp, doc, getDoc, updateDoc, runTransaction, serverTimestamp, collection, getDocs, query, where } from 'firebase/firestore';
-// Image import removed
-// storage related imports removed
 
 import { Button } from '@/components/ui/button';
 import {
@@ -41,7 +39,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
 import type { Project, User as AppUserType } from '@/data/mock-data';
-import { db } from '@/lib/firebase'; // storage import removed
+import { db } from '@/lib/firebase'; 
 import { useAuth } from '@/contexts/AuthContext';
 import type { ExpenseItem } from '@/app/expenses/page'; 
 import { Avatar, AvatarFallback, AvatarImage as AvatarImagePrimitive } from '@/components/ui/avatar';
@@ -67,7 +65,9 @@ const editExpenseFormSchema = z.object({
     required_error: "Veuillez sélectionner une date.",
   }),
   tags: z.string().optional(),
-  // newReceiptFile, currentReceiptUrl, currentReceiptStoragePath removed
+  // newReceiptFile: z.instanceof(File).optional(), // Retiré
+  // currentReceiptUrl: z.string().nullable().optional(), // Retiré
+  // currentReceiptStoragePath: z.string().nullable().optional(), // Retiré
 });
 
 type EditExpenseFormValues = z.infer<typeof editExpenseFormSchema>;
@@ -117,15 +117,15 @@ export default function EditExpensePage() {
     resolver: zodResolver(editExpenseFormSchema),
     defaultValues: {
       title: '',
-      amount: undefined, // Changed for consistency
+      amount: undefined, 
       currency: 'EUR',
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
       tags: '',
-      // newReceiptFile: undefined, removed
-      // currentReceiptUrl: null, removed
-      // currentReceiptStoragePath: null, removed
+      // newReceiptFile: undefined, // Retiré
+      // currentReceiptUrl: null, // Retiré
+      // currentReceiptStoragePath: null, // Retiré
     },
   });
 
@@ -175,7 +175,8 @@ export default function EditExpensePage() {
           paidById: expenseData.paidById,
           expenseDate: expenseData.expenseDate.toDate(),
           tags: expenseData.tags.join(', '),
-          // receipt related fields removed from reset
+          // currentReceiptUrl: expenseData.receiptUrl || null, // Retiré
+          // currentReceiptStoragePath: expenseData.receiptStoragePath || null, // Retiré
         });
 
       } else {
@@ -213,8 +214,6 @@ export default function EditExpensePage() {
         return;
     }
     
-    // Receipt upload logic removed
-
     try {
       const expenseRef = doc(db, "expenses", originalExpense.id);
       const projectRef = doc(db, "projects", originalExpense.projectId);
@@ -237,8 +236,8 @@ export default function EditExpensePage() {
           paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
           expenseDate: Timestamp.fromDate(values.expenseDate),
           tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          // receiptUrl and receiptStoragePath removed
           updatedAt: serverTimestamp(),
+          // receiptUrl et receiptStoragePath retirés de la mise à jour
         };
         transaction.update(expenseRef, updatedExpenseData);
 
@@ -373,7 +372,7 @@ export default function EditExpensePage() {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: Dîner d'équipe" {...field} data-ai-hint="expense description"/>
+                      <Input placeholder="Ex: Dîner d'équipe" {...field} value={field.value || ''} data-ai-hint="expense description"/>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -535,7 +534,7 @@ export default function EditExpensePage() {
                   <FormItem>
                     <FormLabel>Tags (optionnel)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} data-ai-hint="expense tags"/>
+                      <Input placeholder="Ex: nourriture, transport (séparés par une virgule)" {...field} value={field.value || ''} data-ai-hint="expense tags"/>
                     </FormControl>
                     <FormDescription>
                       Séparez les tags par une virgule.
@@ -545,7 +544,7 @@ export default function EditExpensePage() {
                 )}
               />
               
-              {/* Receipt related fields removed */}
+              {/* Les champs relatifs aux justificatifs ont été retirés */}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.push('/expenses')} disabled={isUpdating}>
@@ -574,4 +573,3 @@ export default function EditExpensePage() {
   );
 }
 
-    
