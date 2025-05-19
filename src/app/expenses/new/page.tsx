@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -69,7 +69,7 @@ const expenseFormSchema = z.object({
   }),
   tags: z.string().optional(),
   invoiceForAnalysis: z.instanceof(File).optional(),
-  receipt: z.instanceof(File).optional(),
+  // receipt field was removed as per user request to simplify
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
@@ -103,7 +103,6 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 
 export default function NewExpensePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
 
@@ -121,20 +120,21 @@ export default function NewExpensePage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
 
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       description: '',
-      amount: '' as unknown as number,
+      amount: '' as unknown as number, // Keep as empty string for initial controlled state
       currency: 'EUR',
       projectId: '',
       paidById: '',
       expenseDate: new Date(),
       tags: '',
       invoiceForAnalysis: undefined,
-      receipt: undefined,
     },
   });
 
@@ -148,7 +148,6 @@ export default function NewExpensePage() {
 
 
   useEffect(() => {
-    console.log("[NewExpensePage useEffect currentUser] Attempting to set default paidById. CurrentUser:", !!currentUser, "Form paidById:", form.getValues('paidById'));
     if (currentUser && !form.getValues('paidById')) {
       form.reset({
         ...form.getValues(),
@@ -160,9 +159,7 @@ export default function NewExpensePage() {
         expenseDate: form.getValues('expenseDate') || new Date(),
         tags: form.getValues('tags') || '',
         invoiceForAnalysis: undefined,
-        receipt: undefined,
       });
-      console.log("[NewExpensePage useEffect currentUser] Default paidById set to:", currentUser.uid);
     }
   }, [currentUser, form, authLoading]);
 
@@ -206,13 +203,7 @@ export default function NewExpensePage() {
   }, [currentUser, fetchProjects]);
 
  useEffect(() => {
-    // console.log("[NewExpensePage useEffect searchParams] searchParams projectId:", searchParams.get('projectId'));
-  }, [searchParams, form]);
-
-
-  useEffect(() => {
     const fetchProjectMembersAndSetDropdown = async (projectId: string) => {
-      console.log(`[NewExpensePage useEffect paidById] Watched projectId: ${projectId}. CurrentUser: ${!!currentUser}, UserProfile: ${!!userProfile}`);
       if (!currentUser || !projectId) {
         const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
         setUsersForDropdown(defaultUserArray);
@@ -242,31 +233,16 @@ export default function NewExpensePage() {
         } else {
           toast({ title: "Erreur", description: "Projet non trouvé pour charger les membres payeurs.", variant: "destructive" });
         }
-
-        const uniqueMemberMap = new Map<string, AppUserType>();
-        fetchedProjectMembers.forEach(member => {
-            if(!uniqueMemberMap.has(member.id)) {
-                uniqueMemberMap.set(member.id, member);
-            }
-        });
-        if (currentUser && userProfile && !uniqueMemberMap.has(currentUser.uid) && fetchedProjectMembers.some(m => m.id === currentUser.uid)) {
-            uniqueMemberMap.set(currentUser.uid, userProfile);
-        } else if (currentUser && userProfile && !uniqueMemberMap.has(currentUser.uid) && fetchedProjectMembers.length === 0) {
-             uniqueMemberMap.set(currentUser.uid, userProfile);
-        }
-
-
-        const finalUsersList = Array.from(uniqueMemberMap.values());
-        setUsersForDropdown(finalUsersList);
+        setUsersForDropdown(fetchedProjectMembers);
 
         const currentPaidById = form.getValues('paidById');
-        const currentUserIsAmongFetched = finalUsersList.some(u => u.id === currentUser?.uid);
+        const currentUserIsAmongFetched = fetchedProjectMembers.some(u => u.id === currentUser?.uid);
 
-        if (!currentPaidById || !finalUsersList.some(u => u.id === currentPaidById)) {
+        if (!currentPaidById || !fetchedProjectMembers.some(u => u.id === currentPaidById)) {
             if (currentUserIsAmongFetched && currentUser) {
                 form.setValue('paidById', currentUser.uid);
-            } else if (finalUsersList.length > 0 && finalUsersList[0]) {
-                form.setValue('paidById', finalUsersList[0].id);
+            } else if (fetchedProjectMembers.length > 0 && fetchedProjectMembers[0]) {
+                form.setValue('paidById', fetchedProjectMembers[0].id);
             } else if (currentUser) { 
                  form.setValue('paidById', currentUser.uid);
             } else {
@@ -383,24 +359,55 @@ export default function NewExpensePage() {
     };
   };
 
-  const handleOpenCamera = async () => {
+const handleOpenCamera = async () => {
     setShowCamera(true);
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            let stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
             setHasCameraPermission(true);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
             }
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            setAvailableCameras(videoDevices);
+            if (videoDevices.length > 0) {
+                const currentTrack = stream.getVideoTracks()[0];
+                const currentDeviceId = currentTrack?.getSettings().deviceId;
+                const currentIndex = videoDevices.findIndex(device => device.deviceId === currentDeviceId);
+                setCurrentCameraIndex(currentIndex !== -1 ? currentIndex : 0);
+            } else {
+                setCurrentCameraIndex(0);
+            }
         } catch (error) {
-            console.error("Erreur d'accès à la caméra:", error);
-            setHasCameraPermission(false);
-            toast({
-                variant: "destructive",
-                title: "Accès Caméra Refusé",
-                description: "Veuillez autoriser l'accès à la caméra dans les paramètres de votre navigateur.",
-            });
-            setShowCamera(false);
+            console.warn("Could not get environment camera, trying default/user camera:", error);
+            try {
+                let stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                setHasCameraPermission(true);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                setAvailableCameras(videoDevices);
+                if (videoDevices.length > 0) {
+                    const currentTrack = stream.getVideoTracks()[0];
+                    const currentDeviceId = currentTrack?.getSettings().deviceId;
+                    const currentIndex = videoDevices.findIndex(device => device.deviceId === currentDeviceId);
+                    setCurrentCameraIndex(currentIndex !== -1 ? currentIndex : 0);
+                } else {
+                    setCurrentCameraIndex(0);
+                }
+            } catch (finalError) {
+                 console.error("Error accessing any camera:", finalError);
+                 setHasCameraPermission(false);
+                 toast({
+                     variant: "destructive",
+                     title: "Accès Caméra Refusé",
+                     description: "Veuillez autoriser l'accès à la caméra dans les paramètres de votre navigateur.",
+                 });
+                 setShowCamera(false);
+            }
         }
     } else {
         setHasCameraPermission(false);
@@ -411,7 +418,39 @@ export default function NewExpensePage() {
         });
         setShowCamera(false);
     }
-  };
+};
+
+const handleSwitchCamera = async () => {
+    if (availableCameras.length > 1 && videoRef.current) {
+        const currentStream = videoRef.current.srcObject as MediaStream | null;
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const nextIndex = (currentCameraIndex + 1) % availableCameras.length;
+        setCurrentCameraIndex(nextIndex);
+        const nextCamera = availableCameras[nextIndex];
+
+        if (nextCamera && nextCamera.deviceId) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: nextCamera.deviceId } }
+                });
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+            } catch (error) {
+                console.error("Error switching camera:", error);
+                toast({
+                    variant: "destructive",
+                    title: "Erreur de changement de caméra",
+                    description: "Impossible de basculer.",
+                });
+            }
+        }
+    }
+};
+
 
   const handleCloseCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -419,6 +458,8 @@ export default function NewExpensePage() {
         stream.getTracks().forEach(track => track.stop());
     }
     setShowCamera(false);
+    setAvailableCameras([]);
+    setCurrentCameraIndex(0);
   };
 
   const handleCaptureAndAnalyze = async () => {
@@ -432,11 +473,10 @@ export default function NewExpensePage() {
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
             
-            // Set this captured image as the invoiceFile for potential automatic storage
             const blob = await (await fetch(imageDataUrl)).blob();
             const capturedFile = new File([blob], `facture-scannée-${Date.now()}.jpg`, { type: 'image/jpeg' });
             setInvoiceFile(capturedFile);
-            form.setValue('invoiceForAnalysis', capturedFile); // Also update the form field
+            form.setValue('invoiceForAnalysis', capturedFile); 
             
             await performInvoiceAnalysis(imageDataUrl, 'image/jpeg');
         }
@@ -477,61 +517,42 @@ export default function NewExpensePage() {
 
     const newExpenseRef = doc(collection(db, "expenses"));
     
-    const receiptFileToUpload = values.receipt || invoiceFile;
+    // Feature removed as per user request
+    const receiptFileToUpload = null; 
     let receiptDownloadUrl: string | null = null;
     let receiptStoragePath: string | null = null;
-
-    if (receiptFileToUpload) {
-        console.warn("File upload to Firebase Storage not implemented. Receipt will not be saved.");
-        // TODO: Implement Firebase Storage upload logic here
-        // const storageRefPath = `receipts/${selectedProject.id}/${newExpenseRef.id}/${Date.now()}-${receiptFileToUpload.name}`;
-        // const fileRef = ref(storage, storageRefPath);
-        // try {
-        //   const uploadResult = await uploadBytes(fileRef, receiptFileToUpload);
-        //   receiptDownloadUrl = await getDownloadURL(uploadResult.ref);
-        //   receiptStoragePath = storageRefPath; 
-        //   console.log("[NewExpensePage onSubmit] Receipt uploaded. URL:", receiptDownloadUrl, "Path:", receiptStoragePath);
-        // } catch (error) {
-        //   console.error("Erreur lors du téléversement du justificatif:", error);
-        //   toast({
-        //     title: "Échec du téléversement du justificatif",
-        //     description: "La dépense sera enregistrée sans justificatif.",
-        //     variant: "destructive",
-        //   });
-        // }
-    } else {
-        console.log("[NewExpensePage onSubmit] No receipt file to upload.");
-    }
+    console.log("[NewExpensePage onSubmit] Receipt upload functionality is currently disabled.");
 
 
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
       
-      const newExpenseDocData = {
-          id: newExpenseRef.id,
-          title: values.description,
-          amount: values.amount,
-          currency: values.currency,
-          projectId: values.projectId,
-          projectName: selectedProject.name,
-          paidById: payerProfile.id,
-          paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
-          expenseDate: Timestamp.fromDate(values.expenseDate),
-          tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
-          receiptUrl: receiptDownloadUrl, 
-          receiptStoragePath: receiptStoragePath,
-          createdAt: serverTimestamp(),
-          createdBy: currentUser.uid,
-          updatedAt: serverTimestamp(),
-      };
-      console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
-
       await runTransaction(db, async (transaction) => {
         const projectDoc = await transaction.get(projectRef);
         if (!projectDoc.exists()) {
           throw new Error("Le projet associé n'existe plus.");
         }
         const projectData = projectDoc.data() as Project;
+        
+        const newExpenseDocData = {
+            id: newExpenseRef.id,
+            title: values.description,
+            amount: values.amount,
+            currency: values.currency,
+            projectId: values.projectId,
+            projectName: selectedProject.name,
+            paidById: payerProfile.id,
+            paidByName: payerProfile.name || payerProfile.email || "Nom Inconnu",
+            expenseDate: Timestamp.fromDate(values.expenseDate),
+            tags: values.tags?.split(',').map(tag => tag.trim()).filter(tag => tag) || [],
+            receiptUrl: receiptDownloadUrl, 
+            receiptStoragePath: receiptStoragePath,
+            createdAt: serverTimestamp(),
+            createdBy: currentUser.uid,
+            updatedAt: serverTimestamp(),
+        };
+        console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
+        transaction.set(newExpenseRef, newExpenseDocData);
 
         const currentTotalExpenses = projectData.totalExpenses || 0;
         const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount as any);
@@ -561,7 +582,6 @@ export default function NewExpensePage() {
             updatedAt: serverTimestamp(),
         };
         
-        transaction.set(newExpenseRef, newExpenseDocData);
         transaction.update(projectRef, projectUpdateData);
       });
 
@@ -579,7 +599,6 @@ export default function NewExpensePage() {
          expenseDate: new Date(),
          tags: '',
          invoiceForAnalysis: undefined,
-         receipt: undefined,
       });
       setInvoiceFile(null);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
@@ -694,7 +713,7 @@ export default function NewExpensePage() {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { onChange: rhfOnChange, value: _value, ...restOfField } }) => (
+                        render={({ field: { onChange: rhfOnChange, ...restField } }) => ( // value is intentionally omitted
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse IA</FormLabel>
                                 <FormControl>
@@ -705,10 +724,10 @@ export default function NewExpensePage() {
                                     data-ai-hint="invoice file upload for AI analysis"
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : null;
-                                        rhfOnChange(file);
-                                        setInvoiceFile(file);
+                                        rhfOnChange(file); // Pass file to react-hook-form
+                                        setInvoiceFile(file); // Keep a separate ref for the analysis button
                                     }}
-                                    {...restOfField}
+                                    {...restField} // Spread the rest of the field props (name, onBlur, ref)
                                 />
                                 </FormControl>
                                 <FormMessage />
@@ -761,12 +780,24 @@ export default function NewExpensePage() {
                                 </Alert>
                             )}
                            {hasCameraPermission && (
-                               <div className="flex gap-2">
-                                    <Button type="button" onClick={handleCaptureAndAnalyze} className="w-full" disabled={isAnalyzing}>
+                               <div className="flex gap-2 items-center">
+                                    <Button type="button" onClick={handleCaptureAndAnalyze} className="flex-grow" disabled={isAnalyzing}>
                                         {isAnalyzing ? <Icons.loader className="animate-spin mr-2"/> : <Icons.scan className="mr-2 h-4 w-4" />}
                                         Capturer et Analyser
                                     </Button>
-                                    <Button type="button" variant="outline" onClick={handleCloseCamera} disabled={isAnalyzing}>
+                                    {availableCameras.length > 1 && (
+                                      <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          onClick={handleSwitchCamera}
+                                          disabled={isAnalyzing}
+                                          aria-label="Changer de caméra"
+                                      >
+                                          <Icons.repeat className="h-5 w-5" />
+                                      </Button>
+                                    )}
+                                    <Button type="button" variant="outline" onClick={handleCloseCamera} disabled={isAnalyzing} className="flex-shrink-0">
                                         <Icons.close className="mr-2 h-4 w-4" /> Annuler
                                     </Button>
                                </div>
@@ -970,32 +1001,7 @@ export default function NewExpensePage() {
                 )}
               />
               
-              <FormField
-                  control={form.control}
-                  name="receipt"
-                  render={({ field: { onChange: rhfOnChange, value: _val, ...restField } }) => (
-                      <FormItem>
-                          <FormLabel>Justificatif (optionnel)</FormLabel>
-                          <FormControl>
-                              <Input
-                                  type="file"
-                                  accept="image/png, image/jpeg, image/webp"
-                                  className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                                  data-ai-hint="invoice file upload for storage"
-                                  onChange={(e) => {
-                                      const file = e.target.files ? e.target.files[0] : null;
-                                      rhfOnChange(file);
-                                  }}
-                                  {...restField}
-                              />
-                          </FormControl>
-                          <FormDescription>
-                              Ce fichier sera stocké avec la dépense si la fonctionnalité est activée.
-                          </FormDescription>
-                          <FormMessage />
-                      </FormItem>
-                  )}
-              />
+              {/* Receipt field was removed as per user request to simplify */}
 
 
               <div className="flex justify-end space-x-3 pt-4">
