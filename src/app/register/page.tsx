@@ -6,14 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
-import { useRouter, useSearchParams } from 'next/navigation'; // Import useSearchParams
+import { useRouter, useSearchParams } from 'next/navigation'; 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc } from 'firebase/firestore'; // Import updateDoc, arrayUnion, getDoc
+import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc } from 'firebase/firestore'; 
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
@@ -29,7 +29,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // Get search params
+  const searchParams = useSearchParams(); 
   const { toast } = useToast();
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -47,14 +47,19 @@ export default function RegisterPage() {
     const projectId = searchParams.get('projectId');
     const invitedEmail = searchParams.get('invitedEmail');
 
+    console.log("[RegisterPage onSubmit] Attempting registration for:", data.email);
+    console.log("[RegisterPage onSubmit] projectId from URL:", projectId);
+    console.log("[RegisterPage onSubmit] invitedEmail from URL:", invitedEmail);
+
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const user = userCredential.user;
+      console.log("[RegisterPage onSubmit] Firebase Auth user created successfully. UID:", user.uid);
 
       await updateProfile(user, { displayName: data.name });
 
       const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, {
+      const userDocData = {
         id: user.uid,
         name: data.name,
         email: data.email,
@@ -62,51 +67,50 @@ export default function RegisterPage() {
         createdAt: serverTimestamp() as Timestamp,
         avatarUrl: '',
         avatarStoragePath: '',
-      });
+      };
+      await setDoc(userDocRef, userDocData);
+      console.log("[RegisterPage onSubmit] Firestore user document created for UID:", user.uid, "Data:", userDocData);
 
       toast({
         title: "Inscription réussie",
         description: "Votre compte a été créé.",
       });
 
-      if (projectId && invitedEmail && user.email && user.email.toLowerCase() === invitedEmail.toLowerCase()) {
-        console.log(`[RegisterPage] Attempting to add user ${user.uid} to project ${projectId} based on invitation.`);
-        try {
-          const projectRef = doc(db, "projects", projectId);
-          // We need to fetch the project to ensure it exists and to comply with some update rules if necessary
-          const projectSnap = await getDoc(projectRef);
-          if (projectSnap.exists()) {
-            await updateDoc(projectRef, {
+      if (projectId && invitedEmail && user.email) {
+        console.log(`[RegisterPage onSubmit] Checking invitation conditions: User email: ${user.email.toLowerCase()}, Invited email: ${invitedEmail.toLowerCase()}`);
+        if (user.email.toLowerCase() === invitedEmail.toLowerCase()) {
+          console.log(`[RegisterPage onSubmit] Email match! Attempting to add user ${user.uid} to project ${projectId}.`);
+          try {
+            const projectRef = doc(db, "projects", projectId);
+            const projectUpdateData = {
               members: arrayUnion(user.uid),
               updatedAt: serverTimestamp(),
-            });
+            };
+            await updateDoc(projectRef, projectUpdateData);
             toast({
               title: "Projet rejoint",
-              description: `Vous avez été automatiquement ajouté au projet invité.`,
+              description: "Vous avez été automatiquement ajouté au projet invité.",
             });
-             console.log(`[RegisterPage] Successfully added user ${user.uid} to project ${projectId}.`);
-          } else {
-            console.warn(`[RegisterPage] Invited project ${projectId} not found.`);
+            console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}. Update data:`, projectUpdateData);
+          } catch (projectAddError: any) {
+            console.error(`[RegisterPage onSubmit] Error adding user to project ${projectId}:`, projectAddError.message, projectAddError);
             toast({
-              title: "Projet non trouvé",
-              description: "Le projet pour lequel vous avez été invité n'a pas été trouvé.",
-              variant: "destructive"
+              title: "Erreur d'ajout au projet",
+              description: `Impossible de vous ajouter automatiquement au projet invité: ${projectAddError.message}. Vérifiez les règles Firestore ou si le projet existe.`,
+              variant: "destructive",
+              duration: 7000,
             });
           }
-        } catch (projectAddError: any) {
-          console.error(`[RegisterPage] Error adding user to project ${projectId}:`, projectAddError);
-          toast({
-            title: "Erreur d'ajout au projet",
-            description: `Impossible de vous ajouter automatiquement au projet invité: ${projectAddError.message}. Le propriétaire devra peut-être vous ajouter manuellement.`,
-            variant: "destructive",
-            duration: 7000,
-          });
+        } else {
+          console.warn(`[RegisterPage onSubmit] Email mismatch. User email: ${user.email}, Invited email: ${invitedEmail}. User not added to project.`);
         }
+      } else {
+        console.log("[RegisterPage onSubmit] No projectId or invitedEmail in URL, or user email is null. Skipping project auto-join.");
       }
 
       router.push('/dashboard');
     } catch (error: any) {
-      console.error("Erreur d'inscription:", error);
+      console.error("[RegisterPage onSubmit] Erreur d'inscription générale:", error.message, error);
       let errorMessage = "Une erreur est survenue lors de l'inscription.";
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = "Cette adresse e-mail est déjà utilisée.";
