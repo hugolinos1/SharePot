@@ -92,16 +92,26 @@ interface DisplayExpenseItem extends Omit<ExpenseItem, 'tags' | 'category'> {
 }
 
 
-const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined): string => {
+const formatDateFromTimestamp = (timestamp: Timestamp | undefined): string => {
   if (!timestamp) return 'N/A';
+  if (timestamp instanceof Timestamp) {
+    try {
+      return format(timestamp.toDate(), 'PP', { locale: fr });
+    } catch (e) {
+      console.error("Error formatting Firestore Timestamp:", e);
+      return 'Date invalide';
+    }
+  }
+  // Fallback for string dates, though Timestamp should be preferred
   if (typeof timestamp === 'string') {
     try {
       return format(new Date(timestamp), 'PP', { locale: fr });
-    } catch (e) { return 'Date invalide'; }
+    } catch (e) { 
+      console.error("Error formatting string date:", e);
+      return 'Date invalide';
+    }
   }
-  if (timestamp instanceof Timestamp) {
-    return format(timestamp.toDate(), 'PP', { locale: fr });
-  }
+  console.warn("formatDateFromTimestamp received an unexpected type:", typeof timestamp);
   return 'Date invalide';
 };
 
@@ -160,7 +170,11 @@ export default function DashboardPage() {
   }, [authLoading, currentUser, router]);
 
   const fetchProjects = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setProjects([]);
+      setIsLoadingProjects(true);
+      return;
+    }
     setIsLoadingProjects(true);
     console.log("DashboardPage: fetchProjects - Called for user:", currentUser.uid);
     try {
@@ -190,63 +204,96 @@ export default function DashboardPage() {
       console.log("DashboardPage: Fetched projects:", fetchedProjects.length, "items");
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
+       toast({
+        title: "Erreur de chargement des projets",
+        description: "Impossible de charger la liste des projets.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoadingProjects(false);
     }
-  }, [currentUser]);
+  }, [currentUser, toast]); // Removed toast from here as it's mostly for errors
 
   const fetchRecentGlobalExpenses = useCallback(async () => {
-    if (!currentUser) return;
-    console.log(`DashboardPage: fetchRecentGlobalExpenses - Called. isAdmin: ${isAdmin}, projects.length: ${projects.length}, isLoadingProjects: ${isLoadingProjects}`);
+    if (!currentUser) {
+      setRecentGlobalExpenses([]);
+      setIsLoadingRecentExpenses(false);
+      return;
+    }
+  
     setIsLoadingRecentExpenses(true);
     try {
-        const expensesRef = collection(db, "expenses");
-        let q;
+      const expensesRef = collection(db, "expenses");
+      let q;
+  
+      if (selectedProjectId !== 'all') {
+        console.log(`DashboardPage: fetchRecentGlobalExpenses - Fetching for specific project ID: ${selectedProjectId}`);
+        q = query(expensesRef, where("projectId", "==", selectedProjectId), orderBy("createdAt", "desc"), limit(5));
+      } else { // "All projects" is selected
         if (isAdmin) {
-          console.log("DashboardPage: fetchRecentGlobalExpenses - Admin fetching global expenses.");
+          console.log("DashboardPage: fetchRecentGlobalExpenses - Admin fetching global expenses (all projects).");
           q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
-        } else {
+        } else { // Non-admin, "All projects"
+          if (isLoadingProjects) {
+            console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, 'All Projects', projects still loading. Aborting fetch for now.");
+            setIsLoadingRecentExpenses(false);
+            setRecentGlobalExpenses([]);
+            return;
+          }
+  
           const userProjectIds = projects.map(p => p.id);
-          if (userProjectIds.length === 0 && !isLoadingProjects) { 
-            console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, no projects. Clearing recent expenses.");
+          if (userProjectIds.length === 0) {
+            console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, 'All Projects', no projects found. Clearing recent expenses.");
             setRecentGlobalExpenses([]);
             setIsLoadingRecentExpenses(false);
             return;
           }
-          if(userProjectIds.length === 0 && isLoadingProjects) { 
-             console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, projects still loading. Bailing for now.");
-             setIsLoadingRecentExpenses(false); 
-             return;
-          }
-          console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, fetching for project IDs:", userProjectIds);
+          console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, 'All Projects', fetching for project IDs:", userProjectIds);
           q = query(expensesRef, where("projectId", "in", userProjectIds), orderBy("createdAt", "desc"), limit(5));
         }
-        
-        const querySnapshot = await getDocs(q);
-        const fetchedExpenses = querySnapshot.docs.map(docSnap => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-            displayIcon: Icons.fileText, 
-        } as DisplayExpenseItem));
-        setRecentGlobalExpenses(fetchedExpenses);
-        console.log("DashboardPage: Fetched recentGlobalExpenses:", fetchedExpenses.length, "items");
+      }
+  
+      const querySnapshot = await getDocs(q);
+      const fetchedExpenses = querySnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+        displayIcon: Icons.fileText, 
+      } as DisplayExpenseItem));
+      setRecentGlobalExpenses(fetchedExpenses);
+      console.log(`DashboardPage: Fetched recent expenses (context: ${selectedProjectId === 'all' ? 'global' : selectedProjectId}):`, fetchedExpenses.length, "items");
+  
     } catch (error: any) {
-        console.error("Erreur lors de la récupération des dépenses récentes: ", error);
-        if (error.code === 'failed-precondition' && error.message.includes("index")) {
-            console.warn("DashboardPage: Firestore index missing for recent expenses query. Please create it via the link in the Firebase console error.");
-        }
+      console.error("Erreur lors de la récupération des dépenses récentes: ", error);
+      if (error.code === 'failed-precondition' && error.message.includes("index")) {
+        console.warn("DashboardPage: Firestore index missing for recent expenses query. Please create it via the link in the Firebase console error.");
+        toast({
+          title: "Index Firestore Manquant",
+          description: "Un index est requis pour afficher les dépenses récentes. Veuillez consulter la console Firebase pour le créer.",
+          variant: "destructive",
+          duration: 10000,
+        });
+      } else {
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de charger les dépenses récentes.",
+          variant: "destructive",
+        });
+      }
+      setRecentGlobalExpenses([]);
     } finally {
-        setIsLoadingRecentExpenses(false);
+      setIsLoadingRecentExpenses(false);
     }
-  }, [currentUser, isAdmin, projects, isLoadingProjects]);
+  }, [currentUser, isAdmin, projects, isLoadingProjects, selectedProjectId, toast]);
   
   const fetchAllUserProfilesGlobal = useCallback(async () => {
-    if (!isAdmin) {
-      console.warn("DashboardPage: fetchAllUserProfilesGlobal called by non-admin. This should not happen.");
-      setIsLoadingUserProfiles(false);
-      return;
+    // This function is intended for Admins or scenarios needing all system users.
+    if (!currentUser || !isAdmin) {
+        console.warn("DashboardPage: fetchAllUserProfilesGlobal called by non-admin or no user. This should generally not happen for fetching ALL users.");
+        setIsLoadingUserProfiles(false); // Still set loading to false
+        if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]); // Fallback to self or empty
+        return;
     }
-    console.log("DashboardPage: fetchAllUserProfilesGlobal - Fetching all user profiles (admin).");
+    console.log("DashboardPage: fetchAllUserProfilesGlobal - Admin fetching all user profiles.");
     setIsLoadingUserProfiles(true);
     try {
       const usersCollectionRef = collection(db, "users");
@@ -258,13 +305,19 @@ export default function DashboardPage() {
       console.log("DashboardPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
     } catch (error) {
       console.error("Erreur lors de la récupération de tous les profils utilisateurs (Dashboard Admin): ", error);
-      setAllUserProfiles([]); 
+      if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]); 
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [isAdmin]);
+  }, [currentUser, isAdmin, userProfile]);
 
   const fetchSelectedProjectMembersProfiles = useCallback(async (projectId: string) => {
+    // Fetches profiles ONLY for members of a specific project.
+    if (!currentUser || !projectId || projectId === 'all') {
+      setIsLoadingUserProfiles(false);
+      if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+      return;
+    }
     console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Fetching members for project ID: ${projectId}`);
     setIsLoadingUserProfiles(true);
     try {
@@ -308,15 +361,15 @@ export default function DashboardPage() {
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [userProfile]);
+  }, [currentUser, userProfile]);
 
 
  const fetchAndProcessExpensesForChart = useCallback(async () => {
     console.log("Chart: fetchAndProcessExpensesForChart called. SelectedProjectId:", selectedProjectId, "isLoadingUserProfiles:", isLoadingUserProfiles);
     console.log("Chart: Current allUserProfiles at start of fetchAndProcessExpensesForChart:", JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
 
-    if (!currentUser || (isLoadingUserProfiles && allUserProfiles.length === 0 && !isAdmin)) { // Allow admin to proceed even if allUserProfiles is initially empty during global fetch
-      console.log("Chart: Bailing early. Conditions: currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles, "allUserProfiles.length:", allUserProfiles.length, "isAdmin:", isAdmin);
+    if (!currentUser || (isLoadingUserProfiles && allUserProfiles.length === 0 && (!isAdmin || selectedProjectId !== 'all') )) { 
+      console.log("Chart: Bailing early. Conditions: currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles, "allUserProfiles.length:", allUserProfiles.length, "isAdmin:", isAdmin, "selectedProjectId:", selectedProjectId);
       setUserExpenseChartData([]);
       setCategoryChartData([]);
       setIsLoadingExpenseChartData(false);
@@ -327,7 +380,12 @@ export default function DashboardPage() {
 
     let projectIdsToQuery: string[] = [];
     if (selectedProjectId === 'all') {
-      if (projects.length === 0 && !isLoadingProjects) {
+      if (isLoadingProjects) {
+         console.log("Chart: 'All projects' selected, projects still loading. Aborting chart data fetch for now.");
+         setIsLoadingExpenseChartData(false);
+         return;
+      }
+      if (projects.length === 0) {
         console.log("Chart: 'All projects' selected, but user has no projects. Clearing chart data.");
         setUserExpenseChartData([]);
         setCategoryChartData([]);
@@ -341,13 +399,9 @@ export default function DashboardPage() {
     console.log("Chart: projectIdsToQuery:", projectIdsToQuery);
 
     if (projectIdsToQuery.length === 0) {
-      if (isLoadingProjects) {
-        console.log("Chart: No project IDs to query YET because projects are still loading. Will wait.");
-      } else {
-        console.log("Chart: No project IDs to query (and projects not loading). Setting empty chart data.");
-        setUserExpenseChartData([]);
-        setCategoryChartData([]);
-      }
+      console.log("Chart: No project IDs to query. Setting empty chart data.");
+      setUserExpenseChartData([]);
+      setCategoryChartData([]);
       setIsLoadingExpenseChartData(false);
       return;
     }
@@ -382,8 +436,7 @@ export default function DashboardPage() {
       const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmount]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
         const userName = user?.name || paidById; 
-        console.log(`Chart: (Inside map) paidById: ${paidById}. allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
-        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}`);
+        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}. Profiles searched:`, JSON.stringify(allUserProfiles.map(u=>({id:u.id, name:u.name}))));
         return { user: userName, Dépenses: totalAmount * 100 }; 
       });
       console.log("Chart (User): Final formattedUserChartData:", formattedUserChartData);
@@ -411,102 +464,111 @@ export default function DashboardPage() {
   }, [currentUser, projects, selectedProjectId, allUserProfiles, isLoadingUserProfiles, isLoadingProjects, isAdmin]);
 
 
-  // Fetch projects when currentUser changes
   useEffect(() => {
+    console.log("DashboardPage: useEffect (Core data) - Fetching projects and recent expenses.");
     if (currentUser) {
-      console.log("DashboardPage: useEffect - Fetching projects due to currentUser change or component mount with currentUser.");
       fetchProjects();
     } else {
-      console.log("DashboardPage: useEffect - No currentUser, clearing projects.");
       setProjects([]);
-      setIsLoadingProjects(true); // Reset for next login
+      setIsLoadingProjects(true);
+      setRecentGlobalExpenses([]);
+      setIsLoadingRecentExpenses(true);
     }
   }, [currentUser, fetchProjects]);
 
-  // Fetch recent global expenses when relevant data changes (including projects)
   useEffect(() => {
+    console.log(
+      `DashboardPage: useEffect (Recent Expenses) - Triggered. currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, selectedProjectId: ${selectedProjectId}`
+    );
     if (currentUser && !isLoadingProjects) { 
-      console.log("DashboardPage: useEffect - Fetching recent global expenses because currentUser and projects are loaded/stable.");
+      console.log("DashboardPage: useEffect (Recent Expenses) - Conditions met, calling fetchRecentGlobalExpenses.");
       fetchRecentGlobalExpenses();
-    } else if (!currentUser) {
-      console.log("DashboardPage: useEffect - No currentUser, clearing recent global expenses.");
-      setRecentGlobalExpenses([]);
     } else {
-      console.log("DashboardPage: useEffect - Not fetching recent global expenses yet (currentUser or projects loading).");
+      console.log("DashboardPage: useEffect (Recent Expenses) - Conditions NOT met for fetching recent expenses (waiting for user or projects).");
+       if(!currentUser && !authLoading) { 
+        setRecentGlobalExpenses([]);
+        setIsLoadingRecentExpenses(false);
+      }
     }
-  }, [currentUser, isAdmin, projects, isLoadingProjects, fetchRecentGlobalExpenses]);
+  }, [currentUser, isAdmin, projects, isLoadingProjects, selectedProjectId, fetchRecentGlobalExpenses, authLoading]);
 
 
- useEffect(() => {
+  useEffect(() => {
     console.log(`DashboardPage: useEffect (User Profiles) - Triggered. currentUser: ${!!currentUser}, isAdmin: ${isAdmin}, selectedProjectId: ${selectedProjectId}, isLoadingProjects: ${isLoadingProjects}, projects.length: ${projects.length}`);
     if (currentUser) {
-      if (isAdmin) {
-        console.log("DashboardPage: useEffect (User Profiles) - Admin is fetching all user profiles globally.");
-        fetchAllUserProfilesGlobal();
-      } else { // Not admin
-        if (selectedProjectId === 'all') {
-          if (isLoadingProjects) {
-            console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, projects still loading. Setting isLoadingUserProfiles to true.");
-            setIsLoadingUserProfiles(true); 
-          } else { // Projects are loaded for non-admin 'all projects'
-            console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, projects loaded. Fetching profiles for all their project members.");
-            if (projects.length > 0) {
-                const allMemberUIDs = new Set<string>();
-                projects.forEach(p => {
-                  if (p.members && Array.isArray(p.members)) {
-                    p.members.forEach(uid => allMemberUIDs.add(uid));
-                  }
-                });
-                if (currentUser?.uid) allMemberUIDs.add(currentUser.uid); // Ensure current user is included
-
-                if (allMemberUIDs.size > 0) {
-                  const fetchProfilesForUIDs = async (uids: string[]) => {
+        if (isAdmin) {
+            console.log("DashboardPage: useEffect (User Profiles) - Admin is fetching all user profiles globally.");
+            fetchAllUserProfilesGlobal();
+        } else { // Not admin
+            if (selectedProjectId === 'all') {
+                if (isLoadingProjects) {
+                    console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, projects still loading. Setting self profile as fallback for now.");
+                    if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+                    // Keep isLoadingUserProfiles true until projects are loaded and all members can be fetched
                     setIsLoadingUserProfiles(true);
-                    const profilesPromises = uids.map(uid => firestoreGetDoc(doc(db, "users", uid)));
-                    try {
-                        const profileDocs = await Promise.all(profilesPromises);
-                        const fetchedProfiles = profileDocs
-                            .filter(docSnap => docSnap.exists())
-                            .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-                        
-                        const uniqueProfilesMap = new Map<string, AppUserType>();
-                        fetchedProfiles.forEach(p => uniqueProfilesMap.set(p.id, p));
-                        if (userProfile && !uniqueProfilesMap.has(userProfile.id)) { // Ensure current user's profile is there if not fetched via members
-                            uniqueProfilesMap.set(userProfile.id, userProfile);
+                } else { // Projects are loaded for non-admin 'all projects'
+                    console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, projects loaded. Fetching profiles for all their project members.");
+                    if (projects.length > 0) {
+                        const allMemberUIDs = new Set<string>();
+                        projects.forEach(p => {
+                            if (p.members && Array.isArray(p.members)) {
+                                p.members.forEach(uid => allMemberUIDs.add(uid));
+                            }
+                        });
+                        if (currentUser?.uid && !allMemberUIDs.has(currentUser.uid)) { // Ensure current user is included if not already a member in data
+                            allMemberUIDs.add(currentUser.uid);
                         }
-                        const uniqueProfiles = Array.from(uniqueProfilesMap.values());
 
-                        setAllUserProfiles(uniqueProfiles);
-                        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
-                    } catch (e) {
-                        console.error("DashboardPage: Error fetching some user profiles for non-admin 'all projects':", e);
-                        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]); // Fallback
-                    } finally {
+                        if (allMemberUIDs.size > 0) {
+                            const fetchProfilesForUIDs = async (uids: string[]) => {
+                                setIsLoadingUserProfiles(true);
+                                const profilesPromises = uids.map(uid => firestoreGetDoc(doc(db, "users", uid)));
+                                try {
+                                    const profileDocs = await Promise.all(profilesPromises);
+                                    const fetchedProfiles = profileDocs
+                                        .filter(docSnap => docSnap.exists())
+                                        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+                                    
+                                    const uniqueProfilesMap = new Map<string, AppUserType>();
+                                    fetchedProfiles.forEach(p => uniqueProfilesMap.set(p.id, p));
+                                    
+                                    // Ensure current user's profile is there if not fetched (e.g., they are owner but not explicitly in members array)
+                                    if (userProfile && !uniqueProfilesMap.has(userProfile.id)) { 
+                                        uniqueProfilesMap.set(userProfile.id, userProfile);
+                                    }
+                                    const uniqueProfiles = Array.from(uniqueProfilesMap.values());
+
+                                    setAllUserProfiles(uniqueProfiles);
+                                    console.log("DashboardPage: useEffect (User Profiles, Non-Admin, All Projects) - Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
+                                } catch (e) {
+                                    console.error("DashboardPage: Error fetching some user profiles for non-admin 'all projects':", e);
+                                    if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+                                } finally {
+                                    setIsLoadingUserProfiles(false);
+                                }
+                            };
+                            fetchProfilesForUIDs(Array.from(allMemberUIDs));
+                        } else { 
+                           console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects', no member UIDs found across projects. Setting self profile.");
+                           if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+                           setIsLoadingUserProfiles(false);
+                        }
+                    } else { 
+                        console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, but no projects. Setting self profile.");
+                        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
                         setIsLoadingUserProfiles(false);
                     }
-                  };
-                  fetchProfilesForUIDs(Array.from(allMemberUIDs));
-                } else { // No members UIDs found across all projects
-                   console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects', no member UIDs found across projects. Setting self profile.");
-                   if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-                   setIsLoadingUserProfiles(false);
                 }
-            } else { // Projects loaded, but there are no projects for this non-admin
-                console.log("DashboardPage: useEffect (User Profiles) - Non-admin, 'All Projects' selected, but no projects. Setting self profile.");
-                if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-                setIsLoadingUserProfiles(false);
+            } else { // Specific project selected by non-admin
+                console.log(`DashboardPage: useEffect (User Profiles) - Non-admin, specific project selected: ${selectedProjectId}. Calling fetchSelectedProjectMembersProfiles.`);
+                fetchSelectedProjectMembersProfiles(selectedProjectId);
             }
-          }
-        } else { // Specific project selected by non-admin
-          console.log(`DashboardPage: useEffect (User Profiles) - Non-admin, specific project selected: ${selectedProjectId}. Calling fetchSelectedProjectMembersProfiles.`);
-          fetchSelectedProjectMembersProfiles(selectedProjectId);
         }
-      }
-    } else { // No current user
-      setAllUserProfiles([]);
-      setIsLoadingUserProfiles(false);
+    } else { 
+        setAllUserProfiles([]);
+        setIsLoadingUserProfiles(false); 
     }
-  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, fetchAllUserProfilesGlobal, fetchSelectedProjectMembersProfiles, userProfile]);
+  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, userProfile, fetchAllUserProfilesGlobal, fetchSelectedProjectMembersProfiles]);
 
 
   useEffect(() => {
@@ -517,23 +579,21 @@ export default function DashboardPage() {
 
     if (currentUser && !isLoadingProjects && !isLoadingUserProfiles ) {
        console.log(`DashboardPage: useEffect (chart data) - Conditions MET. allUserProfiles.length: ${allUserProfiles.length}`);
-       // Condition for calling fetch: allUserProfiles must have at least one entry OR
-       // if projects are empty and 'all' is selected (no expenses to chart anyway).
        if (allUserProfiles.length > 0 || (projects.length === 0 && selectedProjectId === 'all' && !isAdmin ) ) {
            console.log("DashboardPage: useEffect (chart data) - Calling fetchAndProcessExpensesForChart.");
            fetchAndProcessExpensesForChart();
-       } else if (isAdmin && !isLoadingUserProfiles) { // Admin might have allUserProfiles empty initially if global fetch is slow but still needs to proceed
+       } else if (isAdmin && !isLoadingUserProfiles) { 
            console.log("DashboardPage: useEffect (chart data) - Admin context, calling fetchAndProcessExpensesForChart even if allUserProfiles might be initially empty.");
            fetchAndProcessExpensesForChart();
        } else {
-           console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g. profiles empty but projects exist). Clearing chart data for safety.");
+           console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g., profiles empty but projects exist). Clearing chart data for safety.");
            setUserExpenseChartData([]);
            setCategoryChartData([]);
            setIsLoadingExpenseChartData(false);
        }
     } else {
       console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET for fetching chart data (waiting for projects or profiles).");
-       if(!currentUser && !authLoading) { // If logged out and auth is done loading
+       if(!currentUser && !authLoading) { 
         setUserExpenseChartData([]);
         setCategoryChartData([]);
         setIsLoadingExpenseChartData(false);
@@ -577,13 +637,13 @@ export default function DashboardPage() {
     let participantsSet = new Set<string>();
     if (selectedProject && selectedProject.members) {
       selectedProject.members.forEach(memberUid => participantsSet.add(memberUid));
-    } else { // "All projects" or no specific project selected
+    } else { 
       projects.forEach(p => {
           if(p.members && Array.isArray(p.members)) {
             p.members.forEach(memberUid => participantsSet.add(memberUid));
           }
       });
-      if(projects.length === 0 && userProfile && currentUser) { // If user has no projects, they are the only participant for summary
+      if(projects.length === 0 && userProfile && currentUser) { 
         participantsSet.add(currentUser.uid);
       }
     }
@@ -797,9 +857,15 @@ export default function DashboardPage() {
 
             <Card className="lg:col-span-1">
               <CardHeader>
-                <CardTitle>Dépenses récentes (global)</CardTitle>
+                <CardTitle>
+                  {selectedProjectId !== 'all' && selectedProject ?
+                    `Dépenses récentes pour ${selectedProject.name}` :
+                    "Dépenses récentes (globales)"}
+                </CardTitle>
                 <CardDescription>
-                  {selectedProject ? `Dernières transactions globales (non filtré par projet ${selectedProject.name})` : "Vos dernières transactions globales"}
+                  {selectedProjectId !== 'all' && selectedProject ?
+                    `Les 5 dernières transactions pour ce projet.` :
+                    `Les 5 dernières transactions globales ${isAdmin ? "" : "(sur vos projets)"}.`}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -817,7 +883,7 @@ export default function DashboardPage() {
                           <p className="font-medium">{expense.title}</p>
                           <p className="font-semibold text-sm">{expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency || 'EUR'})}</p>
                         </div>
-                        <p className="text-xs text-muted-foreground">{expense.projectName} • {formatDateFromTimestamp(expense.expenseDate ? expense.expenseDate.toString() : undefined)}</p>
+                        <p className="text-xs text-muted-foreground">{expense.projectName} • {formatDateFromTimestamp(expense.expenseDate)}</p>
                         {expense.category && <Badge variant="outline" className="text-xs mt-1">{expense.category}</Badge>}
                       </div>
                     </div>
@@ -838,3 +904,5 @@ export default function DashboardPage() {
   );
 }
 
+
+    
