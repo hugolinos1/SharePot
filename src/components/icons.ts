@@ -37,7 +37,8 @@ import {
   Receipt,
   PlusSquare,
   Folders,
-  BarChart3,
+  BarChart3, // Note: BarChart3 est souvent utilisé pour les graphiques à barres
+  PieChart,  // Ajout de PieChart
   ChevronsLeft,
   Euro,
   FileText,
@@ -53,7 +54,7 @@ import {
   LogOut,
   ScanLine,
   Camera,
-  Sparkles // Ajout de l'icône Sparkles
+  Sparkles
 } from 'lucide-react';
 
 const Icons = {
@@ -85,13 +86,13 @@ const Icons = {
   shield: Shield,
   spinner: Loader2,
   trash: Trash,
-  user: User, // Generic user icon
-  userCircle: UserCircle2, // User icon in a circle, good for avatars
+  user: User, 
+  userCircle: UserCircle2,
   panelLeft: PanelLeft,
   lock: Lock,
   trendingUp: TrendingUp,
   repeat: Repeat,
-  users: Users, // Group of users
+  users: Users, 
   eye: Eye,
   dollarSign: DollarSign,
   layoutDashboard: LayoutDashboard,
@@ -99,6 +100,7 @@ const Icons = {
   plusSquare: PlusSquare,
   folders: Folders,
   barChart3: BarChart3,
+  pieChart: PieChart, // Ajout de PieChart
   chevronsLeft: ChevronsLeft,
   euro: Euro,
   fileText: FileText,
@@ -111,9 +113,7 @@ const Icons = {
   logOut: LogOut,
   scan: ScanLine,
   camera: Camera,
-  sparkles: Sparkles, // Ajout de l'icône Sparkles
+  sparkles: Sparkles, 
 };
 
 export { Icons };
-
-    
