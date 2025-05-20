@@ -15,6 +15,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter, // Added CardFooter
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
+  DialogFooter as ModalDialogFooter, // Aliased to avoid conflict with CardFooter
   DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -35,7 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ProjectExpenseSettlement } from '@/components/projects/project-expense-settlement';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where, arrayUnion, getDoc as firestoreGetDoc } from 'firebase/firestore'; // Renamed getDoc to firestoreGetDoc
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, where, arrayUnion, getDoc as firestoreGetDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -150,27 +151,28 @@ export default function ProjectsPage() {
       setAllUserProfiles([]);
       return;
     }
-
-    console.log("ProjectsPage: fetchAllUserProfiles - Fetching relevant user profiles. isAdmin:", isAdmin);
+    // For non-admins, this list will be used to pick members.
+    // If a non-admin is owner, they should be able to see all users to invite them.
+    // For security reasons, this requires `allow list` on users collection for authenticated users.
+    // If that's too permissive, this logic would need to change (e.g., search by email).
+    console.log("ProjectsPage: fetchAllUserProfiles - Fetching all user profiles.");
     setIsLoadingAllUserProfiles(true);
     try {
-      // For both admin and non-admin, we need to fetch user profiles.
-      // Admin will fetch all, non-admin will fetch profiles relevant to their projects
-      // This list is primarily used for the "Add existing member" modal.
       const usersCollectionRef = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollectionRef); // Admin can list all users, non-admin also if rules allow.
+      const usersSnapshot = await getDocs(usersCollectionRef);
       const usersList = usersSnapshot.docs.map(docSnap => ({
         id: docSnap.id,
         ...docSnap.data(),
       } as AppUserType));
       setAllUserProfiles(usersList);
-      console.log("ProjectsPage: Successfully fetched allUserProfiles (may be all or limited by rules):", usersList.length);
+      console.log("ProjectsPage: Successfully fetched allUserProfiles:", usersList.length);
     } catch (error: any) {
       console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
       toast({
         title: "Erreur de chargement (Utilisateurs)",
-        description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
+        description: `Impossible de charger tous les profils utilisateurs. Assurez-vous que les règles Firestore permettent aux utilisateurs authentifiés de lister la collection 'users'. Erreur: ${error.message}`,
         variant: "destructive",
+        duration: 7000,
       });
       setAllUserProfiles([]);
     } finally {
@@ -218,7 +220,7 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); 
+      setIsLoading(false);
     }
   }, [currentUser, toast]);
 
@@ -227,7 +229,7 @@ export default function ProjectsPage() {
     if (currentUser) {
       console.log("ProjectsPage: useEffect - currentUser exists. Fetching projects and all user profiles.");
       fetchProjects();
-      fetchAllUserProfiles(); // Fetch all users for the "Add existing member" modal
+      fetchAllUserProfiles();
     } else {
       console.log("ProjectsPage: useEffect - currentUser is null, cannot fetch data.");
       setProjects([]);
@@ -256,7 +258,7 @@ export default function ProjectsPage() {
         for (const uid of project.members) {
           console.log(`ProjectsPage (handleViewProjectDetails): Attempting to fetch profile for UID: ${uid}`);
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await firestoreGetDoc(userDocRef); // Use aliased import
+          const docSnapshot = await firestoreGetDoc(userDocRef);
           if (docSnapshot.exists()) {
             const profileData = { id: docSnapshot.id, ...docSnapshot.data() } as AppUserType;
             console.log(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} EXISTS. Data:`, JSON.stringify(profileData));
@@ -401,7 +403,7 @@ export default function ProjectsPage() {
       return;
     }
     if (isLoadingAllUserProfiles) {
-        await fetchAllUserProfiles(); // ensure list is populated
+        await fetchAllUserProfiles();
     }
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
@@ -439,7 +441,7 @@ export default function ProjectsPage() {
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await firestoreGetDoc(userDocRef); // Use aliased import
+          const docSnapshot = await firestoreGetDoc(userDocRef); 
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
@@ -472,7 +474,6 @@ export default function ProjectsPage() {
     setIsSendingInvite(true);
     console.log(`[ProjectsPage] Initiating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
     
-    // Générer un lien d'invitation basique. Pour une vraie application, ce lien devrait contenir un token unique.
     const baseUrl = window.location.origin;
     const invitationLink = `${baseUrl}/register?projectId=${selectedProject.id}&invitedEmail=${encodeURIComponent(values.email)}`;
 
@@ -576,7 +577,7 @@ export default function ProjectsPage() {
       <main className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex-grow">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
-            <h2 className="text-3xl font-bold">Gestion des Projets</h2>
+            <h2 className="text-2xl font-bold">Gestion des Projets</h2>
             <p className="text-muted-foreground">Créez et gérez vos projets collaboratifs.</p>
           </div>
           <div className="flex items-center gap-4 mt-4 md:mt-0">
@@ -601,15 +602,17 @@ export default function ProjectsPage() {
                             <div className="animate-pulse bg-muted h-5 w-1/3 rounded"></div>
                             <div className="animate-pulse bg-muted h-2 w-full rounded"></div>
                         </CardContent>
-                        <DialogFooter className="p-4 pt-0 border-t mt-auto"><div className="animate-pulse bg-muted h-8 w-full rounded"></div></DialogFooter>
+                        <CardFooter className="p-4 pt-0 border-t mt-auto"><div className="animate-pulse bg-muted h-8 w-full rounded"></div></CardFooter>
                     </Card>
                 ))}
             </div>
         ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
+              const ownerProfile = allUserProfiles.find(user => user.id === project.ownerId);
+              const ownerName = ownerProfile?.name || project.ownerId;
               const displayableMemberProfilesOnCard = project.members.map(uid => {
-                const profile = getAnyUserProfileById(uid);
+                const profile = allUserProfiles.find(p => p.id === uid);
                 return profile || ({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
               }).filter(Boolean) as AppUserType[];
 
@@ -621,6 +624,7 @@ export default function ProjectsPage() {
                     <Badge variant={getStatusBadgeVariant(project.status)}>{project.status}</Badge>
                   </div>
                   <CardDescription className="h-10 overflow-hidden text-ellipsis">{project.description}</CardDescription>
+                  <p className="text-xs text-muted-foreground mt-1">Propriétaire : {ownerName}</p>
                 </CardHeader>
                 <CardContent className="flex-grow">
                   <div className="flex items-center justify-between mb-3 text-sm">
@@ -644,7 +648,7 @@ export default function ProjectsPage() {
                     </div>
                   )}
                 </CardContent>
-                <DialogFooter className="p-4 pt-0 border-t mt-auto">
+                <CardFooter className="p-4 pt-0 border-t mt-auto">
                      <div className="flex items-center justify-between w-full">
                         <div className="flex -space-x-2 overflow-hidden">
                             {displayableMemberProfilesOnCard.slice(0, 3).map((memberProfile, index) => (
@@ -667,7 +671,7 @@ export default function ProjectsPage() {
                             Voir détails <Icons.arrowRight className="ml-1 h-4 w-4" />
                         </Button>
                     </div>
-                </DialogFooter>
+                </CardFooter>
               </Card>
             )})}
           </div>
@@ -910,7 +914,7 @@ export default function ProjectsPage() {
                     </Card>
                 </div>
             </div>
-            <DialogFooter className="border-t pt-4 flex flex-col sm:flex-row sm:justify-between">
+            <ModalDialogFooter className="border-t pt-4 flex flex-col sm:flex-row sm:justify-between">
                <div>
                  <Button
                     variant="default"
@@ -932,7 +936,7 @@ export default function ProjectsPage() {
                    <Button variant="outline" disabled={isLoading}>Fermer</Button>
                 </DialogClose>
               </div>
-            </DialogFooter>
+            </ModalDialogFooter>
           </DialogContent>
         </Dialog>
       )}
@@ -946,13 +950,13 @@ export default function ProjectsPage() {
                          Les dépenses associées à ce projet ne seront pas supprimées mais pourraient devenir orphelines.
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter>
+                <ModalDialogFooter>
                     <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)} disabled={isLoading}>Annuler</Button>
                     <Button variant="destructive" onClick={handleDeleteProject} disabled={isLoading}>
                         {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.trash className="mr-2 h-4 w-4"/>}
                         Supprimer
                     </Button>
-                </DialogFooter>
+                </ModalDialogFooter>
             </DialogContent>
         </Dialog>
 
@@ -997,15 +1001,16 @@ export default function ProjectsPage() {
                         </p>
                     )}
                 </div>
-                <DialogFooter>
+                <ModalDialogFooter>
                     <Button variant="outline" onClick={() => setIsAddMemberDialogOpen(false)} disabled={isLoading}>Annuler</Button>
                     <Button onClick={handleConfirmAddMembers} disabled={isLoading || usersToAddToProject.length === 0}>
                         {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.plus className="mr-2 h-4 w-4"/>}
                         Ajouter les membres sélectionnés
                     </Button>
-                </DialogFooter>
+                </ModalDialogFooter>
             </DialogContent>
         </Dialog>
     </div>
   );
 }
+
