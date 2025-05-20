@@ -43,7 +43,7 @@ const profileFormSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
-  if (name) {
+  if (name && name.trim() !== '') {
     const parts = name.trim().split(' ');
     if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
       return (parts[0][0] || '').toUpperCase() + (parts[parts.length - 1][0] || '').toUpperCase();
@@ -56,7 +56,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
       return singleName[0].toUpperCase();
     }
   }
-  if (email) {
+  if (email && email.trim() !== '') {
     const emailPrefix = email.split('@')[0];
     if (emailPrefix && emailPrefix.length >= 2) {
       return emailPrefix.substring(0, 2).toUpperCase();
@@ -145,15 +145,21 @@ export default function ProfilePage() {
           await deleteObject(oldAvatarRef);
           console.log("[ProfilePage handleSaveAvatar] Old avatar deleted successfully from Storage.");
         } catch (deleteError: any) {
-          console.error("[ProfilePage handleSaveAvatar] Error deleting old avatar from Storage:", deleteError.message, deleteError);
-          toast({ title: "Avertissement", description: "Impossible de supprimer l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
+          if (deleteError.code === 'storage/object-not-found') {
+            console.info("[ProfilePage handleSaveAvatar] Old avatar not found in Storage (already deleted or path was invalid):", oldAvatarStoragePath);
+            // No toast needed if object was already gone
+          } else {
+            // Log other errors as actual errors and show a warning toast
+            console.error("[ProfilePage handleSaveAvatar] Error deleting old avatar from Storage:", deleteError.message, deleteError);
+            toast({ title: "Avertissement", description: "Un problème est survenu lors de la suppression de l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
+          }
         }
       }
       
       const userDocRef = doc(db, "users", currentUser.uid);
       const updateData = {
         avatarUrl: newAvatarUrl,
-        avatarStoragePath: newAvatarStoragePath,
+        avatarStoragePath: newAvatarStoragePath, // Make sure to save the new path
       };
       console.log("[ProfilePage handleSaveAvatar] Attempting to update Firestore user document with:", updateData);
       await updateDoc(userDocRef, updateData);
@@ -163,8 +169,12 @@ export default function ProfilePage() {
         const updatedProfile = { ...userProfile, avatarUrl: newAvatarUrl, avatarStoragePath: newAvatarStoragePath };
         setContextUserProfile(updatedProfile);
         console.log("[ProfilePage handleSaveAvatar] AuthContext userProfile updated.");
+        // Log to confirm the context update after React has processed state changes
         setTimeout(() => {
-            console.log("[ProfilePage handleSaveAvatar AFTER CONTEXT UPDATE (timeout)] userProfile from context:", JSON.stringify(auth.currentUser, null, 2)); // This will show FirebaseUser, not our AppUserType
+            // To check the global context state, you might need to inspect it through DevTools
+            // or by triggering a re-render of a component that uses it.
+            // For now, we rely on the fact that setContextUserProfile was called.
+            console.log("[ProfilePage handleSaveAvatar AFTER CONTEXT UPDATE (timeout)] userProfile.avatarUrl should now be new URL.");
         }, 0);
       }
 
@@ -257,7 +267,7 @@ export default function ProfilePage() {
             <DropdownMenuTrigger asChild>
               <Avatar className="h-9 w-9 cursor-pointer">
                 <AvatarImage
-                    src={userProfile?.avatarUrl ? userProfile.avatarUrl : undefined}
+                    src={userProfile?.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined}
                     alt={userProfile?.name || currentUser?.email || "User"}
                     data-ai-hint="user avatar"
                   />
@@ -298,7 +308,7 @@ export default function ProfilePage() {
             <div className="relative group">
                 <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
                     <AvatarImage 
-                        src={avatarPreviewUrl || (userProfile.avatarUrl ? userProfile.avatarUrl : undefined)}
+                        src={(avatarPreviewUrl || (userProfile.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined)) || undefined}
                         alt={userProfile.name || 'User'} 
                         data-ai-hint="user avatar large"
                     />
