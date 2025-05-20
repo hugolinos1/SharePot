@@ -10,63 +10,88 @@ service cloud.firestore {
     }
 
     // Helper function to check if the user is a participant (member or owner) of a project
+    // It also checks if the project document actually exists.
     function isProjectParticipant(projectId) {
-      // Ensure the project document exists before trying to access its data
       let projectPath = /databases/$(database)/documents/projects/$(projectId);
       return exists(projectPath) &&
              (
                request.auth.uid == get(projectPath).data.ownerId ||
-               (get(projectPath).data.members is list && request.auth.uid in get(projectPath).data.members)
+               (get(projectPath).data.members != null && request.auth.uid in get(projectPath).data.members)
              );
     }
 
     match /users/{userId} {
       // ANY authenticated user can create their OWN user document, ensuring the doc ID matches their UID
-      allow create: if request.auth != null && request.resource.data.id == request.auth.uid;
+      // and they are not trying to set themselves as admin unless they are THE admin.
+      allow create: if request.auth != null &&
+                       request.resource.data.id == request.auth.uid &&
+                       (request.resource.data.isAdmin == false || isAdmin()); // Prevent self-promotion to admin
 
-      // ANY authenticated user can read ANY user document.
-      // The application logic should handle displaying only relevant profiles (e.g., project members).
+      // Admin can read any user document.
+      // An authenticated user can read ANY user document (needed for project members display).
       allow read: if request.auth != null;
 
       // Admin can update any user document.
       // A user can update their OWN user document for specific fields.
-      allow update: if isAdmin() ||
-                       (request.auth.uid == userId &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'avatarStoragePath']) && // Added avatarStoragePath
-                        !(request.resource.data.keys().hasAny(['isAdmin']) && resource.data.isAdmin == false && request.resource.data.isAdmin == true)
+      // Prevent users from making themselves admin unless they are THE admin.
+      allow update: if request.auth != null &&
+                       (
+                         isAdmin() ||
+                         ( // User updating their own profile for allowed fields
+                           request.auth.uid == userId &&
+                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'avatarStoragePath']) &&
+                           // Prevent changing isAdmin status unless it's from true to false (admin demoting themselves - unlikely via UI)
+                           // or if they are already admin (isAdmin() would be true and caught by the first part of OR)
+                           // This specific check prevents a non-admin from setting isAdmin to true.
+                           (request.resource.data.keys().has('isAdmin') == false || request.resource.data.isAdmin == resource.data.isAdmin || request.resource.data.isAdmin == false)
+                         )
                        );
 
-      // Admin can delete any user document. (Be cautious with this rule in production)
-      allow delete: if isAdmin();
 
-      // Admin can list all users. Any authenticated user can list users too for member selection.
+      // Admin can delete any user document (except their own, as a safeguard).
+      // Users cannot delete their own accounts through this rule directly.
+      allow delete: if isAdmin() && request.auth.uid != userId;
+
+      // Admin can list all users.
+      // Other authenticated users can list users (needed for adding members to projects).
       allow list: if request.auth != null;
     }
 
     match /projects/{projectId} {
+      // ANY authenticated user can create a project.
+      // The creator (request.auth.uid) MUST be the ownerId and a member.
+      // Required fields: name, ownerId, members, status, createdAt, updatedAt, lastActivity.
       allow create: if request.auth != null &&
                        request.resource.data.ownerId == request.auth.uid &&
-                       (request.resource.data.members is list && request.auth.uid in request.resource.data.members) &&
+                       request.auth.uid in request.resource.data.members &&
                        request.resource.data.name is string && request.resource.data.name.size() > 0 &&
                        request.resource.data.status is string &&
                        request.resource.data.createdAt == request.time &&
                        request.resource.data.updatedAt == request.time &&
                        request.resource.data.lastActivity == request.time;
 
+      // Admin can read any project.
+      // A user can read a project if they are an owner or a member.
       allow read: if isAdmin() || isProjectParticipant(projectId);
 
+      // Admin can update any project.
+      // The project owner can update most project fields.
+      // Project participants can update specific fields related to expense tracking.
       allow update: if request.auth != null && (
                         isAdmin() ||
-                        ( // Owner can update most fields
+                        ( // Owner can update more fields
                           request.auth.uid == resource.data.ownerId &&
                           request.resource.data.updatedAt == request.time &&
-                          (!request.resource.data.keys().has('ownerId') || request.resource.data.ownerId == resource.data.ownerId) && // ownerId cannot be changed
-                          (!request.resource.data.keys().has('createdAt') || request.resource.data.createdAt == resource.data.createdAt) // createdAt cannot be changed
+                          // Owner cannot change ownerId or createdAt via this rule
+                          (!request.resource.data.keys().has('ownerId') || request.resource.data.ownerId == resource.data.ownerId) &&
+                          (!request.resource.data.keys().has('createdAt') || request.resource.data.createdAt == resource.data.createdAt)
                         ) ||
-                        ( // Project participant can ONLY update expense tracking fields
+                        ( // Project participant can ONLY update expense tracking fields if not owner
                           isProjectParticipant(projectId) &&
-                          request.resource.data.updatedAt == request.time &&
-                          request.resource.data.lastActivity == request.time &&
+                          request.auth.uid != resource.data.ownerId && // Not the owner, but a participant
+                          request.resource.data.updatedAt == request.time && // Timestamps must be server-set
+                          request.resource.data.lastActivity == request.time && // Timestamps must be server-set
+                          // Fields that participants CANNOT change must remain the same
                           request.resource.data.name == resource.data.name &&
                           request.resource.data.description == resource.data.description &&
                           request.resource.data.status == resource.data.status &&
@@ -76,15 +101,22 @@ service cloud.firestore {
                           request.resource.data.members == resource.data.members &&
                           request.resource.data.tags == resource.data.tags &&
                           request.resource.data.notes == resource.data.notes
-                          // totalExpenses and recentExpenses are implicitly allowed to change
+                          // totalExpenses and recentExpenses are implicitly allowed to change for participants by not being checked here.
                         )
                       );
 
+
+      // Admin can delete any project.
+      // The project owner can delete the project.
       allow delete: if isAdmin() || (request.auth.uid == resource.data.ownerId);
+
+      // Authenticated users can list projects. Client-side queries must filter appropriately.
       allow list: if request.auth != null;
     }
 
     match /expenses/{expenseId} {
+      // User can create an expense if they are a participant of the linked project.
+      // Required fields: amount, currency, projectId, paidById, expenseDate, createdBy.
       allow create: if request.auth != null &&
                        isProjectParticipant(request.resource.data.projectId) &&
                        request.resource.data.amount is number &&
@@ -93,11 +125,34 @@ service cloud.firestore {
                        request.resource.data.paidById is string &&
                        request.resource.data.expenseDate is timestamp &&
                        request.resource.data.createdBy == request.auth.uid &&
-                       request.resource.data.createdAt == request.time;
+                       request.resource.data.createdAt == request.time &&
+                       request.resource.data.updatedAt == request.time; // Ensure updatedAt is set on create
 
+      // Admin can read any expense.
+      // A user can read an expense if they are a participant of the linked project.
       allow read: if isAdmin() || isProjectParticipant(resource.data.projectId);
-      allow update: if isAdmin() || (isProjectParticipant(resource.data.projectId) && request.auth.uid == resource.data.createdBy);
+
+      // Admin can update any expense.
+      // A user can update an expense if they created it AND are a participant of the linked project.
+      // Ensure only specific fields can be updated and timestamps are handled.
+      allow update: if isAdmin() ||
+                       (
+                         isProjectParticipant(resource.data.projectId) &&
+                         request.auth.uid == resource.data.createdBy &&
+                         request.resource.data.updatedAt == request.time &&
+                         request.resource.data.createdBy == resource.data.createdBy && // Cannot change creator
+                         request.resource.data.projectId == resource.data.projectId &&   // Cannot change project
+                         request.resource.data.createdAt == resource.data.createdAt     // Cannot change creation date
+                         // Add other fields that a user is allowed to update, e.g. title, amount, currency, paidById, expenseDate, category
+                         // request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'amount', 'currency', 'paidById', 'expenseDate', 'category', 'updatedAt'])
+                       );
+
+
+      // Admin can delete any expense.
+      // A user can delete an expense if they created it AND are a participant of the linked project.
       allow delete: if isAdmin() || (isProjectParticipant(resource.data.projectId) && request.auth.uid == resource.data.createdBy);
+
+      // Authenticated users can list expenses. Client-side queries must filter.
       allow list: if request.auth != null;
     }
   }
