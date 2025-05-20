@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { sendPasswordResetEmail } from 'firebase/auth'; // Import for password reset
 
 import { Button } from '@/components/ui/button';
 import {
@@ -23,7 +24,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Icons } from '@/components/icons';
 import { useToast } from "@/hooks/use-toast";
-import { db, storage } from '@/lib/firebase'; 
+import { auth, db, storage } from '@/lib/firebase'; 
 import { doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from '@/contexts/AuthContext';
@@ -78,6 +79,7 @@ export default function ProfilePage() {
   const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSendingPasswordReset, setIsSendingPasswordReset] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
 
@@ -125,7 +127,7 @@ export default function ProfilePage() {
     console.log("[ProfilePage handleSaveAvatar] User:", currentUser.uid, "File:", selectedAvatarFile.name);
 
     const oldAvatarStoragePath = userProfile.avatarStoragePath;
-    const newFileName = `${Date.now()}-${selectedAvatarFile.name}`;
+    const newFileName = `${Date.now()}-${selectedAvatarFile.name.replace(/\s+/g, '_')}`; // Sanitize filename
     const newAvatarStoragePath = `avatars/${currentUser.uid}/${newFileName}`;
     const avatarRef = ref(storage, newAvatarStoragePath);
     console.log("[ProfilePage handleSaveAvatar] New avatar path:", newAvatarStoragePath);
@@ -145,13 +147,11 @@ export default function ProfilePage() {
           await deleteObject(oldAvatarRef);
           console.log("[ProfilePage handleSaveAvatar] Old avatar deleted successfully from Storage.");
         } catch (deleteError: any) {
-          if (deleteError.code === 'storage/object-not-found') {
+           if (deleteError.code === 'storage/object-not-found') {
             console.info("[ProfilePage handleSaveAvatar] Old avatar not found in Storage (already deleted or path was invalid):", oldAvatarStoragePath);
-            // No toast needed if object was already gone
           } else {
-            // Log other errors as actual errors and show a warning toast
             console.error("[ProfilePage handleSaveAvatar] Error deleting old avatar from Storage:", deleteError.message, deleteError);
-            toast({ title: "Avertissement", description: "Un problème est survenu lors de la suppression de l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
+            toast({ title: "Avertissement", description: "Impossible de supprimer l'ancien avatar, mais le nouveau est sauvegardé.", variant: "default" });
           }
         }
       }
@@ -159,7 +159,7 @@ export default function ProfilePage() {
       const userDocRef = doc(db, "users", currentUser.uid);
       const updateData = {
         avatarUrl: newAvatarUrl,
-        avatarStoragePath: newAvatarStoragePath, // Make sure to save the new path
+        avatarStoragePath: newAvatarStoragePath,
       };
       console.log("[ProfilePage handleSaveAvatar] Attempting to update Firestore user document with:", updateData);
       await updateDoc(userDocRef, updateData);
@@ -169,12 +169,9 @@ export default function ProfilePage() {
         const updatedProfile = { ...userProfile, avatarUrl: newAvatarUrl, avatarStoragePath: newAvatarStoragePath };
         setContextUserProfile(updatedProfile);
         console.log("[ProfilePage handleSaveAvatar] AuthContext userProfile updated.");
-        // Log to confirm the context update after React has processed state changes
+        // Log to confirm the context update
         setTimeout(() => {
-            // To check the global context state, you might need to inspect it through DevTools
-            // or by triggering a re-render of a component that uses it.
-            // For now, we rely on the fact that setContextUserProfile was called.
-            console.log("[ProfilePage handleSaveAvatar AFTER CONTEXT UPDATE (timeout)] userProfile.avatarUrl should now be new URL.");
+          console.log("[ProfilePage handleSaveAvatar AFTER CONTEXT UPDATE (timeout)] userProfile from context:", JSON.stringify(auth.currentUser ? {...userProfile, avatarUrl: newAvatarUrl } : null));
         }, 0);
       }
 
@@ -229,6 +226,30 @@ export default function ProfilePage() {
     }
   };
 
+  const handleSendPasswordReset = async () => {
+    if (!currentUser || !currentUser.email) {
+      toast({ title: "Erreur", description: "Impossible de récupérer l'adresse e-mail de l'utilisateur.", variant: "destructive" });
+      return;
+    }
+    setIsSendingPasswordReset(true);
+    try {
+      await sendPasswordResetEmail(auth, currentUser.email);
+      toast({
+        title: "E-mail envoyé",
+        description: `Un e-mail de réinitialisation de mot de passe a été envoyé à ${currentUser.email}.`,
+      });
+    } catch (error: any) {
+      console.error("Erreur lors de l'envoi de l'e-mail de réinitialisation:", error);
+      toast({
+        title: "Erreur d'envoi",
+        description: `Impossible d'envoyer l'e-mail de réinitialisation: ${error.message || "Veuillez réessayer."}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingPasswordReset(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -241,6 +262,8 @@ export default function ProfilePage() {
   };
 
   console.log("[ProfilePage Render] userProfile.avatarUrl at render time:", userProfile?.avatarUrl);
+  console.log("[ProfilePage Render] authLoading:", authLoading, "currentUser:", !!currentUser, "userProfile:", !!userProfile);
+
 
   if (authLoading || !currentUser || !userProfile) {
     return (
@@ -308,7 +331,7 @@ export default function ProfilePage() {
             <div className="relative group">
                 <Avatar className="h-24 w-24 mb-4 ring-2 ring-primary ring-offset-2 ring-offset-background cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
                     <AvatarImage 
-                        src={(avatarPreviewUrl || (userProfile.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined)) || undefined}
+                        src={avatarPreviewUrl || (userProfile.avatarUrl && userProfile.avatarUrl.trim() !== '' ? userProfile.avatarUrl : undefined)}
                         alt={userProfile.name || 'User'} 
                         data-ai-hint="user avatar large"
                     />
@@ -377,8 +400,14 @@ export default function ProfilePage() {
             
             <div className="border-t pt-4">
                 <h3 className="text-lg font-semibold mb-2">Paramètres du compte</h3>
-                <Button variant="outline" className="w-full justify-start" disabled>
-                    <Icons.lock className="mr-2 h-4 w-4" /> Modifier le mot de passe (Indisponible)
+                <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    onClick={handleSendPasswordReset}
+                    disabled={isSendingPasswordReset}
+                >
+                    {isSendingPasswordReset ? <Icons.loader className="mr-2 h-4 w-4 animate-spin" /> : <Icons.lock className="mr-2 h-4 w-4" />}
+                    Envoyer l'e-mail de réinitialisation de mot de passe
                 </Button>
                  <Button variant="destructive" className="w-full justify-start mt-2" disabled>
                     <Icons.trash className="mr-2 h-4 w-4" /> Supprimer le compte (Indisponible)
