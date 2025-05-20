@@ -6,14 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation'; // Import useSearchParams
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { setDoc, doc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc } from 'firebase/firestore'; // Import updateDoc, arrayUnion, getDoc
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
@@ -29,6 +29,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams(); // Get search params
   const { toast } = useToast();
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -43,28 +44,66 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
+    const projectId = searchParams.get('projectId');
+    const invitedEmail = searchParams.get('invitedEmail');
+
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const user = userCredential.user;
 
       await updateProfile(user, { displayName: data.name });
 
-      // Create user document in Firestore
       const userDocRef = doc(db, "users", user.uid);
       await setDoc(userDocRef, {
-        id: user.uid, 
+        id: user.uid,
         name: data.name,
         email: data.email,
         isAdmin: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase(),
-        createdAt: serverTimestamp() as Timestamp, // Cast to Timestamp for type consistency
-        avatarUrl: '', 
+        createdAt: serverTimestamp() as Timestamp,
+        avatarUrl: '',
         avatarStoragePath: '',
       });
 
       toast({
         title: "Inscription réussie",
-        description: "Votre compte a été créé. Vous allez être redirigé.",
+        description: "Votre compte a été créé.",
       });
+
+      if (projectId && invitedEmail && user.email && user.email.toLowerCase() === invitedEmail.toLowerCase()) {
+        console.log(`[RegisterPage] Attempting to add user ${user.uid} to project ${projectId} based on invitation.`);
+        try {
+          const projectRef = doc(db, "projects", projectId);
+          // We need to fetch the project to ensure it exists and to comply with some update rules if necessary
+          const projectSnap = await getDoc(projectRef);
+          if (projectSnap.exists()) {
+            await updateDoc(projectRef, {
+              members: arrayUnion(user.uid),
+              updatedAt: serverTimestamp(),
+            });
+            toast({
+              title: "Projet rejoint",
+              description: `Vous avez été automatiquement ajouté au projet invité.`,
+            });
+             console.log(`[RegisterPage] Successfully added user ${user.uid} to project ${projectId}.`);
+          } else {
+            console.warn(`[RegisterPage] Invited project ${projectId} not found.`);
+            toast({
+              title: "Projet non trouvé",
+              description: "Le projet pour lequel vous avez été invité n'a pas été trouvé.",
+              variant: "destructive"
+            });
+          }
+        } catch (projectAddError: any) {
+          console.error(`[RegisterPage] Error adding user to project ${projectId}:`, projectAddError);
+          toast({
+            title: "Erreur d'ajout au projet",
+            description: `Impossible de vous ajouter automatiquement au projet invité: ${projectAddError.message}. Le propriétaire devra peut-être vous ajouter manuellement.`,
+            variant: "destructive",
+            duration: 7000,
+          });
+        }
+      }
+
       router.push('/dashboard');
     } catch (error: any) {
       console.error("Erreur d'inscription:", error);
@@ -81,17 +120,17 @@ export default function RegisterPage() {
       setIsLoading(false);
     }
   };
-  
+
   const DollarSignIcon = () => (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5" 
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-24 w-24 md:h-32 md:w-32 text-white" 
+      className="h-24 w-24 md:h-32 md:w-32 text-white"
     >
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
@@ -111,19 +150,19 @@ export default function RegisterPage() {
           </div>
             <ul className="mt-8 md:mt-12 space-y-4 text-left w-full max-w-xs">
             <li className="flex items-center">
-              <Icons.trendingUp className="h-6 w-6 mr-3 shrink-0" />
+              <Icons.trendingUp className="mr-3 shrink-0 h-6 w-6" />
               <span>Suivi des dépenses en temps réel</span>
             </li>
             <li className="flex items-center">
-              <Icons.repeat className="h-6 w-6 mr-3 shrink-0" /> 
+              <Icons.repeat className="mr-3 shrink-0 h-6 w-6" />
               <span>Conversion automatique des devises</span>
             </li>
             <li className="flex items-center">
-              <Icons.users className="h-6 w-6 mr-3 shrink-0" />
+              <Icons.users className="mr-3 shrink-0 h-6 w-6" />
               <span>Gestion collaborative des projets</span>
             </li>
             <li className="flex items-center">
-              <Icons.eye className="h-6 w-6 mr-3 shrink-0" />
+              <Icons.eye className="mr-3 shrink-0 h-6 w-6" />
               <span>Visualisation avancée des données</span>
             </li>
           </ul>
@@ -145,11 +184,11 @@ export default function RegisterPage() {
                     <FormLabel>Nom complet</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Icons.user className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input 
-                          placeholder="Votre nom complet" 
-                          {...field} 
-                          className="pl-10" 
+                        <Icons.user className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Votre nom complet"
+                          {...field}
+                          className="pl-10"
                           data-ai-hint="full name input"
                         />
                       </div>
@@ -166,12 +205,12 @@ export default function RegisterPage() {
                     <FormLabel>Adresse e-mail</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Icons.mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input 
-                          type="email" 
-                          placeholder="exemple@email.com" 
-                          {...field} 
-                          className="pl-10" 
+                        <Icons.mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          type="email"
+                          placeholder="exemple@email.com"
+                          {...field}
+                          className="pl-10"
                           data-ai-hint="email input"
                         />
                       </div>
@@ -189,12 +228,12 @@ export default function RegisterPage() {
                     <FormLabel>Mot de passe</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Icons.lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input 
-                          type="password" 
-                          placeholder="••••••••" 
-                          {...field} 
-                          className="pl-10" 
+                        <Icons.lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          type="password"
+                          placeholder="••••••••"
+                          {...field}
+                          className="pl-10"
                           data-ai-hint="password input"
                         />
                       </div>
@@ -203,8 +242,8 @@ export default function RegisterPage() {
                   </FormItem>
                 )}
               />
-              
-              <Button type="submit" className="w-full text-lg py-3" disabled={isLoading}>
+
+              <Button type="submit" className="w-full py-3 text-lg" disabled={isLoading}>
                 {isLoading ? <Icons.loader className="animate-spin" /> : "S'inscrire"}
               </Button>
             </form>
@@ -221,7 +260,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Vous avez déjà un compte ?{' '}
             <Link href="/login" className="font-semibold text-primary hover:underline">
               Se connecter
