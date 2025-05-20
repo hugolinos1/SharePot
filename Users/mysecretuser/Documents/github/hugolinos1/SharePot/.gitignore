@@ -1,0 +1,34 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+
+# Test results
+coverage/
+
+# Production Env Variables
+.env.local
+.env.*.local
+
+# IMPORTANT: Add .env to prevent committing sensitive keys
+.env
+
+# Optional Mac/Windows files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
