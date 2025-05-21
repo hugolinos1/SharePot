@@ -6,14 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
-import { useRouter, useSearchParams } from 'next/navigation'; 
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc } from 'firebase/firestore'; 
+import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
@@ -29,7 +29,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); 
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -37,7 +37,7 @@ export default function RegisterPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       name: "",
-      email: "",
+      email: searchParams.get('invitedEmail') || "", // Pré-remplir si invité
       password: "",
     },
   });
@@ -65,11 +65,11 @@ export default function RegisterPage() {
         email: data.email,
         isAdmin: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase(),
         createdAt: serverTimestamp() as Timestamp,
-        avatarUrl: '',
+        avatarUrl: '', // Sera généré par AuthContext si vide
         avatarStoragePath: '',
       };
       await setDoc(userDocRef, userDocData);
-      console.log("[RegisterPage onSubmit] Firestore user document created for UID:", user.uid, "Data:", userDocData);
+      console.log("[RegisterPage onSubmit] Firestore user document created for UID:", user.uid, "Data:", JSON.stringify(userDocData));
 
       toast({
         title: "Inscription réussie",
@@ -77,21 +77,32 @@ export default function RegisterPage() {
       });
 
       if (projectId && invitedEmail && user.email) {
-        console.log(`[RegisterPage onSubmit] Checking invitation conditions: User email: ${user.email.toLowerCase()}, Invited email: ${invitedEmail.toLowerCase()}`);
+        console.log(`[RegisterPage onSubmit] Checking invitation conditions: User email: ${user.email.toLowerCase()}, Invited email from URL: ${invitedEmail.toLowerCase()}`);
         if (user.email.toLowerCase() === invitedEmail.toLowerCase()) {
           console.log(`[RegisterPage onSubmit] Email match! Attempting to add user ${user.uid} to project ${projectId}.`);
           try {
             const projectRef = doc(db, "projects", projectId);
-            const projectUpdateData = {
-              members: arrayUnion(user.uid),
-              updatedAt: serverTimestamp(),
-            };
-            await updateDoc(projectRef, projectUpdateData);
-            toast({
-              title: "Projet rejoint",
-              description: "Vous avez été automatiquement ajouté au projet invité.",
-            });
-            console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}. Update data:`, projectUpdateData);
+            const projectDoc = await getDoc(projectRef);
+
+            if (!projectDoc.exists()) {
+              console.error(`[RegisterPage onSubmit] Project ${projectId} does not exist. Cannot add member.`);
+              toast({
+                title: "Erreur d'ajout au projet",
+                description: "Le projet invité n'existe plus.",
+                variant: "destructive",
+              });
+            } else {
+              const projectUpdateData = {
+                members: arrayUnion(user.uid),
+                updatedAt: serverTimestamp(),
+              };
+              await updateDoc(projectRef, projectUpdateData);
+              toast({
+                title: "Projet rejoint",
+                description: "Vous avez été automatiquement ajouté au projet invité.",
+              });
+              console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}. Update data:`, JSON.stringify(projectUpdateData));
+            }
           } catch (projectAddError: any) {
             console.error(`[RegisterPage onSubmit] Error adding user to project ${projectId}:`, projectAddError.message, projectAddError);
             toast({
@@ -102,10 +113,10 @@ export default function RegisterPage() {
             });
           }
         } else {
-          console.warn(`[RegisterPage onSubmit] Email mismatch. User email: ${user.email}, Invited email: ${invitedEmail}. User not added to project.`);
+          console.warn(`[RegisterPage onSubmit] Email mismatch. User email from form: ${data.email.toLowerCase()}, Invited email from URL: ${invitedEmail.toLowerCase()}. User not added to project.`);
         }
       } else {
-        console.log("[RegisterPage onSubmit] No projectId or invitedEmail in URL, or user email is null. Skipping project auto-join.");
+        console.log("[RegisterPage onSubmit] No projectId or invitedEmail in URL, or user.email is null. Skipping project auto-join.");
       }
 
       router.push('/dashboard');
@@ -175,7 +186,7 @@ export default function RegisterPage() {
         <div className="p-8 md:p-12 flex flex-col justify-center">
           <h2 className="text-3xl font-semibold text-foreground mb-2">Créer un compte</h2>
           <p className="text-muted-foreground mb-8">
-            Remplissez le formulaire pour vous inscrire.
+            {searchParams.get('projectId') ? "Rejoignez un projet en créant votre compte." : "Remplissez le formulaire pour vous inscrire."}
           </p>
 
           <Form {...form}>
@@ -216,6 +227,7 @@ export default function RegisterPage() {
                           {...field}
                           className="pl-10"
                           data-ai-hint="email input"
+                          disabled={!!searchParams.get('invitedEmail')} // Désactiver si l'email est pré-rempli par une invitation
                         />
                       </div>
                     </FormControl>
@@ -275,3 +287,5 @@ export default function RegisterPage() {
     </div>
   );
 }
+
+    
