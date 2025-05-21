@@ -65,7 +65,7 @@ export default function RegisterPage() {
         email: data.email,
         isAdmin: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase(),
         createdAt: serverTimestamp() as Timestamp,
-        avatarUrl: '', // Sera généré par AuthContext si vide
+        avatarUrl: '',
         avatarStoragePath: '',
       };
       await setDoc(userDocRef, userDocData);
@@ -92,16 +92,20 @@ export default function RegisterPage() {
                 variant: "destructive",
               });
             } else {
+              const projectData = projectDoc.data();
               const projectUpdateData = {
                 members: arrayUnion(user.uid),
                 updatedAt: serverTimestamp(),
               };
+              console.log(`[RegisterPage onSubmit] Attempting to update project. Project ID: ${projectId}, Project data before update:`, JSON.stringify(projectData));
+              console.log(`[RegisterPage onSubmit] Update Data for project:`, JSON.stringify({ members: `arrayUnion(${user.uid})`, updatedAt: "serverTimestamp()" }));
+              
               await updateDoc(projectRef, projectUpdateData);
               toast({
                 title: "Projet rejoint",
                 description: "Vous avez été automatiquement ajouté au projet invité.",
               });
-              console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}. Update data:`, JSON.stringify(projectUpdateData));
+              console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}.`);
             }
           } catch (projectAddError: any) {
             console.error(`[RegisterPage onSubmit] Error adding user to project ${projectId}:`, projectAddError.message, projectAddError);
@@ -227,7 +231,7 @@ export default function RegisterPage() {
                           {...field}
                           className="pl-10"
                           data-ai-hint="email input"
-                          disabled={!!searchParams.get('invitedEmail')} // Désactiver si l'email est pré-rempli par une invitation
+                          disabled={!!searchParams.get('invitedEmail')}
                         />
                       </div>
                     </FormControl>
