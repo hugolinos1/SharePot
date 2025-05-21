@@ -15,7 +15,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter, // Added CardFooter
+  CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -28,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter as ModalDialogFooter, // Aliased to avoid conflict with CardFooter
+  DialogFooter as ModalDialogFooter, 
   DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -151,34 +151,45 @@ export default function ProjectsPage() {
       setAllUserProfiles([]);
       return;
     }
-    // For non-admins, this list will be used to pick members.
-    // If a non-admin is owner, they should be able to see all users to invite them.
-    // For security reasons, this requires `allow list` on users collection for authenticated users.
-    // If that's too permissive, this logic would need to change (e.g., search by email).
-    console.log("ProjectsPage: fetchAllUserProfiles - Fetching all user profiles.");
-    setIsLoadingAllUserProfiles(true);
-    try {
-      const usersCollectionRef = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      const usersList = usersSnapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      } as AppUserType));
-      setAllUserProfiles(usersList);
-      console.log("ProjectsPage: Successfully fetched allUserProfiles:", usersList.length);
-    } catch (error: any) {
-      console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage): ", error.message, error.code, error);
-      toast({
-        title: "Erreur de chargement (Utilisateurs)",
-        description: `Impossible de charger tous les profils utilisateurs. Assurez-vous que les règles Firestore permettent aux utilisateurs authentifiés de lister la collection 'users'. Erreur: ${error.message}`,
-        variant: "destructive",
-        duration: 7000,
-      });
-      setAllUserProfiles([]);
-    } finally {
+    console.log("ProjectsPage: fetchAllUserProfiles - Fetching all user profiles. isAdmin:", isAdmin);
+    
+    // Only admins can fetch ALL users for now, others will get members for specific projects
+    // or just their own profile if needed for the "Add Member" dialog if they are project owners.
+    if (isAdmin) {
+      setIsLoadingAllUserProfiles(true);
+      try {
+        const usersCollectionRef = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        const usersList = usersSnapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as AppUserType));
+        setAllUserProfiles(usersList);
+        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
+      } catch (error: any) {
+        console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage Admin): ", error.message, error.code, error);
+        toast({
+          title: "Erreur de chargement (Utilisateurs)",
+          description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
+          variant: "destructive",
+          duration: 7000,
+        });
+        setAllUserProfiles([]); // Fallback to empty if admin fetch fails
+      } finally {
+        setIsLoadingAllUserProfiles(false);
+      }
+    } else {
+      // For non-admins, we'll populate a limited list for the "Add Member" dialog if they are owner.
+      // Or, just their own profile.
+      if(userProfile){
+        console.log("ProjectsPage: Non-admin, setting allUserProfiles to just current user's profile for now.");
+        setAllUserProfiles([userProfile]);
+      } else {
+        setAllUserProfiles([]);
+      }
       setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, isAdmin, userProfile, toast]);
 
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
@@ -206,10 +217,15 @@ export default function ProjectsPage() {
       });
 
       ownerSnapshot.docs.forEach(docSnap => {
-        projectsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as ProjectType);
+        // Ensure no duplicates if user is both member and owner (though members array should include owner)
+        if (!projectsMap.has(docSnap.id)) {
+          projectsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as ProjectType);
+        }
       });
-
-      setProjects(Array.from(projectsMap.values()));
+      
+      const fetchedProjects = Array.from(projectsMap.values());
+      console.log("ProjectsPage: Fetched projects for user:", fetchedProjects.length, "items.");
+      setProjects(fetchedProjects);
 
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
@@ -220,22 +236,22 @@ export default function ProjectsPage() {
       });
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false);
+      setIsLoading(false); // Combined loading state for page
     }
   }, [currentUser, toast]);
 
  useEffect(() => {
     console.log("ProjectsPage: useEffect - currentUser exists. isAdmin from context:", isAdmin);
     if (currentUser) {
-      console.log("ProjectsPage: useEffect - currentUser exists. Fetching projects and all user profiles.");
+      console.log("ProjectsPage: useEffect - currentUser exists. Fetching projects and potentially all user profiles.");
       fetchProjects();
-      fetchAllUserProfiles();
+      fetchAllUserProfiles(); // Fetch all users if admin, or limited set if not
     } else {
       console.log("ProjectsPage: useEffect - currentUser is null, cannot fetch data.");
       setProjects([]);
       setAllUserProfiles([]);
       setIsFetchingProjects(true);
-      setIsLoadingAllUserProfiles(true);
+      setIsLoadingAllUserProfiles(true); // Ensure this is also true if no user
     }
   }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
 
@@ -247,7 +263,7 @@ export default function ProjectsPage() {
         return;
     }
     setSelectedProject(project);
-    setCurrentBudget(project.budget);
+    setCurrentBudget(project.budget != null ? project.budget : '');
     setCurrentNotes(project.notes || '');
 
     if (project.members && project.members.length > 0) {
@@ -277,7 +293,7 @@ export default function ProjectsPage() {
           description: `Impossible de charger les détails des membres du projet. Erreur: ${error.message}`,
           variant: "destructive",
         });
-        setProjectModalMemberProfiles([]);
+        setProjectModalMemberProfiles([]); // Fallback to empty on error
       } finally {
         setIsLoadingProjectModalMemberProfiles(false);
       }
@@ -292,8 +308,8 @@ export default function ProjectsPage() {
     setSelectedProject(null);
     setEditingBudget(false);
     setEditingNotes(false);
-    setProjectModalMemberProfiles([]);
-    inviteMemberForm.reset();
+    setProjectModalMemberProfiles([]); // Clear specific member profiles for the modal
+    inviteMemberForm.reset(); // Reset the invitation form
   };
 
   const handleSaveBudget = async () => {
@@ -309,7 +325,7 @@ export default function ProjectsPage() {
           budget: currentBudget,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() };
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Simulate timestamp for UI
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
@@ -338,7 +354,7 @@ export default function ProjectsPage() {
           notes: currentNotes,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() };
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Simulate timestamp for UI
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
@@ -364,7 +380,7 @@ export default function ProjectsPage() {
         await deleteDoc(doc(db, "projects", selectedProject.id));
         setProjects(projects.filter(p => p.id !== selectedProject.id));
         toast({ title: "Projet supprimé", description: `Le projet "${selectedProject.name}" a été supprimé.` });
-        setSelectedProject(null);
+        setSelectedProject(null); // Close the modal after deletion
         setIsDeleteConfirmModalOpen(false);
       } catch (error) {
         console.error("Erreur suppression projet: ", error);
@@ -385,9 +401,10 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
+    // Prioritize profiles fetched specifically for the modal if available
     const profilesToSearch = projectModalMemberProfiles.length > 0 ? projectModalMemberProfiles : allUserProfiles;
     const profile = profilesToSearch.find(p => p.id === uid);
-    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) {
+    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) { // Only warn if not loading
         console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found. projectModalMemberProfiles count: ${projectModalMemberProfiles.length}, allUserProfiles count: ${allUserProfiles.length}`);
     }
     return profile;
@@ -398,17 +415,40 @@ export default function ProjectsPage() {
         toast({ title: "Erreur", description: "Aucun projet sélectionné ou utilisateur non connecté.", variant: "destructive" });
         return;
     }
+    // Only project owner or admin can add members
     if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-    if (isLoadingAllUserProfiles) {
-        await fetchAllUserProfiles();
+    // Ensure allUserProfiles is populated, especially if not admin (fetchAllUserProfiles might have set a limited list)
+    // If admin, allUserProfiles should already contain all users.
+    // If not admin but owner, we need the global list to pick from.
+    if (isAdmin && isLoadingAllUserProfiles) { // Admin case, wait if still loading all users
+      await fetchAllUserProfiles();
+    } else if (!isAdmin && selectedProject.ownerId === currentUser.uid) {
+      // Non-admin owner needs to ensure they have the full list for the dialog
+      setIsLoadingAllUserProfiles(true); // Show loading in dialog
+      try {
+        const usersCollectionRef = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+        setAllUserProfiles(usersList); // Temporarily populate allUserProfiles for the dialog
+        console.log("ProjectsPage (Add Member Dialog): Non-admin owner fetched all users for dialog:", usersList.length);
+      } catch(e) {
+        console.error("Error fetching all users for non-admin owner in add member dialog", e);
+        toast({title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive"});
+        setIsLoadingAllUserProfiles(false);
+        return; // Don't open dialog if users can't be loaded
+      } finally {
+        setIsLoadingAllUserProfiles(false);
+      }
     }
+
+
     const currentMemberIds = new Set(selectedProject.members);
     const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
     setAvailableUsersForProject(available);
-    setUsersToAddToProject([]);
+    setUsersToAddToProject([]); // Clear previous selections
     setIsAddMemberDialogOpen(true);
   };
 
@@ -420,6 +460,7 @@ export default function ProjectsPage() {
 
   const handleConfirmAddMembers = async () => {
     if (!selectedProject || usersToAddToProject.length === 0 || !currentUser) return;
+     // Security check again
      if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut ajouter des membres.", variant: "destructive" });
         return;
@@ -432,19 +473,22 @@ export default function ProjectsPage() {
         updatedAt: serverTimestamp(),
       });
 
+      // Update local state for selectedProject and the main projects list
       const updatedMembers = Array.from(new Set([...selectedProject.members, ...usersToAddToProject]));
-      const updatedProjectData = { ...selectedProject, members: updatedMembers, updatedAt: Timestamp.now() };
+      const updatedProjectData = { ...selectedProject, members: updatedMembers, updatedAt: Timestamp.now() }; // Simulate timestamp
 
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
 
+      // Re-fetch member profiles for the modal to include new members
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await firestoreGetDoc(userDocRef); 
+          const docSnapshot = await firestoreGetDoc(userDocRef); // Renamed to avoid conflict
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
+            // Fallback if profile not found, though it should exist if they were in allUserProfiles
             newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}...`, email: "N/A", isAdmin: false, avatarUrl: '' });
           }
       }
@@ -474,8 +518,11 @@ export default function ProjectsPage() {
     setIsSendingInvite(true);
     console.log(`[ProjectsPage] Initiating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
     
+    // Construct the invitation link
     const baseUrl = window.location.origin;
     const invitationLink = `${baseUrl}/register?projectId=${selectedProject.id}&invitedEmail=${encodeURIComponent(values.email)}`;
+    console.log(`[ProjectsPage] Generated invitation link: ${invitationLink}`);
+
 
     try {
       const response = await fetch('/api/send-invitation', {
@@ -538,7 +585,7 @@ export default function ProjectsPage() {
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-6 shadow-sm">
           <Link href="/dashboard" className="text-xl font-bold text-sidebar-header-title-color flex items-center">
              <Icons.dollarSign className="mr-2 h-7 w-7"/>
-            <span>SharePot</span>
+             SharePot
           </Link>
         <div className="flex flex-1 items-center justify-end gap-4">
           <Button variant="ghost" size="icon" className="rounded-full">
@@ -861,22 +908,6 @@ export default function ProjectsPage() {
                   </Card>
                 )}
 
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Tags</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-wrap gap-2">
-                    {(selectedProject.tags || []).length > 0 ? selectedProject.tags.map((tag, index) => (
-                      <Badge key={index} variant="secondary">{tag}</Badge>
-                    )) : <p className="text-sm text-muted-foreground">Aucun tag.</p>}
-                    {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                     <Button variant="link" size="sm" className="text-primary p-0 h-auto leading-none" disabled={isLoading}>
-                        <Icons.plus className="mr-1 h-3 w-3" /> Ajouter
-                     </Button>
-                    )}
-                  </CardContent>
-                </Card>
               </div>
                  <div className="lg:col-span-3">
                     <Card>
