@@ -37,7 +37,7 @@ export default function RegisterPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       name: "",
-      email: searchParams.get('invitedEmail') || "", // Pré-remplir si invité
+      email: searchParams.get('invitedEmail') || "",
       password: "",
     },
   });
@@ -82,9 +82,9 @@ export default function RegisterPage() {
           console.log(`[RegisterPage onSubmit] Email match! Attempting to add user ${user.uid} to project ${projectId}.`);
           try {
             const projectRef = doc(db, "projects", projectId);
-            const projectDoc = await getDoc(projectRef);
+            const projectDocSnap = await getDoc(projectRef);
 
-            if (!projectDoc.exists()) {
+            if (!projectDocSnap.exists()) {
               console.error(`[RegisterPage onSubmit] Project ${projectId} does not exist. Cannot add member.`);
               toast({
                 title: "Erreur d'ajout au projet",
@@ -92,20 +92,28 @@ export default function RegisterPage() {
                 variant: "destructive",
               });
             } else {
-              const projectData = projectDoc.data();
-              const projectUpdateData = {
-                members: arrayUnion(user.uid),
-                updatedAt: serverTimestamp(),
-              };
-              console.log(`[RegisterPage onSubmit] Attempting to update project. Project ID: ${projectId}, Project data before update:`, JSON.stringify(projectData));
-              console.log(`[RegisterPage onSubmit] Update Data for project:`, JSON.stringify({ members: `arrayUnion(${user.uid})`, updatedAt: "serverTimestamp()" }));
-              
-              await updateDoc(projectRef, projectUpdateData);
-              toast({
-                title: "Projet rejoint",
-                description: "Vous avez été automatiquement ajouté au projet invité.",
-              });
-              console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}.`);
+              const projectData = projectDocSnap.data();
+              console.log(`[RegisterPage onSubmit] Project data for ${projectId}:`, projectData);
+              const membersArray = projectData.members || [];
+              if (membersArray.includes(user.uid)) {
+                console.log(`[RegisterPage onSubmit] User ${user.uid} is ALREADY a member of project ${projectId}. Skipping updateDoc.`);
+                toast({
+                  title: "Déjà membre",
+                  description: "Vous êtes déjà membre de ce projet.",
+                });
+              } else {
+                const projectUpdateData = {
+                  members: arrayUnion(user.uid),
+                  updatedAt: serverTimestamp(),
+                };
+                console.log(`[RegisterPage onSubmit] Attempting to update project. Project ID: ${projectId}, User UID to add: ${user.uid}, Update data:`, JSON.stringify(projectUpdateData));
+                await updateDoc(projectRef, projectUpdateData);
+                toast({
+                  title: "Projet rejoint",
+                  description: "Vous avez été automatiquement ajouté au projet invité.",
+                });
+                console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}.`);
+              }
             }
           } catch (projectAddError: any) {
             console.error(`[RegisterPage onSubmit] Error adding user to project ${projectId}:`, projectAddError.message, projectAddError);
