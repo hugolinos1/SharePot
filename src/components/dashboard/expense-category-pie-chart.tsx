@@ -40,12 +40,21 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
   );
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
+    const name = payload[0].name;
+    const value = payload[0].value; // This is Dépenses in cents
+    const percent = payload[0].percent; // Recharts provides 'percent' directly on the payload item for Pie
+
+    let percentageString = '';
+    if (typeof percent === 'number' && !isNaN(percent)) {
+      percentageString = ` (${(percent * 100).toFixed(1)}%)`;
+    }
+
     return (
       <div className="p-2 bg-background border border-border rounded-md shadow-lg text-foreground text-sm">
-        <p className="font-semibold">{`${payload[0].name}`}</p>
-        <p>{`Dépenses: ${(payload[0].value / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} (${(payload[0].payload.percent * 100).toFixed(1)}%)`}</p>
+        <p className="font-semibold">{`${name}`}</p>
+        <p>{`Dépenses: ${(value / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}${percentageString}`}</p>
       </div>
     );
   }
