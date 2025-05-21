@@ -5,17 +5,10 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isAdmin() {
-      if (request.auth == null) {
-        return false;
-      }
-      if (request.auth.token == null) {
-        return false;
-      }
-      // Ensure email is not null before comparing
-      if (request.auth.token.email == null) {
-        return false;
-      }
-      return request.auth.token.email == 'hugues.rabier@gmail.com';
+      return request.auth != null &&
+             request.auth.token != null &&
+             request.auth.token.email != null &&
+             request.auth.token.email == 'hugues.rabier@gmail.com';
     }
 
     function isProjectParticipant(projectId) {
@@ -24,21 +17,12 @@ service cloud.firestore {
         return false;
       }
       let projectData = get(projectPath).data;
-      if (projectData == null) {
-        return false;
-      }
-      if (request.auth == null) {
-        return false;
-      }
-      // Check for owner
-      if (projectData.ownerId != null && request.auth.uid == projectData.ownerId) {
-        return true;
-      }
-      // Check for membership in members array
-      if (projectData.members != null && projectData.members is list && request.auth.uid in projectData.members) {
-        return true;
-      }
-      return false;
+      return request.auth != null &&
+             projectData != null &&
+             (
+               (projectData.ownerId != null && request.auth.uid == projectData.ownerId) ||
+               (projectData.members != null && projectData.members is list && request.auth.uid in projectData.members)
+             );
     }
 
     match /users/{userId} {
@@ -51,8 +35,8 @@ service cloud.firestore {
       allow update: if isAdmin() ||
                        (request.auth.uid == userId &&
                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'avatarStoragePath', 'updatedAt']) &&
-                        (!request.resource.data.keys().has('isAdmin') || request.resource.data.isAdmin == resource.data.isAdmin) &&
-                        (request.resource.data.keys().has('isAdmin') == false || request.resource.data.isAdmin == false || resource.data.isAdmin == true) &&
+                        (!request.resource.data.keys().has('isAdmin') || request.resource.data.isAdmin == resource.data.isAdmin) && // User cannot change their isAdmin status unless admin
+                        (request.resource.data.keys().has('isAdmin') == false || request.resource.data.isAdmin == false || resource.data.isAdmin == true) && // User cannot make self admin
                         (!request.resource.data.keys().has('updatedAt') || request.resource.data.updatedAt == request.time)
                        );
 
@@ -74,33 +58,29 @@ service cloud.firestore {
 
       allow update: if request.auth != null && (
                         isAdmin() ||
-                        (
+                        ( // Owner can update almost anything
                           request.auth.uid == resource.data.ownerId &&
                           request.resource.data.updatedAt == request.time &&
+                          // Immutable fields for owner
                           request.resource.data.ownerId == resource.data.ownerId &&
                           request.resource.data.createdAt == resource.data.createdAt
                         ) ||
                         ( // Authenticated user (invited via client-side logic) can add themselves to the members array
                           request.auth.uid != null &&
-                          request.auth.uid != resource.data.ownerId && 
-                          (resource.data.members == null || (resource.data.members is list && !(request.auth.uid in resource.data.members))) && 
-                          request.resource.data.keys().hasOnly(['members', 'updatedAt']) && 
+                          request.auth.uid != resource.data.ownerId && // User is not the owner
+                          (resource.data.members == null || (resource.data.members is list && !(request.auth.uid in resource.data.members))) && // User is not already a member OR members field didn't exist/wasn't a list
+                          request.resource.data.keys().hasOnly(['members', 'updatedAt']) && // Client must ONLY send 'members' (for arrayUnion) and 'updatedAt'
                           request.resource.data.updatedAt == request.time
+                          // This rule relies on the client sending: { members: arrayUnion(request.auth.uid), updatedAt: serverTimestamp() }
+                          // And the client ensures the arrayUnion is just adding the current user.
                         ) ||
                         ( // Project participant (non-owner) can ONLY update expense tracking fields
                           isProjectParticipant(projectId) &&
-                          request.auth.uid != resource.data.ownerId && 
+                          request.auth.uid != resource.data.ownerId && // Not the owner
                           request.resource.data.updatedAt == request.time &&
                           request.resource.data.lastActivity == request.time &&
-                          (request.resource.data.keys().has('name') == false || request.resource.data.name == resource.data.name) &&
-                          (request.resource.data.keys().has('description') == false || request.resource.data.description == resource.data.description) &&
-                          (request.resource.data.keys().has('status') == false || request.resource.data.status == resource.data.status) &&
-                          (request.resource.data.keys().has('budget') == false || request.resource.data.budget == resource.data.budget) &&
-                          (request.resource.data.keys().has('ownerId') == false || request.resource.data.ownerId == resource.data.ownerId) &&
-                          (request.resource.data.keys().has('createdAt') == false || request.resource.data.createdAt == resource.data.createdAt) &&
-                          (request.resource.data.keys().has('members') == false || request.resource.data.members == resource.data.members) &&
-                          (request.resource.data.keys().has('tags') == false || request.resource.data.tags == resource.data.tags) &&
-                          (request.resource.data.keys().has('notes') == false || request.resource.data.notes == resource.data.notes)
+                          // Ensure that NO OTHER critical fields are being changed by the participant
+                          !request.resource.data.keys().hasAny(['name', 'description', 'status', 'budget', 'ownerId', 'createdAt', 'members', 'tags', 'notes'])
                         )
                       );
 
@@ -128,6 +108,7 @@ service cloud.firestore {
                           isProjectParticipant(resource.data.projectId) &&
                           request.auth.uid == resource.data.createdBy &&
                           request.resource.data.updatedAt == request.time &&
+                          // Prevent changing critical fields like createdBy or projectId
                           request.resource.data.createdBy == resource.data.createdBy &&
                           request.resource.data.projectId == resource.data.projectId
                         )
