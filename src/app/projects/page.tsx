@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -107,7 +106,6 @@ export default function ProjectsPage() {
   const { currentUser, userProfile, isAdmin, loading: authLoading, logout } = useAuth();
 
   const [projects, setProjects] = useState<ProjectType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isFetchingProjects, setIsFetchingProjects] = useState(true);
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
@@ -128,6 +126,7 @@ export default function ProjectsPage() {
   const [usersToAddToProject, setUsersToAddToProject] = useState<string[]>([]);
   const [availableUsersForProject, setAvailableUsersForProject] = useState<AppUserType[]>([]);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
+  const [isProcessingProjectAction, setIsProcessingProjectAction] = useState(false);
 
 
   const inviteMemberForm = useForm<InviteMemberFormValues>({
@@ -144,66 +143,13 @@ export default function ProjectsPage() {
     }
   }, [authLoading, currentUser, router]);
 
-  const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser) {
-      console.warn("ProjectsPage: fetchAllUserProfiles called without currentUser.");
-      setIsLoadingAllUserProfiles(false);
-      setAllUserProfiles([]);
-      return;
-    }
-    console.log("ProjectsPage: fetchAllUserProfiles - Fetching all user profiles. isAdmin:", isAdmin);
-    
-    // Only admins can fetch ALL users for now, others will get members for specific projects
-    // or just their own profile if needed for the "Add Member" dialog if they are project owners.
-    if (isAdmin) {
-      setIsLoadingAllUserProfiles(true);
-      try {
-        const usersCollectionRef = collection(db, "users");
-        const usersSnapshot = await getDocs(usersCollectionRef);
-        const usersList = usersSnapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        } as AppUserType));
-        setAllUserProfiles(usersList);
-        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
-      } catch (error: any) {
-        console.error("Erreur lors de la récupération de tous les profils utilisateurs (ProjectsPage Admin): ", error.message, error.code, error);
-        toast({
-          title: "Erreur de chargement (Utilisateurs)",
-          description: `Impossible de charger tous les profils utilisateurs. Erreur: ${error.message}`,
-          variant: "destructive",
-          duration: 7000,
-        });
-        setAllUserProfiles([]); // Fallback to empty if admin fetch fails
-      } finally {
-        setIsLoadingAllUserProfiles(false);
-      }
-    } else {
-      // For non-admins, we'll populate a limited list for the "Add Member" dialog if they are owner.
-      // Or, just their own profile.
-      if(userProfile){
-        console.log("ProjectsPage: Non-admin, setting allUserProfiles to just current user's profile for now.");
-        setAllUserProfiles([userProfile]);
-      } else {
-        setAllUserProfiles([]);
-      }
-      setIsLoadingAllUserProfiles(false);
-    }
-  }, [currentUser, isAdmin, userProfile, toast]);
-
   const fetchProjects = useCallback(async () => {
     if (!currentUser) return;
     setIsFetchingProjects(true);
     try {
       const projectsCollectionRef = collection(db, "projects");
-
-      const memberQuery = query(projectsCollectionRef,
-        where("members", "array-contains", currentUser.uid)
-      );
-
-      const ownerQuery = query(projectsCollectionRef,
-        where("ownerId", "==", currentUser.uid)
-      );
+      const memberQuery = query(projectsCollectionRef, where("members", "array-contains", currentUser.uid));
+      const ownerQuery = query(projectsCollectionRef, where("ownerId", "==", currentUser.uid));
 
       const [memberSnapshot, ownerSnapshot] = await Promise.all([
         getDocs(memberQuery),
@@ -211,13 +157,8 @@ export default function ProjectsPage() {
       ]);
 
       const projectsMap = new Map<string, ProjectType>();
-
-      memberSnapshot.docs.forEach(docSnap => {
-        projectsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as ProjectType);
-      });
-
+      memberSnapshot.docs.forEach(docSnap => projectsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as ProjectType));
       ownerSnapshot.docs.forEach(docSnap => {
-        // Ensure no duplicates if user is both member and owner (though members array should include owner)
         if (!projectsMap.has(docSnap.id)) {
           projectsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as ProjectType);
         }
@@ -234,26 +175,96 @@ export default function ProjectsPage() {
         description: "Impossible de charger les projets.",
         variant: "destructive",
       });
+      setProjects([]);
     } finally {
       setIsFetchingProjects(false);
-      setIsLoading(false); // Combined loading state for page
     }
   }, [currentUser, toast]);
 
- useEffect(() => {
-    console.log("ProjectsPage: useEffect - currentUser exists. isAdmin from context:", isAdmin);
-    if (currentUser) {
-      console.log("ProjectsPage: useEffect - currentUser exists. Fetching projects and potentially all user profiles.");
-      fetchProjects();
-      fetchAllUserProfiles(); // Fetch all users if admin, or limited set if not
-    } else {
-      console.log("ProjectsPage: useEffect - currentUser is null, cannot fetch data.");
-      setProjects([]);
+  const fetchAllUserProfiles = useCallback(async () => {
+    if (!currentUser) {
+      console.warn("ProjectsPage: fetchAllUserProfiles called without currentUser.");
       setAllUserProfiles([]);
-      setIsFetchingProjects(true);
-      setIsLoadingAllUserProfiles(true); // Ensure this is also true if no user
+      setIsLoadingAllUserProfiles(false);
+      return;
     }
-  }, [currentUser, isAdmin, fetchProjects, fetchAllUserProfiles]);
+    console.log("ProjectsPage: fetchAllUserProfiles. isAdmin:", isAdmin, "isFetchingProjects:", isFetchingProjects, "projects.length:", projects.length);
+    
+    if (isAdmin) {
+      setIsLoadingAllUserProfiles(true);
+      try {
+        const usersCollectionRef = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+        setAllUserProfiles(usersList);
+        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
+      } catch (error: any) {
+        console.error("Erreur lors de la récupération de tous les profils utilisateurs (Admin): ", error);
+        toast({ title: "Erreur (Profils Admin)", description: `Impossible de charger tous les profils: ${error.message}`, variant: "destructive"});
+        setAllUserProfiles([]);
+      } finally {
+        setIsLoadingAllUserProfiles(false);
+      }
+    } else { // Not admin - fetch profiles for members of user's projects
+      if (isFetchingProjects) {
+        console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Waiting for projects to load.");
+        setAllUserProfiles(userProfile ? [userProfile] : []); // Minimal set while projects load
+        return;
+      }
+      if (projects.length > 0) {
+        setIsLoadingAllUserProfiles(true);
+        const relevantUIDs = new Set<string>();
+        projects.forEach(p => {
+          if (p.ownerId) relevantUIDs.add(p.ownerId);
+          p.members?.forEach(memberUid => relevantUIDs.add(memberUid));
+        });
+        if (currentUser.uid) relevantUIDs.add(currentUser.uid); // Ensure current user is included
+
+        console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Fetching profiles for UIDs:", Array.from(relevantUIDs));
+        if (relevantUIDs.size > 0) {
+          try {
+            const profilePromises = Array.from(relevantUIDs).map(uid => firestoreGetDoc(doc(db, "users", uid)));
+            const profileDocs = await Promise.all(profilePromises);
+            const fetchedProfiles = profileDocs
+              .filter(docSnap => docSnap.exists())
+              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+            setAllUserProfiles(fetchedProfiles);
+            console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Successfully set profiles:", fetchedProfiles.length, "items.");
+          } catch (error: any) {
+            console.error("Erreur lors de la récupération des profils pour les projets (Non-Admin):", error);
+            toast({ title: "Erreur (Profils Non-Admin)", description: "Impossible de charger certains profils membres.", variant: "destructive"});
+            setAllUserProfiles(userProfile ? [userProfile] : []); // Fallback to self
+          } finally {
+            setIsLoadingAllUserProfiles(false);
+          }
+        } else {
+          setAllUserProfiles(userProfile ? [userProfile] : []);
+          setIsLoadingAllUserProfiles(false);
+        }
+      } else { // Non-admin and no projects
+        setAllUserProfiles(userProfile ? [userProfile] : []);
+        setIsLoadingAllUserProfiles(false);
+      }
+    }
+  }, [currentUser, isAdmin, userProfile, projects, isFetchingProjects, toast]);
+
+ useEffect(() => {
+    if (currentUser) {
+      fetchProjects();
+    } else {
+      setProjects([]);
+      setIsFetchingProjects(true);
+    }
+  }, [currentUser, fetchProjects]);
+
+  useEffect(() => {
+    if (currentUser && !isFetchingProjects) { // Fetch profiles once projects (and their member lists) are known
+      fetchAllUserProfiles();
+    } else if (!currentUser) {
+      setAllUserProfiles([]);
+      setIsLoadingAllUserProfiles(true);
+    }
+  }, [currentUser, isFetchingProjects, projects, fetchAllUserProfiles]); // Add projects dependency
 
 
   const handleViewProjectDetails = async (project: ProjectType) => {
@@ -281,7 +292,7 @@ export default function ProjectsPage() {
             fetchedProfilesArray.push(profileData);
           } else {
             console.warn(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} DOES NOT EXIST in 'users' collection. Will use fallback.`);
-            fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "N/A", isAdmin: false, avatarUrl: '' });
+            fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)` , email: "N/A", isAdmin: false, avatarUrl: '' });
           }
         }
         setProjectModalMemberProfiles(fetchedProfilesArray);
@@ -293,13 +304,14 @@ export default function ProjectsPage() {
           description: `Impossible de charger les détails des membres du projet. Erreur: ${error.message}`,
           variant: "destructive",
         });
-        setProjectModalMemberProfiles([]); // Fallback to empty on error
+        setProjectModalMemberProfiles([]);
       } finally {
         setIsLoadingProjectModalMemberProfiles(false);
       }
     } else {
       console.log("ProjectsPage (handleViewProjectDetails): Project has no members or members array is invalid.");
       setProjectModalMemberProfiles([]);
+      setIsLoadingProjectModalMemberProfiles(false);
     }
   };
 
@@ -308,8 +320,8 @@ export default function ProjectsPage() {
     setSelectedProject(null);
     setEditingBudget(false);
     setEditingNotes(false);
-    setProjectModalMemberProfiles([]); // Clear specific member profiles for the modal
-    inviteMemberForm.reset(); // Reset the invitation form
+    setProjectModalMemberProfiles([]);
+    inviteMemberForm.reset();
   };
 
   const handleSaveBudget = async () => {
@@ -318,14 +330,14 @@ export default function ProjectsPage() {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier le budget.", variant: "destructive" });
         return;
       }
-      setIsLoading(true);
+      setIsProcessingProjectAction(true);
       try {
         const projectRef = doc(db, "projects", selectedProject.id);
         await updateDoc(projectRef, {
           budget: currentBudget,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; // Simulate timestamp for UI
+        const updatedProject = { ...selectedProject, budget: currentBudget, updatedAt: Timestamp.now() }; 
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Budget mis à jour", description: `Le budget du projet "${selectedProject.name}" est maintenant de ${currentBudget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}.` });
@@ -333,7 +345,7 @@ export default function ProjectsPage() {
         console.error("Erreur maj budget: ", error);
         toast({ title: "Erreur", description: "Impossible de mettre à jour le budget.", variant: "destructive" });
       } finally {
-        setIsLoading(false);
+        setIsProcessingProjectAction(false);
         setEditingBudget(false);
       }
     } else {
@@ -347,14 +359,14 @@ export default function ProjectsPage() {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut modifier les notes.", variant: "destructive" });
         return;
       }
-      setIsLoading(true);
+      setIsProcessingProjectAction(true);
       try {
         const projectRef = doc(db, "projects", selectedProject.id);
         await updateDoc(projectRef, {
           notes: currentNotes,
           updatedAt: serverTimestamp(),
         });
-        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() }; // Simulate timestamp for UI
+        const updatedProject = { ...selectedProject, notes: currentNotes, updatedAt: Timestamp.now() };
         setSelectedProject(updatedProject);
         setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProject : p));
         toast({ title: "Notes mises à jour", description: `Les notes du projet "${selectedProject.name}" ont été enregistrées.` });
@@ -362,7 +374,7 @@ export default function ProjectsPage() {
         console.error("Erreur maj notes: ", error);
         toast({ title: "Erreur", description: "Impossible de mettre à jour les notes.", variant: "destructive" });
       } finally {
-        setIsLoading(false);
+        setIsProcessingProjectAction(false);
         setEditingNotes(false);
       }
     }
@@ -375,18 +387,18 @@ export default function ProjectsPage() {
         setIsDeleteConfirmModalOpen(false);
         return;
       }
-      setIsLoading(true);
+      setIsProcessingProjectAction(true);
       try {
         await deleteDoc(doc(db, "projects", selectedProject.id));
         setProjects(projects.filter(p => p.id !== selectedProject.id));
         toast({ title: "Projet supprimé", description: `Le projet "${selectedProject.name}" a été supprimé.` });
-        setSelectedProject(null); // Close the modal after deletion
+        setSelectedProject(null); 
         setIsDeleteConfirmModalOpen(false);
       } catch (error) {
         console.error("Erreur suppression projet: ", error);
         toast({ title: "Erreur", description: "Impossible de supprimer le projet.", variant: "destructive" });
       } finally {
-        setIsLoading(false);
+        setIsProcessingProjectAction(false);
       }
     }
   };
@@ -401,10 +413,9 @@ export default function ProjectsPage() {
   };
 
   const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    // Prioritize profiles fetched specifically for the modal if available
     const profilesToSearch = projectModalMemberProfiles.length > 0 ? projectModalMemberProfiles : allUserProfiles;
     const profile = profilesToSearch.find(p => p.id === uid);
-    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) { // Only warn if not loading
+    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) { 
         console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found. projectModalMemberProfiles count: ${projectModalMemberProfiles.length}, allUserProfiles count: ${allUserProfiles.length}`);
     }
     return profile;
@@ -415,41 +426,28 @@ export default function ProjectsPage() {
         toast({ title: "Erreur", description: "Aucun projet sélectionné ou utilisateur non connecté.", variant: "destructive" });
         return;
     }
-    // Only project owner or admin can add members
     if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
       toast({ title: "Action non autorisée", description: "Seul le propriétaire du projet ou un administrateur peut ajouter des membres.", variant: "destructive" });
       return;
     }
-    // Ensure allUserProfiles is populated, especially if not admin (fetchAllUserProfiles might have set a limited list)
-    // If admin, allUserProfiles should already contain all users.
-    // If not admin but owner, we need the global list to pick from.
-    if (isAdmin && isLoadingAllUserProfiles) { // Admin case, wait if still loading all users
-      await fetchAllUserProfiles();
-    } else if (!isAdmin && selectedProject.ownerId === currentUser.uid) {
-      // Non-admin owner needs to ensure they have the full list for the dialog
-      setIsLoadingAllUserProfiles(true); // Show loading in dialog
-      try {
-        const usersCollectionRef = collection(db, "users");
-        const usersSnapshot = await getDocs(usersCollectionRef);
-        const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-        setAllUserProfiles(usersList); // Temporarily populate allUserProfiles for the dialog
-        console.log("ProjectsPage (Add Member Dialog): Non-admin owner fetched all users for dialog:", usersList.length);
-      } catch(e) {
-        console.error("Error fetching all users for non-admin owner in add member dialog", e);
-        toast({title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive"});
-        setIsLoadingAllUserProfiles(false);
-        return; // Don't open dialog if users can't be loaded
-      } finally {
-        setIsLoadingAllUserProfiles(false);
-      }
+    
+    setIsLoadingAllUserProfiles(true); // Show loading in dialog while fetching full user list
+    try {
+      const usersCollectionRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const allSystemUsers = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+      
+      const currentMemberIds = new Set(selectedProject.members);
+      const available = allSystemUsers.filter(user => !currentMemberIds.has(user.id));
+      setAvailableUsersForProject(available);
+      setUsersToAddToProject([]); 
+      setIsAddMemberDialogOpen(true);
+    } catch(e) {
+      console.error("Error fetching all users for add member dialog", e);
+      toast({title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive"});
+    } finally {
+      setIsLoadingAllUserProfiles(false);
     }
-
-
-    const currentMemberIds = new Set(selectedProject.members);
-    const available = allUserProfiles.filter(user => !currentMemberIds.has(user.id));
-    setAvailableUsersForProject(available);
-    setUsersToAddToProject([]); // Clear previous selections
-    setIsAddMemberDialogOpen(true);
   };
 
   const handleToggleUserForAddition = (userId: string) => {
@@ -460,12 +458,11 @@ export default function ProjectsPage() {
 
   const handleConfirmAddMembers = async () => {
     if (!selectedProject || usersToAddToProject.length === 0 || !currentUser) return;
-     // Security check again
      if (selectedProject.ownerId !== currentUser.uid && !isAdmin) {
         toast({ title: "Non autorisé", description: "Seul le propriétaire ou un admin peut ajouter des membres.", variant: "destructive" });
         return;
     }
-    setIsLoading(true);
+    setIsProcessingProjectAction(true);
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
       await updateDoc(projectRef, {
@@ -473,27 +470,23 @@ export default function ProjectsPage() {
         updatedAt: serverTimestamp(),
       });
 
-      // Update local state for selectedProject and the main projects list
       const updatedMembers = Array.from(new Set([...selectedProject.members, ...usersToAddToProject]));
-      const updatedProjectData = { ...selectedProject, members: updatedMembers, updatedAt: Timestamp.now() }; // Simulate timestamp
+      const updatedProjectData = { ...selectedProject, members: updatedMembers, updatedAt: Timestamp.now() }; 
 
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
 
-      // Re-fetch member profiles for the modal to include new members
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await firestoreGetDoc(userDocRef); // Renamed to avoid conflict
+          const docSnapshot = await firestoreGetDoc(userDocRef); 
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
-            // Fallback if profile not found, though it should exist if they were in allUserProfiles
-            newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}...`, email: "N/A", isAdmin: false, avatarUrl: '' });
+            newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)`, email: "N/A", isAdmin: false, avatarUrl: '' });
           }
       }
       setProjectModalMemberProfiles(newModalProfiles);
-
 
       toast({ title: "Membres ajoutés", description: `${usersToAddToProject.length} membre(s) ont été ajoutés au projet.` });
       setIsAddMemberDialogOpen(false);
@@ -501,7 +494,7 @@ export default function ProjectsPage() {
       console.error("Erreur lors de l'ajout de membres: ", error);
       toast({ title: "Erreur", description: "Impossible d'ajouter les membres.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      setIsProcessingProjectAction(false);
     }
   };
 
@@ -516,29 +509,21 @@ export default function ProjectsPage() {
     }
 
     setIsSendingInvite(true);
-    console.log(`[ProjectsPage] Initiating invitation for project "${selectedProject.name}" (ID: ${selectedProject.id}) to email: ${values.email}`);
-    
-    // Construct the invitation link
     const baseUrl = window.location.origin;
     const invitationLink = `${baseUrl}/register?projectId=${selectedProject.id}&invitedEmail=${encodeURIComponent(values.email)}`;
     console.log(`[ProjectsPage] Generated invitation link: ${invitationLink}`);
 
-
     try {
       const response = await fetch('/api/send-invitation', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           toEmail: values.email, 
           projectName: selectedProject.name,
           invitationLink: invitationLink 
         }),
       });
-
       const result = await response.json();
-
       if (response.ok) {
         toast({
           title: "Invitation envoyée",
@@ -565,7 +550,6 @@ export default function ProjectsPage() {
     try {
       await logout();
       router.push('/login');
-      toast({ title: "Déconnexion réussie" });
     } catch (error) {
       console.error("Erreur de déconnexion:", error);
       toast({ title: "Erreur de déconnexion", variant: "destructive" });
@@ -657,10 +641,13 @@ export default function ProjectsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
               const ownerProfile = allUserProfiles.find(user => user.id === project.ownerId);
-              const ownerName = ownerProfile?.name || project.ownerId;
+              // ADD DIAGNOSTIC LOG HERE
+              console.log(`[ProjectsPage Card Render] Project: ${project.name}, Owner ID: ${project.ownerId}, Found Owner Profile:`, ownerProfile ? {id: ownerProfile.id, name: ownerProfile.name} : undefined);
+              const ownerName = ownerProfile?.name && ownerProfile.name.trim() !== '' ? ownerProfile.name : project.ownerId;
+
               const displayableMemberProfilesOnCard = project.members.map(uid => {
                 const profile = allUserProfiles.find(p => p.id === uid);
-                return profile || ({ id: uid, name: `UID: ${uid.substring(0,6)}...` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
+                return profile || ({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
               }).filter(Boolean) as AppUserType[];
 
               return (
@@ -685,11 +672,11 @@ export default function ProjectsPage() {
                     </div>
                   </div>
 
-                  {project.budget > 0 && (
+                  {(project.budget || 0) > 0 && (
                     <div className="mb-4">
                       <div className="flex justify-between text-sm mb-1">
                         <span>Budget</span>
-                        <span>{project.budget.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
+                        <span>{(project.budget || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
                       </div>
                       <Progress value={((project.totalExpenses || 0) / (project.budget || 1)) * 100} className="h-2" />
                     </div>
@@ -746,11 +733,10 @@ export default function ProjectsPage() {
               <DialogDescription>{selectedProject.description}</DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
-              <div className="lg:col-span-2 space-y-6">
-                <ProjectExpenseSettlement
+               <div className="lg:col-span-2 space-y-6">
+                 <ProjectExpenseSettlement
                     project={selectedProject}
                     memberProfilesOfProject={projectModalMemberProfiles}
-                    isLoadingUserProfiles={isLoadingProjectModalMemberProfiles}
                 />
                 <Card>
                   <CardHeader>
@@ -800,10 +786,10 @@ export default function ProjectsPage() {
                             onChange={(e) => setCurrentBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
                             className="h-8"
                             data-ai-hint="budget input"
-                            disabled={isLoading}
+                            disabled={isProcessingProjectAction}
                           />
-                          <Button size="sm" onClick={handleSaveBudget} disabled={isLoading}><Icons.check className="h-4 w-4"/></Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget || 0);}} disabled={isLoading}><Icons.x className="h-4 w-4"/></Button>
+                          <Button size="sm" onClick={handleSaveBudget} disabled={isProcessingProjectAction}><Icons.check className="h-4 w-4"/></Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget || 0);}} disabled={isProcessingProjectAction}><Icons.x className="h-4 w-4"/></Button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between mt-1">
@@ -811,7 +797,7 @@ export default function ProjectsPage() {
                             {(typeof currentBudget === 'number' ? currentBudget : (selectedProject.budget || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                           </p>
                           {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isLoading}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isProcessingProjectAction}>
                                 <Icons.edit className="h-4 w-4"/>
                             </Button>
                           )}
@@ -863,7 +849,7 @@ export default function ProjectsPage() {
                         ))
                     )}
                      {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isLoading || isLoadingAllUserProfiles }>
+                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isProcessingProjectAction || isLoadingAllUserProfiles }>
                            <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre existant
                        </Button>
                      )}
@@ -894,7 +880,7 @@ export default function ProjectsPage() {
                               </FormItem>
                             )}
                           />
-                          <Button type="submit" className="w-full" disabled={isSendingInvite}>
+                          <Button type="submit" className="w-full" disabled={isSendingInvite || isProcessingProjectAction}>
                             {isSendingInvite ? (
                               <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
                             ) : (
@@ -914,7 +900,7 @@ export default function ProjectsPage() {
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>Notes du projet</CardTitle>
                              {!editingNotes && (selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isLoading}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isProcessingProjectAction}>
                                     <Icons.edit className="h-4 w-4"/>
                                 </Button>
                             )}
@@ -929,11 +915,11 @@ export default function ProjectsPage() {
                                         className="text-sm"
                                         placeholder="Ajoutez des notes pour ce projet..."
                                         data-ai-hint="project notes input"
-                                        disabled={isLoading}
+                                        disabled={isProcessingProjectAction}
                                     />
                                     <div className="flex justify-end gap-2">
-                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}} disabled={isLoading}>Annuler</Button>
-                                        <Button size="sm" onClick={handleSaveNotes} disabled={isLoading}>Enregistrer Notes</Button>
+                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}} disabled={isProcessingProjectAction}>Annuler</Button>
+                                        <Button size="sm" onClick={handleSaveNotes} disabled={isProcessingProjectAction}>Enregistrer Notes</Button>
                                     </div>
                                 </div>
                             ) : (
@@ -950,7 +936,7 @@ export default function ProjectsPage() {
                  <Button
                     variant="default"
                     onClick={() => router.push(`/expenses/new?projectId=${selectedProject.id}`)}
-                    disabled={isLoading}
+                    disabled={isProcessingProjectAction}
                     className="w-full sm:w-auto"
                   >
                     <Icons.plusSquare className="mr-2 h-4 w-4" />
@@ -959,12 +945,12 @@ export default function ProjectsPage() {
                </div>
               <div className="flex flex-col sm:flex-row gap-2 mt-2 sm:mt-0">
                 {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                  <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isLoading}>
+                  <Button variant="destructive" onClick={() => {setIsDeleteConfirmModalOpen(true);}} disabled={isProcessingProjectAction}>
                     <Icons.trash className="mr-2 h-4 w-4" /> Supprimer le Projet
                   </Button>
                 )}
                 <DialogClose asChild>
-                   <Button variant="outline" disabled={isLoading}>Fermer</Button>
+                   <Button variant="outline" disabled={isProcessingProjectAction}>Fermer</Button>
                 </DialogClose>
               </div>
             </ModalDialogFooter>
@@ -982,9 +968,9 @@ export default function ProjectsPage() {
                     </DialogDescription>
                 </DialogHeader>
                 <ModalDialogFooter>
-                    <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)} disabled={isLoading}>Annuler</Button>
-                    <Button variant="destructive" onClick={handleDeleteProject} disabled={isLoading}>
-                        {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.trash className="mr-2 h-4 w-4"/>}
+                    <Button variant="outline" onClick={() => setIsDeleteConfirmModalOpen(false)} disabled={isProcessingProjectAction}>Annuler</Button>
+                    <Button variant="destructive" onClick={handleDeleteProject} disabled={isProcessingProjectAction}>
+                        {isProcessingProjectAction ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.trash className="mr-2 h-4 w-4"/>}
                         Supprimer
                     </Button>
                 </ModalDialogFooter>
@@ -1033,9 +1019,9 @@ export default function ProjectsPage() {
                     )}
                 </div>
                 <ModalDialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddMemberDialogOpen(false)} disabled={isLoading}>Annuler</Button>
-                    <Button onClick={handleConfirmAddMembers} disabled={isLoading || usersToAddToProject.length === 0}>
-                        {isLoading ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.plus className="mr-2 h-4 w-4"/>}
+                    <Button variant="outline" onClick={() => setIsAddMemberDialogOpen(false)} disabled={isProcessingProjectAction}>Annuler</Button>
+                    <Button onClick={handleConfirmAddMembers} disabled={isProcessingProjectAction || usersToAddToProject.length === 0}>
+                        {isProcessingProjectAction ? <Icons.loader className="mr-2 h-4 w-4 animate-spin"/> : <Icons.plus className="mr-2 h-4 w-4"/>}
                         Ajouter les membres sélectionnés
                     </Button>
                 </ModalDialogFooter>
@@ -1044,4 +1030,3 @@ export default function ProjectsPage() {
     </div>
   );
 }
-
