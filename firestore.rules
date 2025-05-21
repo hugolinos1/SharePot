@@ -11,24 +11,13 @@ service cloud.firestore {
 
     // Helper function to check if the user is a participant (member or owner) of a project
     function isProjectParticipant(projectId) {
-      // Path to the project document
-      let projectDocumentPath = /databases/$(database)/documents/projects/$(projectId);
-
-      // First, check if the user is authenticated.
-      if (request.auth == null) {
+      let projectPath = /databases/$(database)/documents/projects/$(projectId);
+      if (!exists(projectPath)) {
         return false;
       }
-      // Then, check if the project document exists.
-      if (!exists(projectDocumentPath)) {
-        return false;
-      }
-
-      // If both conditions above are met, get the project data.
-      let projectData = get(projectDocumentPath).data;
-
-      // Check if projectData is not null
-      // Then, check for ownership or membership.
-      return projectData != null &&
+      let projectData = get(projectPath).data;
+      return request.auth != null &&
+             projectData != null &&
              (
                request.auth.uid == projectData.ownerId ||
                (projectData.members != null && projectData.members is list && request.auth.uid in projectData.members)
@@ -49,15 +38,17 @@ service cloud.firestore {
       // Admin can update any user document.
       // A user can update their OWN user document for specific fields (name, avatarUrl, avatarStoragePath).
       // Crucially, a user cannot make themselves an admin.
-      allow update: if isAdmin() ||
-                       (request.auth.uid == userId &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'avatarStoragePath', 'updatedAt']) &&
-                        // Prevent self-promotion to admin
-                        (!request.resource.data.keys().has('isAdmin') || request.resource.data.isAdmin == resource.data.isAdmin) &&
-                        (request.resource.data.keys().has('isAdmin') == false || request.resource.data.isAdmin == false || resource.data.isAdmin == true) &&
-                        // Ensure updatedAt is a server timestamp if present
-                        (!request.resource.data.keys().has('updatedAt') || request.resource.data.updatedAt == request.time)
-                       );
+      allow update: if request.auth != null && (
+                       isAdmin() ||
+                       (
+                         request.auth.uid == userId &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarUrl', 'avatarStoragePath', 'updatedAt']) &&
+                         // Prevent self-promotion to admin by checking if isAdmin field is being changed from false to true by non-admin
+                         (request.resource.data.keys().has('isAdmin') == false || request.resource.data.isAdmin == resource.data.isAdmin || request.resource.data.isAdmin == false) &&
+                         // Ensure updatedAt is a server timestamp if present
+                         (request.resource.data.keys().has('updatedAt') == false || request.resource.data.updatedAt == request.time)
+                       )
+                     );
 
       // Admin can delete any user document (except their own for safety, can be changed if needed).
       allow delete: if isAdmin() && request.auth.uid != userId;
@@ -93,16 +84,16 @@ service cloud.firestore {
           // Immutable fields for owner
           request.resource.data.ownerId == resource.data.ownerId && 
           request.resource.data.createdAt == resource.data.createdAt
-          // Note: This clause allows the owner to change the members array.
         ) ||
         // Authenticated user (invited via client-side logic) can add themselves to the members array
         (
           request.auth.uid != null &&
           request.auth.uid != resource.data.ownerId && // User is not the owner
           (resource.data.members == null || (resource.data.members is list && !(request.auth.uid in resource.data.members))) && // User is not already a member or members list didn't exist
-          request.resource.data.keys().hasOnly(['members', 'updatedAt']) && // Ensures client sends update ONLY for 'members' and 'updatedAt'
+          // Check that ONLY 'members' and 'updatedAt' fields are being modified by this operation.
+          // This relies on the client sending an update with { members: arrayUnion(...), updatedAt: serverTimestamp() }
+          request.resource.data.keys().hasOnly(['members', 'updatedAt']) &&
           request.resource.data.updatedAt == request.time
-          // This rule relies on the client sending: { members: arrayUnion(request.auth.uid), updatedAt: serverTimestamp() }
         ) ||
         // Project participant (non-owner) can ONLY update expense tracking fields
         (
@@ -118,10 +109,10 @@ service cloud.firestore {
           (request.resource.data.keys().has('budget') == false || request.resource.data.budget == resource.data.budget) &&
           (request.resource.data.keys().has('ownerId') == false || request.resource.data.ownerId == resource.data.ownerId) &&
           (request.resource.data.keys().has('createdAt') == false || request.resource.data.createdAt == resource.data.createdAt) &&
-          (request.resource.data.keys().has('members') == false || request.resource.data.members == resource.data.members) && // Participants cannot change members array
+          (request.resource.data.keys().has('members') == false || request.resource.data.members == resource.data.members) && // Participants cannot change members array generally
           (request.resource.data.keys().has('tags') == false || request.resource.data.tags == resource.data.tags) &&
           (request.resource.data.keys().has('notes') == false || request.resource.data.notes == resource.data.notes)
-          // totalExpenses and recentExpenses are implicitly allowed to change if not listed above as "must be unchanged"
+          // totalExpenses and recentExpenses are implicitly allowed to change as they are not listed here
         )
       );
 
@@ -174,7 +165,5 @@ service cloud.firestore {
       // Authenticated users can list expenses. Client-side queries must filter appropriately.
       allow list: if request.auth != null;
     }
-  } // Closes match /databases/{database}/documents
-} // Closes service cloud.firestore
-
-    
+  }
+}
