@@ -12,6 +12,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { CardDescription } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
+import { cn } from "@/lib/utils";
 
 
 const chartConfigBase = {
@@ -22,19 +23,61 @@ const chartConfigBase = {
 };
 
 interface ExpenseAnalysisChartProps {
-  data: Array<{ [key: string]: string | number }> | undefined; // More generic data type
+  data: Array<{ [key: string]: string | number }> | undefined; 
   isLoading: boolean;
-  yAxisDataKey: string; // To specify if it's "user" or "category"
+  yAxisDataKey: string; 
 }
 
 export default function ExpenseAnalysisChart({ data, isLoading, yAxisDataKey }: ExpenseAnalysisChartProps) {
   
   const chartConfig = {
     ...chartConfigBase,
-    [yAxisDataKey]: { // Dynamically add config for the yAxisDataKey
-        label: yAxisDataKey.charAt(0).toUpperCase() + yAxisDataKey.slice(1), // Capitalize (User or Category)
+    [yAxisDataKey]: { 
+        label: yAxisDataKey.charAt(0).toUpperCase() + yAxisDataKey.slice(1), 
     },
   } satisfies ChartConfig;
+
+  const customTooltipFormatter = (value: number, name: string, item: any) => {
+    // 'name' here will be "Dépenses"
+    const itemConfig = chartConfig[name as keyof typeof chartConfig] || chartConfig.Dépenses;
+    const indicatorColor = item.payload.fill || item.color || chartConfig.Dépenses.color;
+
+    return (
+      <div
+        key={item.dataKey || name}
+        className={cn(
+          "flex w-full items-center flex-wrap gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground"
+        )}
+      >
+        <div
+          className={cn(
+            "shrink-0 rounded-[2px] border-[--color-border] bg-[--color-bg]",
+             "h-2.5 w-2.5" // Ensure dot indicator style
+          )}
+          style={
+            {
+              "--color-bg": indicatorColor,
+              "--color-border": indicatorColor,
+            } as React.CSSProperties
+          }
+        />
+        <div
+          className={cn(
+            "flex flex-1 justify-between leading-none",
+            "items-center"
+          )}
+        >
+          <span className="text-muted-foreground">
+            {itemConfig?.label || name}
+          </span>
+          <span className="font-mono font-medium tabular-nums text-foreground">
+            {(value / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
 
   if (isLoading) {
     return (
@@ -66,19 +109,19 @@ export default function ExpenseAnalysisChart({ data, isLoading, yAxisDataKey }: 
       >
         <CartesianGrid horizontal={false} />
         <YAxis
-          dataKey={yAxisDataKey} // Use the prop here
+          dataKey={yAxisDataKey} 
           type="category"
           tickLine={false}
           tickMargin={10}
           axisLine={false}
-          tickFormatter={(value) => value as string} // Cast value as string
+          tickFormatter={(value) => value as string} 
           className="text-xs"
           width={80} 
         />
         <XAxis dataKey="Dépenses" type="number" hide />
         <ChartTooltip
           cursor={false}
-          content={<ChartTooltipContent hideLabel />}
+          content={<ChartTooltipContent hideLabel formatter={customTooltipFormatter} />}
         />
         <Bar dataKey="Dépenses" fill="var(--color-Dépenses)" radius={5}>
             <LabelList
