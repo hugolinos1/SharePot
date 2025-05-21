@@ -1,10 +1,21 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isAdmin() {
-      return request.auth != null && request.auth.token.email == 'hugues.rabier@gmail.com';
+      if (request.auth == null) {
+        return false;
+      }
+      if (request.auth.token == null) {
+        return false;
+      }
+      // Ensure email is not null before comparing
+      if (request.auth.token.email == null) {
+        return false;
+      }
+      return request.auth.token.email == 'hugues.rabier@gmail.com';
     }
 
     function isProjectParticipant(projectId) {
@@ -19,9 +30,11 @@ service cloud.firestore {
       if (request.auth == null) {
         return false;
       }
-      if (request.auth.uid == projectData.ownerId) {
+      // Check for owner
+      if (projectData.ownerId != null && request.auth.uid == projectData.ownerId) {
         return true;
       }
+      // Check for membership in members array
       if (projectData.members != null && projectData.members is list && request.auth.uid in projectData.members) {
         return true;
       }
@@ -67,16 +80,16 @@ service cloud.firestore {
                           request.resource.data.ownerId == resource.data.ownerId &&
                           request.resource.data.createdAt == resource.data.createdAt
                         ) ||
-                        ( 
+                        ( // Authenticated user (invited via client-side logic) can add themselves to the members array
                           request.auth.uid != null &&
-                          request.auth.uid != resource.data.ownerId &&
-                          (resource.data.members == null || (resource.data.members is list && !(request.auth.uid in resource.data.members))) &&
-                          request.resource.data.keys().hasOnly(['members', 'updatedAt']) &&
+                          request.auth.uid != resource.data.ownerId && 
+                          (resource.data.members == null || (resource.data.members is list && !(request.auth.uid in resource.data.members))) && 
+                          request.resource.data.keys().hasOnly(['members', 'updatedAt']) && 
                           request.resource.data.updatedAt == request.time
                         ) ||
-                        (
+                        ( // Project participant (non-owner) can ONLY update expense tracking fields
                           isProjectParticipant(projectId) &&
-                          request.auth.uid != resource.data.ownerId &&
+                          request.auth.uid != resource.data.ownerId && 
                           request.resource.data.updatedAt == request.time &&
                           request.resource.data.lastActivity == request.time &&
                           (request.resource.data.keys().has('name') == false || request.resource.data.name == resource.data.name) &&
@@ -87,8 +100,7 @@ service cloud.firestore {
                           (request.resource.data.keys().has('createdAt') == false || request.resource.data.createdAt == resource.data.createdAt) &&
                           (request.resource.data.keys().has('members') == false || request.resource.data.members == resource.data.members) &&
                           (request.resource.data.keys().has('tags') == false || request.resource.data.tags == resource.data.tags) &&
-                          (request.resource.data.keys().has('notes') == false || request.resource.data.notes == resource.data.notes) &&
-                          true
+                          (request.resource.data.keys().has('notes') == false || request.resource.data.notes == resource.data.notes)
                         )
                       );
 
