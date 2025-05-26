@@ -55,9 +55,9 @@ import {
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { tagExpense, type TagExpenseOutput } from '@/ai/flows/tag-expense-with-ai';
+import { convertToEur, type CurrencyConversionResult } from '@/services/currency-converter';
 
-
-const currencies = ["EUR", "USD", "GBP", "CZK"];
+const currencies = ["EUR", "USD", "GBP", "CZK", "JPY", "CAD", "AUD", "CHF", "CNY", "INR", "BRL", "RUB", "ZAR"];
 
 const expenseFormSchema = z.object({
   description: z.string().min(3, { message: "La description doit comporter au moins 3 caractères." }).max(100, { message: "La description ne doit pas dépasser 100 caractères." }),
@@ -105,6 +105,7 @@ export default function NewExpensePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { currentUser, userProfile, loading: authLoading, logout } = useAuth();
+  const searchParams = useSearchParams();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -122,7 +123,7 @@ export default function NewExpensePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
-  const [isSuggestingTags, setIsSuggestingTags] = useState(false);
+  const [isSuggestingCategory, setIsSuggestingCategory] = useState(false);
 
 
   const form = useForm<ExpenseFormValues>({
@@ -154,13 +155,13 @@ export default function NewExpensePage() {
       form.reset({
         ...form.getValues(),
         paidById: currentUser.uid,
-        amount: form.getValues('amount') || undefined, // Keep existing or undefined
+        amount: form.getValues('amount') || undefined, 
         description: form.getValues('description') || '',
         currency: form.getValues('currency') || 'EUR',
         projectId: form.getValues('projectId') || '',
         expenseDate: form.getValues('expenseDate') || new Date(),
         category: form.getValues('category') || '',
-        invoiceForAnalysis: undefined, // Ensure this is always reset
+        invoiceForAnalysis: undefined, 
       });
     }
   }, [currentUser, form, authLoading]);
@@ -210,7 +211,7 @@ export default function NewExpensePage() {
       if (!currentUser || !projectId) {
         const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
         setUsersForDropdown(defaultUserArray);
-        if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0] && !form.getValues('paidById')) {
+        if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0]?.id && !form.getValues('paidById')) {
              form.setValue('paidById', currentUser.uid);
         }
         setIsLoadingUsersForDropdown(false);
@@ -224,11 +225,10 @@ export default function NewExpensePage() {
         let fetchedProjectMembers: AppUserType[] = [];
         if (projectSnap.exists()) {
           const projectData = projectSnap.data() as Project;
-          const memberUIDs = projectData.members || [];
-          console.log(`[NewExpensePage useEffect paidById] Project "${projectData.name}" members UIDs:`, memberUIDs);
+          console.log(`[NewExpensePage useEffect paidById] Project "${projectData.name}" members UIDs:`, projectData.members);
 
-          if (memberUIDs.length > 0) {
-            const userPromises = memberUIDs.map(uid => getDoc(doc(db, "users", uid)));
+          if (projectData.members && projectData.members.length > 0) {
+            const userPromises = projectData.members.map(uid => getDoc(doc(db, "users", uid)));
             const userDocs = await Promise.all(userPromises);
             fetchedProjectMembers = userDocs
               .filter(d => {
@@ -250,7 +250,7 @@ export default function NewExpensePage() {
         if (!currentPaidById || !fetchedProjectMembers.some(u => u.id === currentPaidById)) {
             if (currentUserIsAmongFetched && currentUser) {
                 form.setValue('paidById', currentUser.uid);
-            } else if (fetchedProjectMembers.length > 0 && fetchedProjectMembers[0]) {
+            } else if (fetchedProjectMembers.length > 0 && fetchedProjectMembers[0]?.id) {
                 form.setValue('paidById', fetchedProjectMembers[0].id);
             } else if (currentUser) {
                  form.setValue('paidById', currentUser.uid);
@@ -268,7 +268,7 @@ export default function NewExpensePage() {
         });
         const defaultUserOnError = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
         setUsersForDropdown(defaultUserOnError);
-         if (currentUser && defaultUserOnError.length > 0 && defaultUserOnError[0] && !form.getValues('paidById')) {
+         if (currentUser && defaultUserOnError.length > 0 && defaultUserOnError[0]?.id && !form.getValues('paidById')) {
             form.setValue('paidById', currentUser.uid);
         }
       } finally {
@@ -279,9 +279,10 @@ export default function NewExpensePage() {
     if (watchedProjectId) {
       fetchProjectMembersAndSetDropdown(watchedProjectId);
     } else {
+      // If no project is selected, default to current user (if available) or empty.
       const defaultUserArray = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArray);
-      if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0] && !form.getValues('paidById')) {
+      if (currentUser && defaultUserArray.length > 0 && defaultUserArray[0]?.id && !form.getValues('paidById')) {
          form.setValue('paidById', currentUser.uid);
       }
       setIsLoadingUsersForDropdown(false);
@@ -320,7 +321,7 @@ export default function NewExpensePage() {
                     amountValue = parseFloat(numericMatch[0]);
                 }
 
-                const currencyMatch = amountString.match(/(EUR|USD|GBP|CZK)/i);
+                const currencyMatch = amountString.match(/(EUR|USD|GBP|CZK|JPY|CAD|AUD|CHF|CNY|INR|BRL|RUB|ZAR)/i);
                 if (currencyMatch && currencyMatch[0]) {
                     const foundCurrency = currencyMatch[0].toUpperCase();
                     if (currencies.includes(foundCurrency)) { 
@@ -526,23 +527,42 @@ const handleSwitchCamera = async () => {
         return;
     }
     
+    let amountInEur = values.amount;
+    let conversionErrorMessage: string | undefined = undefined;
+
+    if (values.currency !== "EUR") {
+      toast({ title: "Conversion en cours", description: `Conversion de ${values.currency} en EUR...`});
+      const conversionResult = await convertToEur(values.amount, values.currency);
+      if (conversionResult.convertedAmountEUR !== null) {
+        amountInEur = conversionResult.convertedAmountEUR;
+        toast({ title: "Conversion réussie", description: `${values.amount} ${values.currency} = ${amountInEur.toFixed(2)} EUR`});
+      } else {
+        conversionErrorMessage = conversionResult.errorMessage || "La conversion de devise a échoué. La dépense sera enregistrée avec le montant original mais sans équivalent EUR.";
+        toast({
+          title: "Échec de la conversion",
+          description: conversionErrorMessage,
+          variant: "destructive",
+          duration: 7000,
+        });
+        // Decide if you want to block submission or save with null amountEUR
+        // For now, we'll save with null amountEUR if conversion fails
+        amountInEur = null as any; // Explicitly set to null if conversion fails
+      }
+    }
+    
     const newExpenseRef = doc(collection(db, "expenses")); 
+    console.log("[NewExpensePage onSubmit Attempting to save expense to Firestore] Expense ID (for path):", newExpenseRef.id);
+
 
     try {
       const projectRef = doc(db, "projects", selectedProject.id);
       
-      await runTransaction(db, async (transaction) => {
-        const projectDoc = await transaction.get(projectRef); // LECTURE
-        if (!projectDoc.exists()) {
-          throw new Error("Le projet associé n'existe plus.");
-        }
-        const projectData = projectDoc.data() as Project;
-        
-        const newExpenseDocData = {
+      const newExpenseDocData = {
             id: newExpenseRef.id,
             title: values.description,
-            amount: values.amount,
-            currency: values.currency,
+            amount: values.amount, // Original amount
+            currency: values.currency, // Original currency
+            amountEUR: amountInEur, // Amount in EUR, or null if conversion failed
             projectId: values.projectId,
             projectName: selectedProject.name,
             paidById: payerProfile.id,
@@ -553,22 +573,33 @@ const handleSwitchCamera = async () => {
             createdBy: currentUser.uid,
             updatedAt: serverTimestamp(),
         };
-        console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
+      console.log("[NewExpensePage onSubmit] Data to be saved to Firestore:", newExpenseDocData);
         
-        transaction.set(newExpenseRef, newExpenseDocData); // ECRITURE (Dépense)
+      await runTransaction(db, async (transaction) => {
+        const projectDoc = await transaction.get(projectRef); 
+        if (!projectDoc.exists()) {
+          throw new Error("Le projet associé n'existe plus.");
+        }
+        const projectData = projectDoc.data() as Project;
+        
+        transaction.set(newExpenseRef, newExpenseDocData); 
 
         const currentTotalExpenses = projectData.totalExpenses || 0;
-        const expenseAmount = typeof values.amount === 'number' ? values.amount : parseFloat(String(values.amount)); 
-        if (isNaN(expenseAmount)) {
-            throw new Error("Montant de dépense invalide pour le calcul du total du projet.");
+        // Use amountInEur for project total, falling back to 0 if conversion failed and amountInEur is null
+        const expenseAmountForTotal = typeof amountInEur === 'number' ? amountInEur : 0; 
+        if (isNaN(expenseAmountForTotal)) {
+            console.error("[NewExpensePage onSubmit] expenseAmountForTotal is NaN. Original amount:", values.amount, "Converted amountEUR:", amountInEur);
+            throw new Error("Montant de dépense invalide pour le calcul du total du projet après conversion.");
         }
-        const newTotalExpenses = currentTotalExpenses + expenseAmount;
+        const newTotalExpenses = currentTotalExpenses + expenseAmountForTotal;
 
         const recentExpenseSummary = {
           id: newExpenseRef.id,
           name: values.description,
           date: Timestamp.fromDate(values.expenseDate),
-          amount: expenseAmount,
+          amount: values.amount, // Store original amount in recent summary
+          currency: values.currency, // Store original currency
+          amountEUR: amountInEur, // Store EUR amount
           payer: payerProfile.name || payerProfile.email || "Nom Inconnu",
         };
         
@@ -577,21 +608,20 @@ const handleSwitchCamera = async () => {
                                      .sort((a, b) => b.date.toMillis() - a.date.toMillis()) 
                                      .slice(0, 5); 
 
-
         const projectUpdateData: Partial<Project> = {
-            totalExpenses: newTotalExpenses,
+            totalExpenses: newTotalExpenses < 0 ? 0 : newTotalExpenses,
             recentExpenses: updatedRecentExpenses,
             lastActivity: serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
         
-        transaction.update(projectRef, projectUpdateData); // ECRITURE (Projet)
+        transaction.update(projectRef, projectUpdateData); 
       });
 
 
       toast({
         title: "Dépense ajoutée",
-        description: `La dépense "${values.description}" a été enregistrée avec succès.`,
+        description: `La dépense "${values.description}" a été enregistrée.`,
       });
       form.reset({
          description: '',
@@ -606,7 +636,7 @@ const handleSwitchCamera = async () => {
       setInvoiceFile(null);
       const defaultUserArrayReset = userProfile ? [userProfile] : (currentUser ? [{id: currentUser.uid, name: currentUser.displayName || currentUser.email || "Utilisateur Actuel", email: currentUser.email || "", isAdmin: false, avatarUrl: currentUser.photoURL || ''}] : []);
       setUsersForDropdown(defaultUserArrayReset);
-      if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]) {
+      if (currentUser && defaultUserArrayReset.length > 0 && defaultUserArrayReset[0]?.id) {
         form.setValue('paidById', currentUser.uid);
       } else {
         form.setValue('paidById', '');
@@ -614,7 +644,7 @@ const handleSwitchCamera = async () => {
 
       router.push('/expenses');
     } catch (error: any) {
-        console.error("Erreur lors de l'ajout de la dépense (Firestore transaction): ", error);
+        console.error("[NewExpensePage onSubmit] Erreur lors de l'ajout de la dépense (Firestore transaction): ", error.message, error);
         toast({
             title: "Erreur d'enregistrement Firestore",
             description: `Impossible d'enregistrer la dépense: ${error.message || "Veuillez réessayer."}`,
@@ -636,9 +666,9 @@ const handleSwitchCamera = async () => {
     }
   };
 
-  const handleSuggestTags = async () => {
+  const handleSuggestCategory = async () => {
     const description = form.getValues("description");
-    console.log("[handleSuggestTags] Description for AI:", description);
+    console.log("[NewExpensePage handleSuggestCategory] Description for AI:", description);
     if (!description || description.trim().length < 3) {
       toast({
         title: "Description manquante",
@@ -647,15 +677,19 @@ const handleSwitchCamera = async () => {
       });
       return;
     }
-    setIsSuggestingTags(true);
+    setIsSuggestingCategory(true);
     try {
-      const suggestedCategory = await tagExpense({ description });
-      console.log("[handleSuggestTags] Suggested category from AI:", suggestedCategory);
-      if (suggestedCategory && suggestedCategory.trim() !== "") {
-        form.setValue("category", suggestedCategory);
+      const suggestedCategoryOutput = await tagExpense({ description });
+      console.log("[NewExpensePage handleSuggestCategory] Suggested category from AI:", suggestedCategoryOutput);
+      
+      // Assuming suggestedCategoryOutput is now a string as per the updated flow
+      const category = typeof suggestedCategoryOutput === 'string' ? suggestedCategoryOutput : "Non catégorisé";
+
+      if (category && category.trim() !== "") {
+        form.setValue("category", category);
         toast({
           title: "Catégorie suggérée",
-          description: `La catégorie "${suggestedCategory}" a été ajoutée. Vous pouvez la modifier.`,
+          description: `La catégorie "${category}" a été ajoutée. Vous pouvez la modifier.`,
         });
       } else {
         toast({
@@ -671,7 +705,7 @@ const handleSwitchCamera = async () => {
         variant: "destructive",
       });
     } finally {
-      setIsSuggestingTags(false);
+      setIsSuggestingCategory(false);
     }
   };
 
@@ -756,28 +790,33 @@ const handleSwitchCamera = async () => {
                     <FormField
                         control={form.control}
                         name="invoiceForAnalysis"
-                        render={({ field: { onChange, onBlur, name, ref } }) => ( 
+                        render={({ field: { onChange, onBlur, name, ref } }) => {
+                           // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                           const { value: _value, ...restOfField } = form.register(name);
+                           return (
                             <FormItem>
                                <FormLabel>Fichier de facture pour analyse</FormLabel>
                                 <FormControl>
                                 <Input
                                     type="file"
                                     accept="image/png, image/jpeg, image/webp"
-                                    className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                                    className="h-12 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                                     data-ai-hint="invoice file upload for AI analysis"
+                                    onBlur={onBlur}
+                                    name={name}
+                                    ref={ref}
                                     onChange={(e) => {
                                         const file = e.target.files ? e.target.files[0] : undefined;
                                         onChange(file); 
                                         setInvoiceFile(file || null); 
                                     }}
-                                    onBlur={onBlur}
-                                    name={name}
-                                    ref={ref}
+                                    // Do not pass value for type="file"
                                 />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
-                        )}
+                           );
+                        }}
                     />
                     <div className="mt-3 flex flex-col sm:flex-row gap-2">
                         <Button
@@ -1040,10 +1079,10 @@ const handleSwitchCamera = async () => {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleSuggestTags}
-                        disabled={isSuggestingTags || !watchedDescription || watchedDescription.trim().length < 3}
+                        onClick={handleSuggestCategory}
+                        disabled={isSuggestingCategory || !watchedDescription || watchedDescription.trim().length < 3}
                       >
-                        {isSuggestingTags && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                        {isSuggestingCategory && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
                         <Icons.sparkles className="mr-2 h-4 w-4" />
                         Suggérer (IA)
                       </Button>
@@ -1067,7 +1106,7 @@ const handleSwitchCamera = async () => {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting || isAnalyzing}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown || isAnalyzing || isSuggestingTags}>
+                <Button type="submit" disabled={isSubmitting || isLoadingProjects || isLoadingUsersForDropdown || isAnalyzing || isSuggestingCategory}>
                   {isSubmitting ? (
                     <>
                       <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
