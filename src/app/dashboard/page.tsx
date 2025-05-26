@@ -179,7 +179,7 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   
-  const [recentGlobalExpenses, setRecentGlobalExpenses] = useState<DisplayExpenseItem[]>([]);
+  const [recentExpenses, setRecentExpenses] = useState<DisplayExpenseItem[]>([]);
   const [isLoadingRecentExpenses, setIsLoadingRecentExpenses] = useState(true);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
@@ -190,6 +190,9 @@ export default function DashboardPage() {
   const [userExpenseChartData, setUserExpenseChartData] = useState<Array<{ user: string; Dépenses: number }>>([]);
   const [categoryChartData, setCategoryChartData] = useState<Array<{ category: string; Dépenses: number }>>([]);
   const [isLoadingExpenseChartData, setIsLoadingExpenseChartData] = useState(true);
+
+  const [detailedExpensesForSummary, setDetailedExpensesForSummary] = useState<ExpenseItem[]>([]);
+
   const [totalExpenseCount, setTotalExpenseCount] = useState<number | string>('...');
   const [isLoadingTotalExpenseCount, setIsLoadingTotalExpenseCount] = useState(true);
 
@@ -203,7 +206,7 @@ export default function DashboardPage() {
   const fetchProjects = useCallback(async () => {
     if (!currentUser) {
       setProjects([]);
-      setIsLoadingProjects(true);
+      setIsLoadingProjects(true); // Keep loading until user is confirmed or not
       return;
     }
     setIsLoadingProjects(true);
@@ -235,15 +238,16 @@ export default function DashboardPage() {
       console.log("DashboardPage: Fetched projects:", fetchedProjects.length, "items");
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
+      setProjects([]);
     } finally {
       setIsLoadingProjects(false);
     }
   }, [currentUser]); 
 
   const fetchRecentGlobalExpenses = useCallback(async () => {
-    if (!currentUser) {
-      setRecentGlobalExpenses([]);
-      setIsLoadingRecentExpenses(false);
+    if (!currentUser || isLoadingProjects) {
+      setRecentExpenses([]);
+      setIsLoadingRecentExpenses(isLoadingProjects); 
       return;
     }
   
@@ -260,17 +264,10 @@ export default function DashboardPage() {
           console.log("DashboardPage: fetchRecentGlobalExpenses - Admin fetching global expenses (all projects).");
           q = query(expensesRef, orderBy("createdAt", "desc"), limit(5));
         } else { 
-          if (isLoadingProjects) {
-            console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, 'All Projects', projects still loading. Aborting fetch for now.");
-            setIsLoadingRecentExpenses(false);
-            setRecentGlobalExpenses([]);
-            return;
-          }
-  
           const userProjectIds = projects.map(p => p.id);
           if (userProjectIds.length === 0) {
             console.log("DashboardPage: fetchRecentGlobalExpenses - Non-admin, 'All Projects', no projects found. Clearing recent expenses.");
-            setRecentGlobalExpenses([]);
+            setRecentExpenses([]);
             setIsLoadingRecentExpenses(false);
             return;
           }
@@ -289,7 +286,7 @@ export default function DashboardPage() {
             expenseDate: data.expenseDate, 
         } as DisplayExpenseItem
       });
-      setRecentGlobalExpenses(fetchedExpenses);
+      setRecentExpenses(fetchedExpenses);
       console.log(`DashboardPage: Fetched recent expenses (context: ${selectedProjectId === 'all' ? 'global' : selectedProjectId}):`, fetchedExpenses.length, "items");
   
     } catch (error: any) {
@@ -297,20 +294,21 @@ export default function DashboardPage() {
       if (error.code === 'failed-precondition' && error.message.includes("index")) {
         console.warn("DashboardPage: Firestore index missing for recent expenses query. Please create it via the link in the Firebase console error.");
       }
-      setRecentGlobalExpenses([]);
+      setRecentExpenses([]);
     } finally {
       setIsLoadingRecentExpenses(false);
     }
   }, [currentUser, isAdmin, projects, isLoadingProjects, selectedProjectId]);
   
-  const fetchAllUserProfilesGlobal = useCallback(async () => {
+ const fetchAllUserProfilesGlobal = useCallback(async () => {
     if (!currentUser) {
-        console.warn("DashboardPage: fetchAllUserProfilesGlobal called by non-admin or no user.");
-        setIsLoadingUserProfiles(false);
-        if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-        return;
+      console.warn("DashboardPage: fetchAllUserProfilesGlobal called without currentUser.");
+      setAllUserProfiles([]);
+      setIsLoadingUserProfiles(false);
+      return;
     }
-    console.log("DashboardPage: fetchAllUserProfiles - Fetching relevant user profiles.");
+    
+    console.log("DashboardPage: fetchAllUserProfiles. isAdmin:", isAdmin, "isLoadingProjects:", isLoadingProjects);
     setIsLoadingUserProfiles(true);
 
     if (isAdmin) {
@@ -318,83 +316,81 @@ export default function DashboardPage() {
       try {
         const usersCollectionRef = collection(db, "users");
         const usersSnapshot = await getDocs(usersCollectionRef);
-        const usersList = usersSnapshot.docs.map(docSnap => ({
-          id: docSnap.id, ...docSnap.data(),
-        } as AppUserType));
+        const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
         setAllUserProfiles(usersList);
         console.log("DashboardPage: fetchAllUserProfiles (Admin) - Successfully set allUserProfiles:", JSON.stringify(usersList.map(u => ({id: u.id, name: u.name}))));
       } catch (error) {
         console.error("Erreur lors de la récupération de tous les profils utilisateurs (Dashboard Admin): ", error);
-        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]); 
+        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
       } finally {
         setIsLoadingUserProfiles(false);
       }
     } else { // Not admin
       if (isLoadingProjects) {
-        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Projects loading, setting self profile as fallback.");
+        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, 'All Projects' view) - Projects still loading. Will only use self profile for now.");
         if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-        // Keep isLoadingUserProfiles true until projects are loaded to fetch all member profiles
+        // Keep isLoadingUserProfiles true or manage differently if waiting for projects to load for full member list
       } else if (projects.length > 0) {
-        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Projects loaded. Fetching profiles for all their project members.");
+        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, 'All Projects' view) - Projects loaded. Fetching profiles for all members of user's projects.");
         const allMemberUIDs = new Set<string>();
         projects.forEach(p => {
-            if (p.members && Array.isArray(p.members)) {
-                p.members.forEach(uid => allMemberUIDs.add(uid));
-            }
-            if (p.ownerId && !allMemberUIDs.has(p.ownerId)) { 
-                allMemberUIDs.add(p.ownerId);
-            }
+          if (p.members && Array.isArray(p.members)) {
+            p.members.forEach(uid => allMemberUIDs.add(uid));
+          }
+          if (p.ownerId && !allMemberUIDs.has(p.ownerId)) {
+            allMemberUIDs.add(p.ownerId);
+          }
         });
-        if (currentUser?.uid && !allMemberUIDs.has(currentUser.uid)) { 
-            allMemberUIDs.add(currentUser.uid);
+        if (currentUser?.uid && !allMemberUIDs.has(currentUser.uid)) {
+          allMemberUIDs.add(currentUser.uid);
         }
 
         if (allMemberUIDs.size > 0) {
-            const profilesPromises = Array.from(allMemberUIDs).map(uid => firestoreGetDoc(doc(db, "users", uid)));
-            try {
-                const profileDocs = await Promise.all(profilesPromises);
-                const fetchedProfiles = profileDocs
-                    .filter(docSnap => docSnap.exists())
-                    .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-                
-                const uniqueProfilesMap = new Map<string, AppUserType>();
-                fetchedProfiles.forEach(p => uniqueProfilesMap.set(p.id, p));
-                
-                if (userProfile && !uniqueProfilesMap.has(userProfile.id)) { 
-                    uniqueProfilesMap.set(userProfile.id, userProfile);
-                }
-                const uniqueProfiles = Array.from(uniqueProfilesMap.values());
-
-                setAllUserProfiles(uniqueProfiles);
-                console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
-            } catch (e) {
-                console.error("DashboardPage: Error fetching some user profiles for non-admin 'all projects':", e);
-                if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
-            } finally {
-                setIsLoadingUserProfiles(false);
+          const profilesPromises = Array.from(allMemberUIDs).map(uid => firestoreGetDoc(doc(db, "users", uid)));
+          try {
+            const profileDocs = await Promise.all(profilesPromises);
+            const fetchedProfiles = profileDocs
+              .filter(docSnap => docSnap.exists())
+              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+            
+            const uniqueProfilesMap = new Map<string, AppUserType>();
+            fetchedProfiles.forEach(p => uniqueProfilesMap.set(p.id, p));
+            
+            if (userProfile && !uniqueProfilesMap.has(userProfile.id)) {
+              uniqueProfilesMap.set(userProfile.id, userProfile);
             }
-        } else { 
-           console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - No member UIDs found across projects. Setting self profile.");
+            const uniqueProfiles = Array.from(uniqueProfilesMap.values());
+            setAllUserProfiles(uniqueProfiles);
+            console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, 'All Projects' view) - Successfully set allUserProfiles:", JSON.stringify(uniqueProfiles.map(u => ({id: u.id, name: u.name}))));
+          } catch (e) {
+            console.error("DashboardPage: Error fetching some user profiles for non-admin 'all projects' view:", e);
+            if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+          } finally {
+            setIsLoadingUserProfiles(false);
+          }
+        } else {
+           console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, 'All Projects' view) - No member UIDs found across projects. Setting self profile.");
            if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
            setIsLoadingUserProfiles(false);
         }
-    } else { 
-        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, All Projects) - No projects. Setting self profile.");
+      } else { 
+        console.log("DashboardPage: fetchAllUserProfiles (Non-Admin, 'All Projects' view) - No projects. Setting self profile.");
         if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
         setIsLoadingUserProfiles(false);
-    }
+      }
     }
   }, [currentUser, isAdmin, userProfile, projects, isLoadingProjects]);
 
 
   const fetchSelectedProjectMembersProfiles = useCallback(async (projectId: string) => {
     if (!currentUser || !projectId || projectId === 'all') {
-      setIsLoadingUserProfiles(false);
-      if(userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+      // if 'all' is selected by non-admin, fetchAllUserProfilesGlobal handles it.
+      // If 'all' by admin, also handled by fetchAllUserProfilesGlobal.
+      // This function is for a *specific* project selection.
       return;
     }
-    console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Fetching members for project ID: ${projectId}`);
-    setIsLoadingUserProfiles(true);
+    console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Fetching members for specific project ID: ${projectId}`);
+    setIsLoadingUserProfiles(true); // We are loading profiles for this specific project context
     try {
       const projectRef = doc(db, "projects", projectId);
       const projectSnap = await firestoreGetDoc(projectRef);
@@ -420,60 +416,62 @@ export default function DashboardPage() {
                fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}... (erreur chargement)` , email: "", isAdmin: false, avatarUrl: '' });
             }
           }
-          setAllUserProfiles(fetchedProfilesArray);
+          setAllUserProfiles(fetchedProfilesArray); // This now holds profiles for *only* the selected project's members
           console.log(`DashboardPage: Successfully fetched members for selected project "${projectData.name}":`, JSON.stringify(fetchedProfilesArray.map(p => ({id: p.id, name: p.name}))));
         } else {
-          console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Project "${projectData.name}" has no members. Setting self profile.`);
-           if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+          console.log(`DashboardPage: fetchSelectedProjectMembersProfiles - Project "${projectData.name}" has no members. Setting empty profiles.`);
+          setAllUserProfiles([]); // No members, so no profiles to show for this project
         }
       } else {
         console.warn(`DashboardPage: fetchSelectedProjectMembersProfiles - Project with ID ${projectId} not found.`);
-        if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+        setAllUserProfiles([]); // Project not found, clear profiles
       }
     } catch (error) {
       console.error("Erreur lors de la récupération des membres du projet sélectionné: ", error);
-      if (userProfile) setAllUserProfiles([userProfile]); else setAllUserProfiles([]);
+      setAllUserProfiles([]);
     } finally {
       setIsLoadingUserProfiles(false);
     }
-  }, [currentUser, userProfile]);
+  }, [currentUser]);
 
 
  const fetchAndProcessExpensesForChart = useCallback(async () => {
-    console.log("Chart: fetchAndProcessExpensesForChart called. SelectedProjectId:", selectedProjectId, "isLoadingUserProfiles:", isLoadingUserProfiles);
-    console.log("Chart: Current allUserProfiles at start of fetchAndProcessExpensesForChart:", JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
+    console.log(`Chart: fetchAndProcessExpensesForChart called. SelectedProjectId: ${selectedProjectId}, isLoadingUserProfiles: ${isLoadingUserProfiles}, isLoadingProjects: ${isLoadingProjects}`);
+    console.log(`Chart: Current allUserProfiles at start:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
 
-    if (!currentUser || (isLoadingUserProfiles && allUserProfiles.length === 0 && (!isAdmin || selectedProjectId !== 'all') )) { 
-      console.log("Chart: Bailing early. Conditions: currentUser:", !!currentUser, "isLoadingUserProfiles:", isLoadingUserProfiles, "allUserProfiles.length:", allUserProfiles.length, "isAdmin:", isAdmin, "selectedProjectId:", selectedProjectId);
+    if (!currentUser || isLoadingProjects || isLoadingUserProfiles ) { 
+      console.log(`Chart: Bailing early. Conditions - currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, isLoadingUserProfiles: ${isLoadingUserProfiles}`);
       setUserExpenseChartData([]);
       setCategoryChartData([]);
       setTotalExpenseCount(0);
-      setIsLoadingExpenseChartData(false);
+      setDetailedExpensesForSummary([]);
+      setIsLoadingExpenseChartData(false); // Ensure loading is false if bailing
       setIsLoadingTotalExpenseCount(false);
       return;
     }
+
+    if (selectedProjectId !== 'all' && (!projects.find(p => p.id === selectedProjectId) || allUserProfiles.length === 0)) {
+      console.log(`Chart: Selected project ${selectedProjectId} details or its member profiles not ready. allUserProfiles length: ${allUserProfiles.length}`);
+      // Potentially wait or bail if critical info for a specific project isn't there
+    }
+
 
     setIsLoadingExpenseChartData(true);
     setIsLoadingTotalExpenseCount(true);
 
     let projectIdsToQuery: string[] = [];
     if (selectedProjectId === 'all') {
-      if (isLoadingProjects) {
-         console.log("Chart: 'All projects' selected, projects still loading. Aborting chart data fetch for now.");
-         setIsLoadingExpenseChartData(false);
-         setIsLoadingTotalExpenseCount(false);
-         return;
-      }
       if (projects.length === 0 && !isAdmin) { 
         console.log("Chart: 'All projects' selected, but non-admin user has no projects. Clearing chart data.");
         setUserExpenseChartData([]);
         setCategoryChartData([]);
         setTotalExpenseCount(0);
+        setDetailedExpensesForSummary([]);
         setIsLoadingExpenseChartData(false);
         setIsLoadingTotalExpenseCount(false);
         return;
       }
-      projectIdsToQuery = isAdmin ? projects.map(p => p.id) : projects.filter(p => p.members.includes(currentUser.uid) || p.ownerId === currentUser.uid).map(p => p.id);
+      projectIdsToQuery = isAdmin ? projects.map(p => p.id) : projects.filter(p => p.members && p.members.includes(currentUser.uid) || p.ownerId === currentUser.uid).map(p => p.id);
       if (isAdmin && projectIdsToQuery.length === 0 && projects.length > 0){ 
         projectIdsToQuery = projects.map(p => p.id); 
       }
@@ -487,6 +485,7 @@ export default function DashboardPage() {
       setUserExpenseChartData([]);
       setCategoryChartData([]);
       setTotalExpenseCount(0);
+      setDetailedExpensesForSummary([]);
       setIsLoadingExpenseChartData(false);
       setIsLoadingTotalExpenseCount(false);
       return;
@@ -498,11 +497,11 @@ export default function DashboardPage() {
       
       if (isAdmin && selectedProjectId === 'all' && projectIdsToQuery.length === 0) {
           console.log("Chart: Admin fetching all expenses globally (no projectId filter).");
-          const q = query(expensesRef);
+          const q = query(expensesRef); // Fetch all expenses
           const querySnapshot = await getDocs(q);
           querySnapshot.docs.forEach(docSnap => {
              const data = docSnap.data() as ExpenseItem; 
-             if (data.paidById && data.amount != null) { 
+             if (data.paidById && data.amountEUR != null) { 
                 fetchedExpenses.push({id: docSnap.id, ...data});
              }
           });
@@ -515,7 +514,7 @@ export default function DashboardPage() {
               const querySnapshot = await getDocs(q);
               querySnapshot.docs.forEach(docSnap => {
                  const data = docSnap.data() as ExpenseItem; 
-                 if (data.paidById && data.amount != null) { 
+                 if (data.paidById && data.amountEUR != null) { 
                     fetchedExpenses.push({id: docSnap.id, ...data});
                  }
               });
@@ -526,6 +525,7 @@ export default function DashboardPage() {
          setUserExpenseChartData([]);
          setCategoryChartData([]);
          setTotalExpenseCount(0);
+         setDetailedExpensesForSummary([]);
          setIsLoadingExpenseChartData(false);
          setIsLoadingTotalExpenseCount(false);
          return;
@@ -533,19 +533,21 @@ export default function DashboardPage() {
 
       console.log("Chart: Fetched expenses for chart:", fetchedExpenses.length, "items");
       setTotalExpenseCount(fetchedExpenses.length);
+      setDetailedExpensesForSummary(fetchedExpenses); // Set detailed expenses for BalanceSummary
 
       const aggregatedExpensesByUser: { [paidById: string]: number } = {};
       fetchedExpenses.forEach(expense => {
-        aggregatedExpensesByUser[expense.paidById] = (aggregatedExpensesByUser[expense.paidById] || 0) + expense.amount;
+        const amountToAdd = expense.amountEUR ?? 0; // Use EUR amount, fallback to 0 if null
+        aggregatedExpensesByUser[expense.paidById] = (aggregatedExpensesByUser[expense.paidById] || 0) + amountToAdd;
       });
-      console.log("Chart: Aggregated expenses by paidById (UID):", aggregatedExpensesByUser);
+      console.log("Chart: Aggregated expenses by paidById (UID) (EUR):", aggregatedExpensesByUser);
 
-      const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmount]) => {
+      const formattedUserChartData = Object.entries(aggregatedExpensesByUser).map(([paidById, totalAmountEUR]) => {
         const user = allUserProfiles.find(u => u.id === paidById);
         const userName = user?.name || paidById; 
         console.log(`Chart: (Inside map) paidById: ${paidById}. allUserProfiles used for name lookup:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
-        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}.`);
-        return { user: userName, Dépenses: totalAmount * 100 }; 
+        console.log(`Chart (User): Mapping UID ${paidById} to userName ${userName}. Profile found: ${!!user}. Total EUR: ${totalAmountEUR}`);
+        return { user: userName, Dépenses: totalAmountEUR * 100 }; // Convert EUR to cents for chart display
       });
       console.log("Chart (User): Final formattedUserChartData:", formattedUserChartData);
       setUserExpenseChartData(formattedUserChartData);
@@ -553,11 +555,12 @@ export default function DashboardPage() {
       const aggregatedExpensesByCategory: { [category: string]: number } = {};
       fetchedExpenses.forEach(expense => {
         const category = expense.category || "Non catégorisé"; 
-        aggregatedExpensesByCategory[category] = (aggregatedExpensesByCategory[category] || 0) + expense.amount;
+        const amountToAdd = expense.amountEUR ?? 0; // Use EUR amount
+        aggregatedExpensesByCategory[category] = (aggregatedExpensesByCategory[category] || 0) + amountToAdd;
       });
-      console.log("Chart: Aggregated expenses by category:", aggregatedExpensesByCategory);
-      const formattedCategoryChartData = Object.entries(aggregatedExpensesByCategory).map(([category, totalAmount]) => {
-        return { category: category, Dépenses: totalAmount * 100 };
+      console.log("Chart: Aggregated expenses by category (EUR):", aggregatedExpensesByCategory);
+      const formattedCategoryChartData = Object.entries(aggregatedExpensesByCategory).map(([category, totalAmountEUR]) => {
+        return { category: category, Dépenses: totalAmountEUR * 100 }; // Convert EUR to cents
       });
       console.log("Chart (Category): Final formattedCategoryChartData:", formattedCategoryChartData);
       setCategoryChartData(formattedCategoryChartData);
@@ -567,6 +570,7 @@ export default function DashboardPage() {
       setUserExpenseChartData([]);
       setCategoryChartData([]);
       setTotalExpenseCount(0);
+      setDetailedExpensesForSummary([]);
     } finally {
       setIsLoadingExpenseChartData(false);
       setIsLoadingTotalExpenseCount(false);
@@ -578,74 +582,74 @@ export default function DashboardPage() {
     console.log("DashboardPage: useEffect (Core data) - Fetching projects.");
     if (currentUser) {
       fetchProjects();
-    } else {
+    } else if (!authLoading) { // Only reset if not loading and no user
       setProjects([]);
-      setIsLoadingProjects(true);
+      setIsLoadingProjects(false); // Explicitly set loading to false
+      setRecentExpenses([]);
+      setIsLoadingRecentExpenses(false);
     }
-  }, [currentUser, fetchProjects]);
+  }, [currentUser, authLoading, fetchProjects]);
 
   useEffect(() => {
-    console.log(
-      `DashboardPage: useEffect (Recent Expenses) - Triggered. currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, selectedProjectId: ${selectedProjectId}`
-    );
+    console.log(`DashboardPage: useEffect (Recent Expenses) - Triggered. currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, selectedProjectId: ${selectedProjectId}`);
     if (currentUser && !isLoadingProjects) { 
       console.log("DashboardPage: useEffect (Recent Expenses) - Conditions met, calling fetchRecentGlobalExpenses.");
       fetchRecentGlobalExpenses();
     } else {
-      console.log("DashboardPage: useEffect (Recent Expenses) - Conditions NOT met for fetching recent expenses (waiting for user or projects).");
+      console.log("DashboardPage: useEffect (Recent Expenses) - Conditions NOT met (waiting for user or projects).");
        if(!currentUser && !authLoading) { 
-        setRecentGlobalExpenses([]);
+        setRecentExpenses([]);
         setIsLoadingRecentExpenses(false);
       }
     }
-  }, [currentUser, selectedProjectId, projects, isLoadingProjects, fetchRecentGlobalExpenses, authLoading]);
+  }, [currentUser, selectedProjectId, isLoadingProjects, fetchRecentGlobalExpenses, authLoading]);
 
 
  useEffect(() => {
-    console.log(`DashboardPage: useEffect (User Profiles) - Triggered. currentUser: ${!!currentUser}, isAdmin from context: ${isAdmin}, selectedProjectId: ${selectedProjectId}, isLoadingProjects: ${isLoadingProjects}, projects.length: ${projects.length}`);
-    if (currentUser) {
+    console.log(`DashboardPage: useEffect (User Profiles) - Triggered. currentUser: ${!!currentUser}, isAdmin: ${isAdmin}, selectedProjectId: ${selectedProjectId}, isLoadingProjects: ${isLoadingProjects}`);
+    if (currentUser && !authLoading) { // Ensure auth is settled
         if (selectedProjectId === 'all') {
-             fetchAllUserProfilesGlobal(); // Fetches all for admin, or relevant for non-admin based on their projects
-        } else { // Specific project selected
+             fetchAllUserProfilesGlobal(); 
+        } else { 
             fetchSelectedProjectMembersProfiles(selectedProjectId);
         }
-    } else { 
+    } else if (!authLoading && !currentUser) { // Auth settled, no user
         setAllUserProfiles([]);
         setIsLoadingUserProfiles(false); 
     }
-  }, [currentUser, isAdmin, selectedProjectId, projects, isLoadingProjects, userProfile, fetchAllUserProfilesGlobal, fetchSelectedProjectMembersProfiles]);
+  }, [currentUser, isAdmin, selectedProjectId, isLoadingProjects, authLoading, fetchAllUserProfilesGlobal, fetchSelectedProjectMembersProfiles]);
 
 
   useEffect(() => {
-    console.log(
-        `DashboardPage: useEffect (chart data) triggered. Conditions - currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, isLoadingUserProfiles: ${isLoadingUserProfiles}, allUserProfiles.length: ${allUserProfiles.length}`
-    );
-    console.log(`DashboardPage: Content of allUserProfiles for chart useEffect:`, JSON.stringify(allUserProfiles.map(u => ({id: u.id, name: u.name}))));
+    console.log(`DashboardPage: useEffect (chart data) triggered. Conditions - currentUser: ${!!currentUser}, isLoadingProjects: ${isLoadingProjects}, isLoadingUserProfiles: ${isLoadingUserProfiles}, allUserProfiles.length: ${allUserProfiles.length} Content of allUserProfiles for chart useEffect:`, JSON.stringify(allUserProfiles.map(u=>({id: u.id, name:u.name}))));
 
     if (currentUser && !isLoadingProjects && !isLoadingUserProfiles ) {
        console.log(`DashboardPage: useEffect (chart data) - Conditions MET. allUserProfiles.length: ${allUserProfiles.length}`);
-       if (allUserProfiles.length > 0 || (projects.length === 0 && selectedProjectId === 'all' && !isAdmin ) || (isAdmin && selectedProjectId === 'all') ) { 
+       // Ensure allUserProfiles is not empty unless it's a non-admin with no projects, or admin with no projects.
+       if (allUserProfiles.length > 0 || (projects.length === 0 && (!isAdmin || selectedProjectId === 'all') ) || (isAdmin && selectedProjectId === 'all') ) { 
            console.log("DashboardPage: useEffect (chart data) - Calling fetchAndProcessExpensesForChart.");
            fetchAndProcessExpensesForChart();
        } else {
-           console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g., profiles empty but projects exist). Clearing chart data for safety.");
+           console.warn("DashboardPage: useEffect (chart data) - Conditions not fully met for optimal chart data (e.g., profiles empty but projects exist for non-admin specific project selection). Clearing chart data for safety.");
            setUserExpenseChartData([]);
            setCategoryChartData([]);
            setTotalExpenseCount(0);
+           setDetailedExpensesForSummary([]);
            setIsLoadingExpenseChartData(false);
            setIsLoadingTotalExpenseCount(false);
        }
     } else {
       console.log("DashboardPage: useEffect (chart data) - Conditions NOT MET for fetching chart data (waiting for projects or profiles).");
-       if(!currentUser && !authLoading) { 
+       if(!currentUser && !authLoading) { // Auth settled, no user
         setUserExpenseChartData([]);
         setCategoryChartData([]);
         setTotalExpenseCount(0);
+        setDetailedExpensesForSummary([]);
         setIsLoadingExpenseChartData(false);
         setIsLoadingTotalExpenseCount(false);
       }
     }
-  }, [currentUser, selectedProjectId, allUserProfiles, projects, isLoadingProjects, isLoadingUserProfiles, fetchAndProcessExpensesForChart, authLoading, isAdmin]);
+  }, [currentUser, selectedProjectId, allUserProfiles, projects, isLoadingProjects, isLoadingUserProfiles, authLoading, isAdmin, fetchAndProcessExpensesForChart]);
 
 
   const handleLogout = async () => {
@@ -659,55 +663,55 @@ export default function DashboardPage() {
   };
 
   const selectedProject = useMemo(() => {
+    console.log(`DashboardPage: Calculating selectedProject. selectedProjectId: ${selectedProjectId}, isLoadingProjects: ${isLoadingProjects}, projects count: ${projects.length}`);
     if (selectedProjectId === 'all' || isLoadingProjects) return null;
-    return projects.find(p => p.id === selectedProjectId);
+    const foundProject = projects.find(p => p.id === selectedProjectId);
+    console.log(`DashboardPage: Found project for ID ${selectedProjectId}:`, foundProject ? foundProject.name : 'Not found');
+    return foundProject;
   }, [selectedProjectId, projects, isLoadingProjects]);
 
   const summaryData = useMemo(() => {
-    if ((isLoadingProjects && projects.length === 0) || (isLoadingUserProfiles && selectedProjectId !== 'all') ) { 
+    if (isLoadingProjects || (selectedProjectId !== 'all' && isLoadingUserProfiles)) {
         return { totalSpent: "Chargement...", expenseCount: "...", participantsCount: "...", averagePerPerson: "..." };
     }
 
-    const projectsToConsider = selectedProject ? [selectedProject] : projects;
+    const projectToSummarize = selectedProject; 
 
-    if (projectsToConsider.length === 0 && !selectedProject && !isLoadingProjects) { 
+    if (!projectToSummarize && selectedProjectId !== 'all') {
         return { totalSpent: "0,00 €", expenseCount: isLoadingTotalExpenseCount ? '...' : totalExpenseCount.toString(), participantsCount: "0", averagePerPerson: "0,00 €" };
     }
-
+    
     let totalSpentAll = 0;
-    projectsToConsider.forEach(p => {
-        totalSpentAll += (p.totalExpenses || 0);
-    });
-
     let participantsSet = new Set<string>();
-    if (selectedProject && selectedProject.members) {
-      selectedProject.members.forEach(memberUid => participantsSet.add(memberUid));
-    } else if (selectedProjectId === 'all' && allUserProfiles.length > 0){
-      // For "All projects", count unique UIDs from allUserProfiles if available
-      // This assumes allUserProfiles for "all projects" is populated with relevant members
-      allUserProfiles.forEach(profile => participantsSet.add(profile.id));
-    } else if (selectedProjectId === 'all' && projects.length > 0) { // Fallback if allUserProfiles not ready for "all"
-      projects.forEach(p => {
-          if(p.members && Array.isArray(p.members)) {
-            p.members.forEach(memberUid => participantsSet.add(memberUid));
-          }
-      });
-    } else if (projects.length === 0 && userProfile && currentUser) { 
-        participantsSet.add(currentUser.uid);
-    }
+    let expenseCountForSummary = isLoadingTotalExpenseCount ? '...' : totalExpenseCount.toString();
 
+    if (projectToSummarize) { // Specific project selected
+        totalSpentAll = projectToSummarize.totalExpenses || 0;
+        if (projectToSummarize.members && Array.isArray(projectToSummarize.members)) {
+            projectToSummarize.members.forEach(memberUid => participantsSet.add(memberUid));
+        }
+        // For specific project, expenseCount is from totalExpenseCount if it matches the project, or re-fetch if needed.
+        // Here, totalExpenseCount is already filtered by selectedProjectId in fetchAndProcessExpensesForChart.
+    } else { // "All projects" selected
+        projects.forEach(p => {
+            totalSpentAll += (p.totalExpenses || 0);
+            if(p.members && Array.isArray(p.members)) {
+                p.members.forEach(memberUid => participantsSet.add(memberUid));
+            }
+        });
+    }
+    
     const participantsCount = participantsSet.size > 0 ? participantsSet.size : (projects.length === 0 && userProfile ? 1 : 0) ;
     const averagePerPersonAll = participantsCount > 0 ? totalSpentAll / participantsCount : 0;
 
     return {
       totalSpent: `${totalSpentAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
-      expenseCount: isLoadingTotalExpenseCount ? '...' : totalExpenseCount.toString(),
+      expenseCount: expenseCountForSummary,
       participantsCount: participantsCount.toString(),
       averagePerPerson: `${averagePerPersonAll.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`,
     };
   }, [selectedProject, projects, isLoadingProjects, userProfile, isLoadingUserProfiles, allUserProfiles, selectedProjectId, currentUser, totalExpenseCount, isLoadingTotalExpenseCount]);
 
-  const displayRecentExpenses = useMemo(() => recentGlobalExpenses, [recentGlobalExpenses]);
 
   if (authLoading || !currentUser) {
     return (
@@ -875,8 +879,9 @@ export default function DashboardPage() {
           </div>
 
           <BalanceSummary
-            project={selectedProject}
-            memberProfilesOfProject={allUserProfiles} 
+            projectDataForBalance={selectedProject} // Pass selectedProject which can be null
+            detailedExpensesForBalance={detailedExpensesForSummary}
+            memberProfilesForBalance={allUserProfiles} // This list updates based on admin status and project selection
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -920,8 +925,8 @@ export default function DashboardPage() {
                 {isLoadingRecentExpenses && (
                     <div className="text-center py-4"><Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></div>
                 )}
-                {!isLoadingRecentExpenses && displayRecentExpenses.length > 0 ? (
-                  displayRecentExpenses.map(expense => (
+                {!isLoadingRecentExpenses && recentExpenses.length > 0 ? (
+                  recentExpenses.map(expense => (
                     <div key={expense.id} className="flex items-start gap-4 p-3 bg-muted/50 rounded-lg">
                       <div className="p-2 bg-primary/10 rounded-md">
                            <Icons.fileText className="h-5 w-5 text-primary" />
@@ -929,7 +934,14 @@ export default function DashboardPage() {
                       <div className="flex-1">
                         <div className="flex justify-between items-center">
                           <p className="font-medium">{expense.title}</p>
-                          <p className="font-semibold text-sm">{expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency || 'EUR'})}</p>
+                          <p className="font-semibold text-sm">
+                            {expense.amount.toLocaleString('fr-FR', {style: 'currency', currency: expense.currency || 'EUR'})}
+                            {expense.currency !== 'EUR' && (
+                                <span className="block text-xs text-muted-foreground font-normal">
+                                (env. {expense.amountEUR != null ? expense.amountEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : 'N/A'})
+                                </span>
+                            )}
+                          </p>
                         </div>
                          <p className="text-xs text-muted-foreground">{expense.projectName} • {formatDateFromTimestamp(expense.expenseDate)}</p>
                         {expense.category && <Badge variant="outline" className="text-xs mt-1">{expense.category}</Badge>}
