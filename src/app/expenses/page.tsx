@@ -54,8 +54,9 @@ export interface ExpenseItem {
   paidById: string;
   paidByName: string;
   expenseDate: Timestamp;
-  amount: number;
-  currency: string;
+  amount: number; // Original amount
+  currency: string; // Original currency
+  amountEUR: number | null; // Amount converted to EUR
   category?: string;
   createdAt?: Timestamp;
   createdBy: string;
@@ -110,13 +111,31 @@ export default function ExpensesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
 
-  const fetchProjects = useCallback(async () => {
-    if (!currentUser) {
-      console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects and expenses.");
+
+  useEffect(() => {
+    console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
+    if (currentUser) {
+      fetchProjects();
+    } else if (!authLoading) {
+      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser and not authLoading. Resetting states and redirecting to login.");
       setProjects([]);
       setAllExpenses([]);
       setIsLoadingProjects(true);
       setIsLoadingExpenses(true);
+      router.replace('/login');
+    } else {
+      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser but auth is loading. Waiting.");
+       // Explicitly set loading states to true if waiting for auth
+      setIsLoadingProjects(true);
+      setIsLoadingExpenses(true);
+    }
+  }, [currentUser, authLoading, router]); // Removed fetchProjects from dependencies
+
+  const fetchProjects = useCallback(async () => {
+    if (!currentUser) {
+      console.log("ExpensesPage: fetchProjects - No currentUser, clearing projects.");
+      setProjects([]);
+      setIsLoadingProjects(false); // Set to false as the operation is "complete" (no user)
       return;
     }
     setIsLoadingProjects(true);
@@ -132,12 +151,15 @@ export default function ExpensesPage() {
 
       const projectsMap = new Map<string, Project>();
       memberSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
-      ownerSnapshot.docs.forEach(docSn => projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project));
+      ownerSnapshot.docs.forEach(docSn => {
+        if (!projectsMap.has(docSn.id)) { // Ensure no duplicates if user is both member and owner
+          projectsMap.set(docSn.id, { id: docSn.id, ...docSn.data() } as Project);
+        }
+      });
 
       const projectsList = Array.from(projectsMap.values());
-
-      setProjects(projectsList);
       console.log("ExpensesPage: Fetched projectsList:", projectsList.length, "items:", JSON.stringify(projectsList.map(p => p.id)));
+      setProjects(projectsList);
     } catch (error) {
       console.error("Erreur lors de la récupération des projets: ", error);
       toast({
@@ -145,19 +167,27 @@ export default function ExpensesPage() {
         description: "Impossible de charger les projets pour le filtre.",
         variant: "destructive",
       });
-      setProjects([]);
+      setProjects([]); // Reset projects on error
     } finally {
       setIsLoadingProjects(false);
     }
   }, [currentUser, toast]);
 
+
   const fetchExpenses = useCallback(async () => {
     if (!currentUser) {
-      console.log("ExpensesPage: fetchExpenses - No currentUser, returning.");
+      console.log("ExpensesPage: fetchExpenses - No currentUser, clearing expenses.");
       setAllExpenses([]);
       setIsLoadingExpenses(false);
       return;
     }
+    // Condition: Only fetch expenses if projects are loaded and there are projects,
+    // OR if isLoadingProjects is false and projects array might be empty (meaning user has no projects).
+    if (isLoadingProjects) {
+        console.log("ExpensesPage: fetchExpenses - Waiting for projects to load before fetching expenses.");
+        return;
+    }
+
     setIsLoadingExpenses(true);
     console.log("ExpensesPage: fetchExpenses - Called. projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
     try {
@@ -167,78 +197,54 @@ export default function ExpensesPage() {
         const projectIds = projects.map(p => p.id);
         console.log("ExpensesPage: fetchExpenses - projectIds to query:", projectIds);
 
-        if (projectIds.length > 0) {
-          let expensesList: ExpenseItem[] = [];
-          const chunkSize = 30;
-          for (let i = 0; i < projectIds.length; i += chunkSize) {
-            const chunk = projectIds.slice(i, i + chunkSize);
-            if (chunk.length > 0) {
-              const q = query(expensesCollectionRef, where("projectId", "in", chunk));
-              const querySnapshot = await getDocs(q);
-              querySnapshot.docs.forEach(docSnap => {
-                expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
-              });
-            }
+        let expensesList: ExpenseItem[] = [];
+        const chunkSize = 30; // Firestore 'in' query limit is 30 values
+        for (let i = 0; i < projectIds.length; i += chunkSize) {
+          const chunk = projectIds.slice(i, i + chunkSize);
+          if (chunk.length > 0) {
+            const q = query(expensesCollectionRef, where("projectId", "in", chunk));
+            const querySnapshot = await getDocs(q);
+            querySnapshot.docs.forEach(docSnap => {
+              expensesList.push({ id: docSnap.id, ...docSnap.data() } as ExpenseItem);
+            });
           }
-          console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e => ({ id: e.id, title: e.title }))));
-          setAllExpenses(expensesList);
-        } else {
-          console.log("ExpensesPage: fetchExpenses - projectIds array is empty after map, setting empty expenses.");
-          setAllExpenses([]);
         }
+        console.log("ExpensesPage: fetchExpenses - Fetched expensesList:", expensesList.length, "items:", JSON.stringify(expensesList.map(e => ({ id: e.id, title: e.title }))));
+        setAllExpenses(expensesList);
       } else {
         console.log("ExpensesPage: fetchExpenses - No projects available for current user, setting empty expenses.");
         setAllExpenses([]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur lors de la récupération des dépenses: ", error);
       toast({
         title: "Erreur de chargement",
-        description: "Impossible de charger la liste des dépenses.",
+        description: `Impossible de charger la liste des dépenses. ${error.message}`,
         variant: "destructive",
       });
-      setAllExpenses([]);
+      setAllExpenses([]); // Reset expenses on error
     } finally {
       setIsLoadingExpenses(false);
       console.log("ExpensesPage: fetchExpenses - Finished. isLoadingExpenses set to false.");
     }
-  }, [currentUser, projects, toast]);
+  }, [currentUser, projects, isLoadingProjects, toast]);
 
-
-  useEffect(() => {
-    console.log("ExpensesPage: useEffect for fetchProjects - currentUser detected, calling fetchProjects.");
-    if (currentUser) {
-      fetchProjects();
-    } else {
-      console.log("ExpensesPage: useEffect for fetchProjects - No currentUser or auth loading. Resetting states.");
-      setProjects([]);
-      setAllExpenses([]);
-      setIsLoadingProjects(true);
-      setIsLoadingExpenses(true);
-    }
-  }, [currentUser, fetchProjects]);
 
   useEffect(() => {
     console.log("ExpensesPage: useEffect for fetchExpenses triggered. currentUser:", !!currentUser, "projects.length:", projects.length, "isLoadingProjects:", isLoadingProjects);
-    if (currentUser && !isLoadingProjects) {
-      if (projects.length > 0) {
-        console.log("ExpensesPage: Calling fetchExpenses because currentUser, projects loaded, and projects exist.");
-        fetchExpenses();
-      } else {
-        console.log("ExpensesPage: Setting allExpenses to empty and isLoadingExpenses to false because no projects found for user after loading.");
-        setAllExpenses([]);
-        setIsLoadingExpenses(false);
-      }
+    if (currentUser && !isLoadingProjects) { // Only call if projects are loaded or loading is finished
+      console.log("ExpensesPage: Calling fetchExpenses because currentUser is present and projects loading is complete.");
+      fetchExpenses();
     } else if (currentUser && isLoadingProjects) {
-      console.log("ExpensesPage: useEffect for fetchExpenses - Waiting for projects to load.");
+      console.log("ExpensesPage: useEffect for fetchExpenses - Still waiting for projects to load.");
     } else {
       console.log("ExpensesPage: Conditions not met to call fetchExpenses (currentUser missing or projects still loading).");
-      if (!isLoadingProjects && !currentUser) {
+      if (!isLoadingProjects && !currentUser) { // If projects not loading and no user, clear expenses
         setAllExpenses([]);
         setIsLoadingExpenses(false);
       }
     }
-  }, [currentUser, projects, isLoadingProjects, fetchExpenses]);
+  }, [currentUser, projects, isLoadingProjects, fetchExpenses]); // Added projects and fetchExpenses to dependencies
 
 
   const filteredExpenses = useMemo(() => {
@@ -277,14 +283,15 @@ export default function ExpensesPage() {
           throw new Error("Projet associé non trouvé.");
         }
         const projectData = projectDoc.data() as Project;
-        const newTotalExpenses = (projectData.totalExpenses || 0) - expenseToDelete.amount;
+        
+        const expenseAmountToSubtract = expenseToDelete.amountEUR ?? expenseToDelete.amount; // Prioritize amountEUR
+        const newTotalExpenses = (projectData.totalExpenses || 0) - expenseAmountToSubtract;
 
         let updatedRecentExpenses = projectData.recentExpenses || [];
         updatedRecentExpenses = updatedRecentExpenses
           .filter((expSummary) => expSummary.id !== expenseToDelete.id)
-          .sort((a, b) => b.date.toMillis() - a.date.toMillis())
-          .slice(0, 5);
-
+          .sort((a, b) => b.date.toMillis() - a.date.toMillis()) // Re-sort in case order matters
+          .slice(0, 5); // Keep only the latest 5
 
         transaction.delete(expenseRef);
         transaction.update(projectRef, {
@@ -333,11 +340,6 @@ export default function ExpensesPage() {
     }
   };
 
-  useEffect(() => {
-    if (!authLoading && !currentUser) {
-      router.replace('/login');
-    }
-  }, [authLoading, currentUser, router]);
 
   console.log("ExpensesPage: Rendering. isLoadingExpenses:", isLoadingExpenses, "isLoadingProjects:", isLoadingProjects, "filteredExpenses.length:", filteredExpenses.length, "projects.length:", projects.length);
 
@@ -452,7 +454,15 @@ export default function ExpensesPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow><TableHead>Description</TableHead><TableHead>Projet</TableHead><TableHead>Payé par</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Montant</TableHead><TableHead>Catégorie</TableHead><TableHead className="text-right">Actions</TableHead></TableRow>
+                  <TableRow>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Projet</TableHead>
+                    <TableHead>Payé par</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Montant</TableHead>
+                    <TableHead>Catégorie</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoadingExpenses && (projects.length > 0 || isLoadingProjects) && (
@@ -473,6 +483,16 @@ export default function ExpensesPage() {
                         <TableCell className="text-muted-foreground">{formatDateFromTimestamp(expense.expenseDate)}</TableCell>
                         <TableCell className="text-right font-semibold">
                           {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
+                          {expense.currency !== 'EUR' && expense.amountEUR != null && (
+                            <span className="block text-xs text-muted-foreground font-normal">
+                              (env. {expense.amountEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})
+                            </span>
+                          )}
+                           {expense.currency !== 'EUR' && expense.amountEUR == null && (
+                            <span className="block text-xs text-muted-foreground font-normal">
+                              (env. N/A)
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {expense.category && (
