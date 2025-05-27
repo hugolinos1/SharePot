@@ -1,28 +1,26 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { Project, User as AppUserType } from '@/data/mock-data';
 import { Icons } from '@/components/icons';
-import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs, type DocumentData } from 'firebase/firestore';
 import type { ExpenseItem } from '@/app/expenses/page';
 
 interface ProjectExpenseSettlementProps {
   project: Project;
-  memberProfilesOfProject: AppUserType[];
-  isLoadingUserProfiles: boolean;
+  memberProfilesOfProject: AppUserType[] | undefined; // Can be undefined while loading
+  detailedProjectExpenses: ExpenseItem[] | undefined; // Can be undefined while loading
 }
 
 interface MemberBalance {
   uid: string;
   name: string;
-  balance: number;
-  amountPaid: number;
-  share: number;
+  balance: number; // Positive if they are owed, negative if they owe
+  amountPaidEUR: number;
+  shareEUR: number;
 }
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
@@ -51,16 +49,19 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
   return '??';
 };
 
-
-const calculateBalances = (project: Project, memberProfilesInput: AppUserType[], detailedExpensesInput: ExpenseItem[]): MemberBalance[] => {
+const calculateBalances = (
+  project: Project,
+  memberProfilesInput: AppUserType[] | undefined,
+  detailedExpensesInput: ExpenseItem[] | undefined
+): MemberBalance[] => {
   const memberProfiles = Array.isArray(memberProfilesInput) ? memberProfilesInput : [];
   const detailedExpenses = Array.isArray(detailedExpensesInput) ? detailedExpensesInput : [];
   
   console.log(`ProjectExpenseSettlement (calculateBalances): Project: ${project?.name}, Members UIDs from project: ${project?.members ? project.members.join(', ') : 'N/A'}`);
   if (Array.isArray(memberProfiles) && memberProfiles.length > 0) {
-    console.log(`ProjectExpenseSettlement (calculateBalances): Received memberProfilesOfProject:`, JSON.stringify(memberProfiles.map(u => ({id: u.id, name: u.name}))));
+    console.log(`ProjectExpenseSettlement (calculateBalances): Received memberProfiles:`, JSON.stringify(memberProfiles.map(u => ({id: u.id, name: u.name}))));
   } else {
-    console.warn(`ProjectExpenseSettlement (calculateBalances): Received memberProfilesOfProject is not a non-empty array or is undefined/null. Value:`, memberProfilesInput);
+    console.warn(`ProjectExpenseSettlement (calculateBalances): Received memberProfiles is empty or undefined. Value:`, memberProfilesInput);
   }
   console.log(`ProjectExpenseSettlement (calculateBalances): Received detailedExpenses count:`, detailedExpenses.length);
 
@@ -70,169 +71,150 @@ const calculateBalances = (project: Project, memberProfilesInput: AppUserType[],
     return [];
   }
    if (memberProfiles.length === 0) {
-    console.warn(`ProjectExpenseSettlement (calculateBalances): Pre-conditions not met - memberProfiles is empty. Project: ${project.name}. Project members UIDs: ${project.members.join(', ')}`);
-     const fallbackShare = project.members.length > 0 ? (detailedExpenses.reduce((sum, exp) => sum + exp.amount, 0)) / project.members.length : 0;
+    console.warn(`ProjectExpenseSettlement (calculateBalances): Pre-conditions not met - memberProfiles is empty. Project: ${project.name}. Project members UIDs: ${project.members.join(', ')}. Falling back to UID-based balances.`);
+     const fallbackShare = project.members.length > 0 ? (project.totalExpenses || 0) / project.members.length : 0;
      return project.members.map(memberUid => ({
-        uid: memberUid, 
-        name: memberUid, 
-        balance: 0 - fallbackShare, 
-        amountPaid: 0,
-        share: fallbackShare,
+        uid: memberUid,
+        name: memberUid,
+        balance: 0 - fallbackShare,
+        amountPaidEUR: 0,
+        shareEUR: fallbackShare,
      }));
   }
 
   const getUserProfileByUid = (uid: string): AppUserType | undefined => memberProfiles.find(u => u.id === uid);
-  const getUserProfileByName = (name: string): AppUserType | undefined => {
-    if (!name || name.trim() === '') return undefined;
-    const normalizedName = name.trim().toLowerCase();
-    return memberProfiles.find(u => u.name && u.name.trim().toLowerCase() === normalizedName);
-  };
 
-  const totalPaidByMemberUid: { [key: string]: number } = {};
+  const totalPaidByMemberUidEUR: { [key: string]: number } = {};
   project.members.forEach(memberUid => {
-    totalPaidByMemberUid[memberUid] = 0;
+    totalPaidByMemberUidEUR[memberUid] = 0;
   });
 
   detailedExpenses.forEach(expense => {
+    const amountToAdd = expense.amountEUR ?? 0;
      if (expense.paidById && project.members.includes(expense.paidById)) {
-        totalPaidByMemberUid[expense.paidById] = (totalPaidByMemberUid[expense.paidById] || 0) + expense.amount;
+        totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
         const payerProfile = getUserProfileByUid(expense.paidById);
-        console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${expense.amount} to UID ${expense.paidById} (Name: ${payerProfile?.name || expense.paidById}) for expense "${expense.title}"`);
+        console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${amountToAdd} EUR to UID ${expense.paidById} (Name: ${payerProfile?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
     } else if (expense.paidById) {
         console.warn(`ProjectExpenseSettlement (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
-    } else if (expense.paidByName) { // Fallback to paidByName if paidById is missing
-        const payerProfileByName = getUserProfileByName(expense.paidByName);
-        if (payerProfileByName && project.members.includes(payerProfileByName.id)) {
-            totalPaidByMemberUid[payerProfileByName.id] = (totalPaidByMemberUid[payerProfileByName.id] || 0) + expense.amount;
-            console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${expense.amount} by NAME to UID ${payerProfileByName.id} (Name: ${payerProfileByName.name}) for expense "${expense.title}"`);
-        } else {
-            console.warn(`ProjectExpenseSettlement (calculateBalances): Payer name "${expense.paidByName}" (from expense: "${expense.title}") NOT FOUND in memberProfiles for project "${project.name}". PayerProfile by name found:`, payerProfileByName);
-        }
-    } else {
-        console.warn(`ProjectExpenseSettlement (calculateBalances): Expense "${expense.title}" has neither paidById nor paidByName.`);
     }
   });
+  console.log(`ProjectExpenseSettlement (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
+  
+  const currentProjectTotalExpensesEUR = project.totalExpenses; // Use the authoritative total from the project document
+  console.log(`ProjectExpenseSettlement (calculateBalances): currentProjectTotalExpensesEUR (FROM PROJECT DOC) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-  console.log(`ProjectExpenseSettlement (calculateBalances): totalPaidByMemberUid for project "${project.name}":`, JSON.stringify(totalPaidByMemberUid));
+  const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
+  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
 
-  const currentProjectTotalExpenses = detailedExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-  console.log(`ProjectExpenseSettlement (calculateBalances): currentProjectTotalExpenses (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpenses}`);
-
-  const sharePerMember = project.members.length > 0 ? currentProjectTotalExpenses / project.members.length : 0;
-  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMember for project "${project.name}": ${sharePerMember}`);
-
-
-  return project.members.map(memberUid => {
+  const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
-    let memberName = memberUid; // Fallback to UID
+    let memberName = memberUid; 
     if (!memberProfile) {
-        console.warn(`ProjectExpenseSettlement (calculateBalances): Profile for member UID "${memberUid}" NOT FOUND in memberProfilesOfProject for project "${project.name}". This member's name will be their UID.`);
+        console.warn(`ProjectExpenseSettlement (calculateBalances): Profile for member UID "${memberUid}" NOT FOUND in memberProfiles for project "${project.name}". This member's name will be their UID.`);
     } else if (memberProfile.name && memberProfile.name.trim() !== '') {
         memberName = memberProfile.name.trim();
     } else {
         console.warn(`ProjectExpenseSettlement (calculateBalances): Profile for UID ${memberUid} found, but 'name' is missing or empty. Using UID as name: "${memberUid}".`);
     }
     
-    const amountPaid = totalPaidByMemberUid[memberUid] || 0;
+    const amountPaid = totalPaidByMemberUidEUR[memberUid] || 0;
     return {
       uid: memberUid,
       name: memberName,
-      balance: amountPaid - sharePerMember,
-      amountPaid: amountPaid,
-      share: sharePerMember,
+      balance: amountPaid - sharePerMemberEUR,
+      amountPaidEUR: amountPaid,
+      shareEUR: sharePerMemberEUR,
     };
-  }).sort((a, b) => b.balance - a.balance);
+  }).sort((a, b) => b.balance - a.balance); // Sort by balance descending (creditors first)
+  console.log(`ProjectExpenseSettlement (calculateBalances): Calculated balances for project "${project.name}":`, JSON.stringify(balances));
+  return balances;
 };
 
-const generateSettlementSuggestions = (balances: MemberBalance[]): { from: string, to: string, amount: number }[] => {
+const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: string, to: string, amount: number }[] => {
+  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Starting optimized suggestions calculation with balances:", JSON.stringify(balancesInput));
+  if (!Array.isArray(balancesInput) || balancesInput.length === 0) {
+    return [];
+  }
+  
+  // Create a deep copy of balances to avoid mutating the original array/objects
+  const balances: MemberBalance[] = JSON.parse(JSON.stringify(balancesInput));
+
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  let debtors = balances.filter(m => m.balance < -0.005).map(m => ({ ...m, balance: -m.balance })).sort((a,b) => b.balance - a.balance);
-  let creditors = balances.filter(m => m.balance > 0.005).map(m => ({ ...m })).sort((a,b) => b.balance - a.balance);
+  const epsilon = 0.005; // Tolerance for floating point comparisons
 
-  let i = 0;
-  let j = 0;
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // Sort by most negative first
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // Sort by most positive first
 
-  while (i < debtors.length && j < creditors.length) {
-    const debtor = debtors[i];
-    const creditor = creditors[j];
-    const amountToTransfer = Math.min(debtor.balance, creditor.balance);
+  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance}))));
+  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance}))));
 
-    if (amountToTransfer > 0.005) {
+  while (debtors.length > 0 && creditors.length > 0) {
+    const debtor = debtors[0]; 
+    const creditor = creditors[0]; 
+
+    const amountToTransfer = Math.min(-debtor.balance, creditor.balance);
+
+    if (amountToTransfer > epsilon) {
       suggestions.push({
         from: debtor.name,
         to: creditor.name,
         amount: amountToTransfer,
       });
+      console.log(`[ProjectExpenseSettlement generateSettlementSuggestions] Suggestion: ${debtor.name} pays ${creditor.name} ${amountToTransfer.toFixed(2)}`);
 
-      debtor.balance -= amountToTransfer;
+      debtor.balance += amountToTransfer;
       creditor.balance -= amountToTransfer;
     }
 
-    if (debtor.balance < 0.005) i++;
-    if (creditor.balance < 0.005) j++;
+    // Remove if balanced
+    if (Math.abs(debtor.balance) < epsilon) {
+      debtors.shift();
+    }
+    if (Math.abs(creditor.balance) < epsilon) {
+      creditors.shift();
+    }
+    
+    // Re-sort if not removed, as balances changed
+    debtors.sort((a, b) => a.balance - b.balance);
+    creditors.sort((a, b) => b.balance - a.balance);
   }
+  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Final suggestions:", JSON.stringify(suggestions));
   return suggestions;
 }
 
 
-export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({ project, memberProfilesOfProject, isLoadingUserProfiles }) => {
-  const [detailedProjectExpenses, setDetailedProjectExpenses] = useState<ExpenseItem[]>([]);
-  const [isLoadingDetailedExpenses, setIsLoadingDetailedExpenses] = useState(false);
+export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({
+  project,
+  memberProfilesOfProject,
+  detailedProjectExpenses,
+}) => {
+  
+  const localMemberProfiles = Array.isArray(memberProfilesOfProject) ? memberProfilesOfProject : [];
+  const localDetailedExpenses = Array.isArray(detailedProjectExpenses) ? detailedProjectExpenses : [];
 
-  useEffect(() => {
-    const fetchDetailedExpenses = async () => {
-      if (!project || !project.id) {
-        setDetailedProjectExpenses([]);
-        return;
-      }
-      setIsLoadingDetailedExpenses(true);
-      try {
-        console.log(`ProjectExpenseSettlement: Fetching detailed expenses for project ID: ${project.id}`);
-        const expensesRef = collection(db, "expenses");
-        const q = query(expensesRef, where("projectId", "==", project.id));
-        const querySnapshot = await getDocs(q);
-        const fetchedExpenses = querySnapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        } as ExpenseItem));
-        setDetailedProjectExpenses(fetchedExpenses);
-        console.log(`ProjectExpenseSettlement: Successfully fetched ${fetchedExpenses.length} detailed expenses for project ${project.name}`);
-      } catch (error) {
-        console.error(`ProjectExpenseSettlement: Error fetching detailed expenses for project ${project.id}:`, error);
-        setDetailedProjectExpenses([]);
-      } finally {
-        setIsLoadingDetailedExpenses(false);
-      }
-    };
-
-    if (project && project.id) {
-        fetchDetailedExpenses();
-    } else {
-        setDetailedProjectExpenses([]);
-    }
-  }, [project]);
-
-
-  if (isLoadingUserProfiles || isLoadingDetailedExpenses) {
+  if (!project || !project.members || project.members.length === 0) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
-          <CardDescription>Chargement des informations...</CardDescription>
+          <CardDescription>Données du projet ou des membres manquantes.</CardDescription>
         </CardHeader>
-        <CardContent className="text-center py-4">
-          <Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+        <CardContent>
+          <p className="text-muted-foreground text-center py-3">Impossible de calculer les balances.</p>
         </CardContent>
       </Card>
     );
   }
 
-  const memberBalances = calculateBalances(project, memberProfilesOfProject, detailedProjectExpenses);
-  const settlementSuggestions = generateSettlementSuggestions(memberBalances.map(mb => ({ ...mb })));
-  const allBalanced = memberBalances.every(b => Math.abs(b.balance) <= 0.005);
-  const noExpenses = detailedProjectExpenses.length === 0;
+  const memberBalances = calculateBalances(project, localMemberProfiles, localDetailedExpenses);
+  const settlementSuggestions = generateSettlementSuggestions(memberBalances);
+  
+  const noExpenses = localDetailedExpenses.length === 0;
+  const allBalanced = memberBalances.every(b => Math.abs(b.balance) <= 0.005) && settlementSuggestions.length === 0;
 
-  if (memberBalances.length === 0 && noExpenses && !isLoadingUserProfiles && !isLoadingDetailedExpenses) {
+
+  if (memberBalances.length === 0 && noExpenses) {
     return (
      <Card>
        <CardHeader>
@@ -245,7 +227,7 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
      </Card>
    );
  }
-  if (memberBalances.length === 0 && !noExpenses && !isLoadingUserProfiles && !isLoadingDetailedExpenses) {
+  if (memberBalances.length === 0 && !noExpenses && localMemberProfiles.length > 0) { // Added check for localMemberProfiles
     return (
      <Card>
        <CardHeader>
@@ -253,7 +235,7 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
          <CardDescription>Impossible de calculer les balances.</CardDescription>
        </CardHeader>
        <CardContent>
-         <p className="text-muted-foreground text-center py-4">Vérifiez que tous les membres du projet ont un profil utilisateur avec un nom, et que les payeurs des dépenses correspondent à ces noms.</p>
+         <p className="text-muted-foreground text-center py-4">Vérifiez que tous les membres du projet ont un profil utilisateur avec un nom, et que les payeurs des dépenses correspondent à ces noms. Il se peut aussi que les dépenses ne soient pas encore chargées.</p>
        </CardContent>
      </Card>
    );
@@ -264,20 +246,16 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Répartition des Paiements</CardTitle>
-        {noExpenses && !isLoadingUserProfiles && !isLoadingDetailedExpenses && <CardDescription>Aucune dépense enregistrée pour ce projet.</CardDescription>}
+        {noExpenses && <CardDescription>Aucune dépense enregistrée pour ce projet.</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-4">
-        {isLoadingUserProfiles || isLoadingDetailedExpenses ? (
-            <div className="text-center py-4"><Icons.loader className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></div>
-        ) : noExpenses ? (
-             <p className="text-sm text-muted-foreground text-center py-3">Les balances s'afficheront ici une fois des dépenses ajoutées.</p>
-        ) : (
+        {memberBalances.length > 0 ? (
         <>
         <div>
           <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Balances Individuelles</h3>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-            {memberBalances.map(({ uid, name, balance, amountPaid, share }) => {
-              const userProfile = memberProfilesOfProject.find(u => u.id === uid);
+            {memberBalances.map(({ uid, name, balance, amountPaidEUR, shareEUR }) => {
+              const userProfile = localMemberProfiles.find(u => u.id === uid);
               const displayName = (userProfile?.name && userProfile.name.trim() !== '') ? userProfile.name.trim() : name;
               const avatarUrl = userProfile?.avatarUrl;
 
@@ -291,8 +269,8 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
                     <div>
                       <p className="font-medium text-xs">{displayName}</p>
                       <p className="text-xs text-muted-foreground">
-                        Payé: {amountPaid.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} /
-                        Part: {share.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                        Payé: {amountPaidEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} /
+                        Part: {shareEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </p>
                     </div>
                   </div>
@@ -320,8 +298,8 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
             <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Suggestions de Remboursement</h3>
             <div className="space-y-1.5 max-h-40 overflow-y-auto pr-2">
               {settlementSuggestions.map((settlement, index) => {
-                const fromUserProfile = memberProfilesOfProject.find(u=>u.name && u.name.trim().toLowerCase() === settlement.from.trim().toLowerCase());
-                const toUserProfile = memberProfilesOfProject.find(u=>u.name && u.name.trim().toLowerCase() === settlement.to.trim().toLowerCase());
+                const fromUserProfile = localMemberProfiles.find(u=>u.name && u.name.trim().toLowerCase() === settlement.from.trim().toLowerCase());
+                const toUserProfile = localMemberProfiles.find(u=>u.name && u.name.trim().toLowerCase() === settlement.to.trim().toLowerCase());
                 const fromAvatarUrl = fromUserProfile?.avatarUrl;
                 const toAvatarUrl = toUserProfile?.avatarUrl;
 
@@ -349,12 +327,14 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
             </div>
           </div>
         )}
-         {allBalanced && detailedProjectExpenses.length > 0 && (
+         {allBalanced && !noExpenses && ( // Changed from detailedProjectExpenses.length > 0 to !noExpenses
             <div className="text-center text-green-600 font-medium py-2.5 bg-green-500/10 rounded-md text-sm">
                 <Icons.checkCircle className="inline mr-1.5 h-4 w-4"/> Dépenses équilibrées!
             </div>
         )}
         </>
+        ) : (
+             <p className="text-sm text-muted-foreground text-center py-3">{noExpenses ? "Les balances s'afficheront ici une fois des dépenses ajoutées." : "Chargement des données de balance ou membres manquants..."}</p>
         )}
       </CardContent>
     </Card>
