@@ -11,7 +11,7 @@ import type { ExpenseItem } from '@/app/expenses/page';
 
 interface BalanceSummaryProps {
   projectDataForBalance: Project | null;
-  detailedExpensesForBalance: ExpenseItem[];
+  detailedExpensesForBalance: ExpenseItem[]; // This should be the full list of expenses for the project
   memberProfilesForBalance: AppUserType[];
 }
 
@@ -50,7 +50,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 };
 
 const calculateBalances = (
-  projectInput: Project | null,
+  project: Project,
   memberProfilesInput: AppUserType[] | undefined,
   detailedExpensesInput: ExpenseItem[] | undefined
 ): MemberBalance[] => {
@@ -59,24 +59,21 @@ const calculateBalances = (
   const detailedExpenses = Array.isArray(detailedExpensesInput) ? detailedExpensesInput : [];
 
   if (Array.isArray(memberProfiles) && memberProfiles.length > 0) {
-    console.log(`BalanceSummary (calculateBalances) for project "${projectInput?.name}": Received memberProfiles:`, JSON.stringify(memberProfiles.map(u => ({id: u.id, name: u.name}))));
-  } else if (projectInput?.members && projectInput.members.length > 0) {
-    console.warn(`BalanceSummary (calculateBalances) for project "${projectInput?.name}": Received memberProfiles is empty or undefined. Project Members UIDs: ${projectInput.members.join(', ')}`);
+    console.log(`BalanceSummary (calculateBalances) for project "${project?.name}": Received memberProfiles:`, JSON.stringify(memberProfiles.map(u => ({id: u.id, name: u.name}))));
+  } else if (project?.members && project.members.length > 0) {
+     console.warn(`BalanceSummary (calculateBalances) for project "${project?.name}": Received memberProfiles is empty or undefined. Project Members UIDs: ${project.members.join(', ')}`);
   }
+  console.log(`BalanceSummary (calculateBalances): Received detailedExpenses count for project "${project?.name}": ${detailedExpenses.length}`);
 
-  console.log(`BalanceSummary (calculateBalances): Received detailedExpenses count for project "${projectInput?.name}": ${detailedExpenses.length}`);
-
-
-  if (!projectInput || !projectInput.members || projectInput.members.length === 0) {
-    console.warn(`BalanceSummary (calculateBalances): Pre-condition fail - project or project.members missing or empty. Project:`, projectInput, "Project members count:", projectInput?.members?.length);
+  if (!project || !project.members || project.members.length === 0) {
+    console.warn(`BalanceSummary (calculateBalances): Pre-condition fail - project or project.members missing or empty. Project:`, project, "Project members count:", project?.members?.length);
     return [];
   }
   
-  const project = projectInput;
-
   if (memberProfiles.length === 0 && project.members.length > 0) {
     console.warn(`BalanceSummary (calculateBalances): No member profiles provided, but project has members. Project: ${project.name}. Members: ${project.members.join(', ')}. Falling back to UID-based balances.`);
-     const fallbackShare = project.members.length > 0 ? (project.totalExpenses || 0) / project.members.length : 0;
+     const fallbackTotalExpenses = detailedExpenses.reduce((sum, expense) => sum + (expense.amountEUR ?? 0), 0);
+     const fallbackShare = project.members.length > 0 ? fallbackTotalExpenses / project.members.length : 0;
      return project.members.map(memberUid => ({
         uid: memberUid,
         name: memberUid, 
@@ -98,22 +95,17 @@ const calculateBalances = (
     const amountToAdd = expense.amountEUR ?? 0; 
     currentProjectTotalExpensesEUR += amountToAdd;
 
-    // Ensure paidById from expense is used to sum up payments
     if (expense.paidById && project.members.includes(expense.paidById)) {
       totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
-      const payerProfile = getUserProfileByUid(expense.paidById);
-      console.log(`BalanceSummary (calculateBalances): Attributed ${amountToAdd} EUR to UID ${expense.paidById} (Name: ${payerProfile?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
     } else if (expense.paidById) {
        console.warn(`BalanceSummary (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
     }
   });
-
   console.log(`BalanceSummary (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
   console.log(`BalanceSummary (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-
   const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
-  console.log(`BalanceSummary (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR} (based on project.totalExpenses: ${project.totalExpenses})`);
+  console.log(`BalanceSummary (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
 
   const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
@@ -123,7 +115,7 @@ const calculateBalances = (
         if (memberProfile.name && memberProfile.name.trim() !== '') {
             memberName = memberProfile.name.trim();
         } else {
-             console.warn(`BalanceSummary (calculateBalances): Profile for UID ${memberUid} found in memberProfiles, but 'name' is missing or empty. Using fallback name: "${memberName}".`);
+             console.warn(`BalanceSummary (calculateBalances): Profile for UID ${memberUid} found, but 'name' is missing or empty. Using fallback name: "${memberName}".`);
         }
     } else {
         console.warn(`BalanceSummary (calculateBalances): Profile for member UID "${memberUid}" NOT FOUND in memberProfiles for project "${project.name}". This member's name will be their UID.`);
@@ -150,19 +142,18 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
     return [];
   }
 
-  // Create a deep copy of balances to avoid mutating the original array/objects
-  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); // Manual deep copy for simple objects
+  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); 
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  const epsilon = 0.005; // Tolerance for floating point comparisons
+  const epsilon = 0.005; 
 
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // most negative first
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // most positive first
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
   
   console.log("[SettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance.toFixed(2)}))));
   console.log("[SettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance.toFixed(2)}))));
 
   let iteration = 0;
-  const maxIterations = balances.length * balances.length; // Safety break for unexpected loops
+  const maxIterations = balances.length * balances.length; 
 
   while (debtors.length > 0 && creditors.length > 0 && iteration < maxIterations) {
     iteration++;
@@ -191,12 +182,9 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
       console.log(`[SettlementSuggestions] Updated balances - Debtor ${debtor.name}: ${debtor.balance.toFixed(2)}, Creditor ${creditor.name}: ${creditor.balance.toFixed(2)}`);
     } else {
       console.warn('[SettlementSuggestions] AmountToTransfer is too small or zero, breaking loop to prevent issues. Amount:', amountToTransfer);
-      // This condition might be hit if remaining balances are extremely small due to floating point arithmetic.
-      // It's safer to break than risk an infinite loop if balances don't perfectly zero out.
       break; 
     }
 
-    // Remove settled members
     if (Math.abs(debtor.balance) < epsilon) {
       console.log(`[SettlementSuggestions] Debtor ${debtor.name} settled. Removing.`);
       debtors.shift();
@@ -213,7 +201,7 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
 
   console.log("[SettlementSuggestions] Final suggestions:", JSON.stringify(suggestions));
   return suggestions;
-}
+};
 
 
 export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
@@ -225,9 +213,8 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
   if (Array.isArray(memberProfilesForBalance) && memberProfilesForBalance.length > 0) {
     console.log(`BalanceSummary Render: memberProfilesForBalance content:`, JSON.stringify(memberProfilesForBalance.map(u => ({id: u.id, name: u.name}))));
   } else {
-    console.warn(`BalanceSummary Render: memberProfilesForBalance is empty.`);
+    console.warn(`BalanceSummary Render: memberProfilesForBalance is empty or undefined.`);
   }
-
 
   if (!projectDataForBalance) {
     return (
@@ -388,4 +375,3 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
     </Card>
   );
 };
-

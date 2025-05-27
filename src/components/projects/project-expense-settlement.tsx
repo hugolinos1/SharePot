@@ -72,7 +72,8 @@ const calculateBalances = (
   }
    if (localMemberProfiles.length === 0) {
     console.warn(`ProjectExpenseSettlement (calculateBalances): Pre-conditions not met - memberProfiles is empty. Project: ${project.name}. Project members UIDs: ${project.members.join(', ')}. Falling back to UID-based balances.`);
-     const fallbackShare = project.members.length > 0 ? (project.totalExpenses || 0) / project.members.length : 0;
+     const fallbackTotalExpenses = localDetailedExpenses.reduce((sum, expense) => sum + (expense.amountEUR ?? 0), 0);
+     const fallbackShare = project.members.length > 0 ? fallbackTotalExpenses / project.members.length : 0;
      return project.members.map(memberUid => ({
         uid: memberUid,
         name: memberUid,
@@ -95,8 +96,6 @@ const calculateBalances = (
     currentProjectTotalExpensesEUR += amountToAdd;
      if (expense.paidById && project.members.includes(expense.paidById)) {
         totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
-        const payerProfile = getUserProfileByUid(expense.paidById);
-        console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${amountToAdd} EUR to UID ${expense.paidById} (Name: ${payerProfile?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
     } else if (expense.paidById) {
         console.warn(`ProjectExpenseSettlement (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
     }
@@ -104,8 +103,9 @@ const calculateBalances = (
   console.log(`ProjectExpenseSettlement (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
   console.log(`ProjectExpenseSettlement (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
+  // Use the calculated total from detailed expenses for share calculation
   const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
-  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR} (based on project.totalExpenses: ${project.totalExpenses})`);
+  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
 
   const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
@@ -139,19 +139,18 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
     return [];
   }
 
-  // Create a deep copy of balances to avoid mutating the original array/objects
-  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); // Manual deep copy for simple objects
+  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); 
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  const epsilon = 0.005; // Tolerance for floating point comparisons
+  const epsilon = 0.005; 
 
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // most negative first
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // most positive first
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
   
   console.log("[SettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance.toFixed(2)}))));
   console.log("[SettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance.toFixed(2)}))));
 
   let iteration = 0;
-  const maxIterations = balances.length * balances.length; // Safety break for unexpected loops
+  const maxIterations = balances.length * balances.length; 
 
   while (debtors.length > 0 && creditors.length > 0 && iteration < maxIterations) {
     iteration++;
@@ -180,12 +179,9 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
       console.log(`[SettlementSuggestions] Updated balances - Debtor ${debtor.name}: ${debtor.balance.toFixed(2)}, Creditor ${creditor.name}: ${creditor.balance.toFixed(2)}`);
     } else {
       console.warn('[SettlementSuggestions] AmountToTransfer is too small or zero, breaking loop to prevent issues. Amount:', amountToTransfer);
-      // This condition might be hit if remaining balances are extremely small due to floating point arithmetic.
-      // It's safer to break than risk an infinite loop if balances don't perfectly zero out.
       break; 
     }
 
-    // Remove settled members
     if (Math.abs(debtor.balance) < epsilon) {
       console.log(`[SettlementSuggestions] Debtor ${debtor.name} settled. Removing.`);
       debtors.shift();
@@ -202,13 +198,13 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
 
   console.log("[SettlementSuggestions] Final suggestions:", JSON.stringify(suggestions));
   return suggestions;
-}
+};
 
 
 export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({
   project,
-  memberProfilesOfProject: memberProfilesFromProp, // Renamed from allUsersProfiles for clarity
-  detailedProjectExpenses: detailedProjectExpensesFromProp, // Renamed prop
+  memberProfilesOfProject: memberProfilesFromProp, 
+  detailedProjectExpenses: detailedProjectExpensesFromProp, 
 }) => {
   
   const memberProfilesOfProject = Array.isArray(memberProfilesFromProp) ? memberProfilesFromProp : [];
@@ -361,4 +357,3 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
     </Card>
   );
 };
-
