@@ -10,7 +10,7 @@ import { Icons } from '@/components/icons';
 import type { ExpenseItem } from '@/app/expenses/page';
 
 interface BalanceSummaryProps {
-  projectDataForBalance: Project | null; // Peut être null si aucun projet sélectionné globalement
+  projectDataForBalance: Project | null; 
   detailedExpensesForBalance: ExpenseItem[];
   memberProfilesForBalance: AppUserType[];
 }
@@ -50,7 +50,7 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
 };
 
 const calculateBalances = (
-  project: Project | null, // Projet peut être null si aucun sélectionné
+  project: Project | null,
   memberProfilesInput: AppUserType[],
   detailedExpensesInput: ExpenseItem[]
 ): MemberBalance[] => {
@@ -58,20 +58,18 @@ const calculateBalances = (
   const localDetailedExpenses = Array.isArray(detailedExpensesInput) ? detailedExpensesInput : [];
 
   if (Array.isArray(localMemberProfiles) && localMemberProfiles.length > 0) {
-    console.log(`BalanceSummary (calculateBalances) for project "${project?.name}": Received memberProfiles:`, JSON.stringify(localMemberProfiles.map(u => ({id: u.id, name: u.name}))));
+    console.log(`BalanceSummary (calculateBalances) for project "${project?.name}": Received allUsersProfiles:`, JSON.stringify(localMemberProfiles.map(u => ({id: u.id, name: u.name}))));
   } else {
-    console.warn(`BalanceSummary (calculateBalances) for project "${project?.name}": Received memberProfiles is empty or undefined.`);
+    console.warn(`BalanceSummary (calculateBalances) for project "${project?.name}": Received allUsersProfiles is empty or undefined. Value:`, memberProfilesInput);
   }
   console.log(`BalanceSummary (calculateBalances): Received detailedExpenses count for project "${project?.name}": ${localDetailedExpenses.length}`);
 
 
   if (!project || !project.members || project.members.length === 0) {
     console.warn(`BalanceSummary (calculateBalances): Pre-condition fail - project or project.members missing or empty. Project:`, project, "Project members count:", project?.members?.length);
-    if (project && project.members && project.members.length === 0) {
-      // Case: Project exists but has no members listed.
+     if (project && project.members && project.members.length === 0) {
       return [];
     }
-    // If no project is selected (e.g. "All projects" view for a non-admin with no projects), return empty.
     return [];
   }
   
@@ -100,21 +98,22 @@ const calculateBalances = (
     const amountToAdd = expense.amountEUR ?? 0; 
     currentProjectTotalExpensesEUR += amountToAdd;
 
-    if (expense.paidById && project.members.includes(expense.paidById)) {
+    const payerProfile = localMemberProfiles.find(p => p.id === expense.paidById);
+    if (payerProfile && project.members.includes(expense.paidById)) {
       totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
-       console.log(`BalanceSummary (calculateBalances): Attributed ${amountToAdd.toFixed(2)} EUR to UID ${expense.paidById} (Name: ${localMemberProfiles.find(p=>p.id === expense.paidById)?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
+       console.log(`BalanceSummary (calculateBalances): Attributed ${amountToAdd.toFixed(2)} EUR to UID ${expense.paidById} (Name: ${payerProfile.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
     } else if (expense.paidById) {
-       console.warn(`BalanceSummary (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
+       console.warn(`BalanceSummary (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found among project members or in provided profiles for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}, Profile UIDs: ${localMemberProfiles.map(p=>p.id).join(', ')}`);
     }
   });
 
   console.log(`BalanceSummary (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
-  // Utiliser le totalExpenses du projet s'il est défini et supérieur au total calculé (qui pourrait être partiel si detailedExpenses est partiel)
-  // Mais pour la cohérence interne de BalanceSummary, il est mieux d'utiliser le total calculé à partir des dépenses qu'il a reçues.
   console.log(`BalanceSummary (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-  const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
-  console.log(`BalanceSummary (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
+  // Use the sum of detailed expenses for calculating the share if project.totalExpenses is not reliable or up-to-date.
+  const totalForShareCalculation = currentProjectTotalExpensesEUR; 
+  const sharePerMemberEUR = project.members.length > 0 ? totalForShareCalculation / project.members.length : 0;
+  console.log(`BalanceSummary (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR} (based on total: ${totalForShareCalculation})`);
 
   const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
@@ -152,14 +151,12 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
   }
 
   // Create a deep copy of balances to avoid mutating the original array/objects
-  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b }));
+  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); // Manual deep copy for simple objects
   const suggestions: { from: string, to: string, amount: number }[] = [];
   const epsilon = 0.005; // Tolerance for floating point comparisons
 
-  // Correct sorting: Debtors should be most negative first (ascending by balance)
-  // Creditors should be most positive first (descending by balance)
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // most negative first
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // most positive first
   
   console.log("[SettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance.toFixed(2)}))));
   console.log("[SettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance.toFixed(2)}))));
@@ -222,7 +219,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
   memberProfilesForBalance,
 }) => {
   
-  console.log(`BalanceSummary Render: Project: ${projectDataForBalance?.name}, memberProfilesForBalance length: ${memberProfilesForBalance?.length}`);
+  console.log(`BalanceSummary Render: Project: ${projectDataForBalance?.name}`);
   if (Array.isArray(memberProfilesForBalance) && memberProfilesForBalance.length > 0) {
     console.log(`BalanceSummary Render: memberProfilesForBalance content:`, JSON.stringify(memberProfilesForBalance.map(u => ({id: u.id, name: u.name}))));
   } else if (memberProfilesForBalance === undefined) {
@@ -301,7 +298,11 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
                 <div key={uid} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-9 w-9">
-                      <AvatarImage src={avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : undefined} alt={displayName || "Utilisateur"} data-ai-hint="member avatar" />
+                       <AvatarImage 
+                        src={avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : undefined} 
+                        alt={displayName || "Utilisateur"} 
+                        data-ai-hint="member avatar"
+                      />
                       <AvatarFallback>{getAvatarFallbackText(displayName, userProfileInList?.email)}</AvatarFallback>
                     </Avatar>
                     <div>
@@ -345,13 +346,21 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
                 <div key={index} className="flex items-center justify-between p-3 border border-border bg-card rounded-lg shadow-sm">
                     <div className="flex items-center gap-2 text-sm">
                         <Avatar className="h-7 w-7">
-                            <AvatarImage src={fromAvatarUrl && fromAvatarUrl.trim() !== '' ? fromAvatarUrl : undefined} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarImage 
+                              src={fromAvatarUrl && fromAvatarUrl.trim() !== '' ? fromAvatarUrl : undefined} 
+                              alt={settlement.from} 
+                              data-ai-hint="payer avatar"
+                            />
                             <AvatarFallback className="text-xs">{getAvatarFallbackText(settlement.from, fromUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-4 w-4 text-muted-foreground mx-1" />
                         <Avatar className="h-7 w-7">
-                             <AvatarImage src={toAvatarUrl && toAvatarUrl.trim() !== '' ? toAvatarUrl : undefined} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarImage 
+                              src={toAvatarUrl && toAvatarUrl.trim() !== '' ? toAvatarUrl : undefined} 
+                              alt={settlement.to} 
+                              data-ai-hint="receiver avatar"
+                            />
                              <AvatarFallback className="text-xs">{getAvatarFallbackText(settlement.to, toUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
@@ -379,6 +388,3 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
     </Card>
   );
 };
-
-
-    

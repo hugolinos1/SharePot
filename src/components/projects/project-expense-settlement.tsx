@@ -72,7 +72,6 @@ const calculateBalances = (
   }
    if (localMemberProfiles.length === 0 && project.members.length > 0) {
     console.warn(`ProjectExpenseSettlement (calculateBalances): Pre-conditions not met - memberProfiles is empty. Project: ${project.name}. Project members UIDs: ${project.members.join(', ')}. Falling back to UID-based balances.`);
-     // Calculate total from detailed expenses if member profiles are missing
      const fallbackTotalExpenses = localDetailedExpenses.reduce((sum, expense) => sum + (expense.amountEUR ?? 0), 0);
      const fallbackShare = project.members.length > 0 ? fallbackTotalExpenses / project.members.length : 0;
      return project.members.map(memberUid => ({
@@ -94,19 +93,21 @@ const calculateBalances = (
   let currentProjectTotalExpensesEUR = 0;
   localDetailedExpenses.forEach(expense => {
     const amountToAdd = expense.amountEUR ?? 0;
-    currentProjectTotalExpensesEUR += amountToAdd; // Sum based on the detailed expenses provided
-     if (expense.paidById && project.members.includes(expense.paidById)) {
+    currentProjectTotalExpensesEUR += amountToAdd; 
+     const payerProfile = localMemberProfiles.find(p => p.id === expense.paidById);
+     if (payerProfile && project.members.includes(expense.paidById)) {
         totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
-        console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${amountToAdd.toFixed(2)} EUR to UID ${expense.paidById} (Name: ${localMemberProfiles.find(p=>p.id === expense.paidById)?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
+        console.log(`ProjectExpenseSettlement (calculateBalances): Attributed ${amountToAdd.toFixed(2)} EUR to UID ${expense.paidById} (Name: ${payerProfile.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
     } else if (expense.paidById) {
-        console.warn(`ProjectExpenseSettlement (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
+        console.warn(`ProjectExpenseSettlement (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found among project members or in provided profiles for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}, Profile UIDs: ${localMemberProfiles.map(p=>p.id).join(', ')}`);
     }
   });
   console.log(`ProjectExpenseSettlement (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
   console.log(`ProjectExpenseSettlement (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-  const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
-  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
+  const totalForShareCalculation = currentProjectTotalExpensesEUR;
+  const sharePerMemberEUR = project.members.length > 0 ? totalForShareCalculation / project.members.length : 0;
+  console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR} (based on total: ${totalForShareCalculation})`);
 
   const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
@@ -141,14 +142,12 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
   }
 
   // Create a deep copy of balances to avoid mutating the original array/objects
-  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b }));
+  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); // Manual deep copy for simple objects
   const suggestions: { from: string, to: string, amount: number }[] = [];
   const epsilon = 0.005; // Tolerance for floating point comparisons
 
-  // Correct sorting: Debtors should be most negative first (ascending by balance)
-  // Creditors should be most positive first (descending by balance)
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // most negative first
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // most positive first
   
   console.log("[SettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance.toFixed(2)}))));
   console.log("[SettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance.toFixed(2)}))));
@@ -284,7 +283,11 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
                 <div key={uid} className="flex items-center justify-between p-2.5 bg-muted/50 rounded-md">
                   <div className="flex items-center gap-2.5">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : undefined} alt={displayName || "Membre"} data-ai-hint="member avatar"/>
+                      <AvatarImage 
+                        src={avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : undefined} 
+                        alt={displayName || "Membre"} 
+                        data-ai-hint="member avatar"
+                      />
                       <AvatarFallback className="text-xs">{getAvatarFallbackText(displayName, userProfile?.email)}</AvatarFallback>
                     </Avatar>
                     <div>
@@ -328,13 +331,21 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
                 <div key={index} className="flex items-center justify-between p-2 border border-border/70 bg-card rounded-md shadow-xs">
                     <div className="flex items-center gap-1.5 text-xs">
                         <Avatar className="h-6 w-6">
-                            <AvatarImage src={fromAvatarUrl && fromAvatarUrl.trim() !== '' ? fromAvatarUrl : undefined} alt={settlement.from} data-ai-hint="payer avatar"/>
+                            <AvatarImage 
+                              src={fromAvatarUrl && fromAvatarUrl.trim() !== '' ? fromAvatarUrl : undefined} 
+                              alt={settlement.from} 
+                              data-ai-hint="payer avatar"
+                            />
                             <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.from, fromUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                         <span className="font-medium">{settlement.from}</span>
                         <Icons.arrowRight className="h-3 w-3 text-muted-foreground mx-0.5" />
                         <Avatar className="h-6 w-6">
-                             <AvatarImage src={toAvatarUrl && toAvatarUrl.trim() !== '' ? toAvatarUrl : undefined} alt={settlement.to} data-ai-hint="receiver avatar"/>
+                             <AvatarImage 
+                              src={toAvatarUrl && toAvatarUrl.trim() !== '' ? toAvatarUrl : undefined} 
+                              alt={settlement.to} 
+                              data-ai-hint="receiver avatar"
+                             />
                              <AvatarFallback className="text-xxs">{getAvatarFallbackText(settlement.to, toUserProfile?.email)}</AvatarFallback>
                         </Avatar>
                          <span className="font-medium">{settlement.to}</span>
@@ -361,5 +372,3 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
     </Card>
   );
 };
-
-    
