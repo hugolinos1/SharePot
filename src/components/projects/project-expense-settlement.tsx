@@ -104,8 +104,6 @@ const calculateBalances = (
   console.log(`ProjectExpenseSettlement (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
   console.log(`ProjectExpenseSettlement (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-  // Use project.totalExpenses from props for share calculation, as it's the authoritative sum
-  // const sharePerMemberEUR = project.members.length > 0 ? project.totalExpenses / project.members.length : 0;
   const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
   console.log(`ProjectExpenseSettlement (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR} (based on project.totalExpenses: ${project.totalExpenses})`);
 
@@ -129,32 +127,44 @@ const calculateBalances = (
       shareEUR: sharePerMemberEUR,
     };
   }).sort((a, b) => b.balance - a.balance); 
-  console.log(`ProjectExpenseSettlement (calculateBalances): Calculated balances for project "${project.name}":`, JSON.stringify(balances));
+  console.log(`ProjectExpenseSettlement (calculateBalances): Calculated balances for project "${project.name}":`, JSON.stringify(balances.map(b => ({name: b.name, balance: b.balance.toFixed(2), paid:b.amountPaidEUR.toFixed(2), share:b.shareEUR.toFixed(2) }))));
   return balances;
 };
 
 const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: string, to: string, amount: number }[] => {
-  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Starting optimized suggestions calculation with balances:", JSON.stringify(balancesInput));
+  console.log("[SettlementSuggestions] Starting optimized suggestions. Input balances:", JSON.stringify(balancesInput.map(b => ({ name: b.name, balance: b.balance }))));
+
   if (!Array.isArray(balancesInput) || balancesInput.length === 0) {
+    console.log("[SettlementSuggestions] Balances input is not an array or is empty. Returning empty suggestions.");
     return [];
   }
-  
-  const balances: MemberBalance[] = JSON.parse(JSON.stringify(balancesInput));
 
+  // Create a deep copy of balances to avoid mutating the original array/objects
+  const balances: MemberBalance[] = balancesInput.map(b => ({ ...b })); // Manual deep copy for simple objects
   const suggestions: { from: string, to: string, amount: number }[] = [];
-  const epsilon = 0.005; 
+  const epsilon = 0.005; // Tolerance for floating point comparisons
 
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // most negative first
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // most positive first
+  
+  console.log("[SettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance.toFixed(2)}))));
+  console.log("[SettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance.toFixed(2)}))));
 
-  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance}))));
-  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance}))));
+  let iteration = 0;
+  const maxIterations = balances.length * balances.length; // Safety break for unexpected loops
 
-  while (debtors.length > 0 && creditors.length > 0) {
+  while (debtors.length > 0 && creditors.length > 0 && iteration < maxIterations) {
+    iteration++;
+    console.log(`[SettlementSuggestions] Iteration ${iteration}. Debtors: ${debtors.length}, Creditors: ${creditors.length}`);
+
     const debtor = debtors[0]; 
     const creditor = creditors[0]; 
 
+    console.log(`[SettlementSuggestions] Current Debtor: ${debtor.name} (Owes: ${Math.abs(debtor.balance).toFixed(2)})`);
+    console.log(`[SettlementSuggestions] Current Creditor: ${creditor.name} (Is Owed: ${creditor.balance.toFixed(2)})`);
+
     const amountToTransfer = Math.min(Math.abs(debtor.balance), creditor.balance);
+    console.log(`[SettlementSuggestions] Amount to transfer: ${amountToTransfer.toFixed(2)}`);
 
     if (amountToTransfer > epsilon) {
       suggestions.push({
@@ -162,34 +172,46 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
         to: creditor.name,
         amount: amountToTransfer,
       });
-      console.log(`[ProjectExpenseSettlement generateSettlementSuggestions] Suggestion: ${debtor.name} pays ${creditor.name} ${amountToTransfer.toFixed(2)}`);
+      console.log(`[SettlementSuggestions] -----> SUGGESTION: ${debtor.name} pays ${creditor.name} ${amountToTransfer.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}`);
 
       debtor.balance += amountToTransfer;
       creditor.balance -= amountToTransfer;
+
+      console.log(`[SettlementSuggestions] Updated balances - Debtor ${debtor.name}: ${debtor.balance.toFixed(2)}, Creditor ${creditor.name}: ${creditor.balance.toFixed(2)}`);
+    } else {
+      console.warn('[SettlementSuggestions] AmountToTransfer is too small or zero, breaking loop to prevent issues. Amount:', amountToTransfer);
+      // This condition might be hit if remaining balances are extremely small due to floating point arithmetic.
+      // It's safer to break than risk an infinite loop if balances don't perfectly zero out.
+      break; 
     }
 
+    // Remove settled members
     if (Math.abs(debtor.balance) < epsilon) {
+      console.log(`[SettlementSuggestions] Debtor ${debtor.name} settled. Removing.`);
       debtors.shift();
     }
-    if (Math.abs(creditor.balance) < epsilon) {
+    if (Math.abs(creditor.balance) < epsilon) { 
+      console.log(`[SettlementSuggestions] Creditor ${creditor.name} settled. Removing.`);
       creditors.shift();
     }
-    
-    debtors.sort((a, b) => a.balance - b.balance);
-    creditors.sort((a, b) => b.balance - a.balance);
   }
-  console.log("[ProjectExpenseSettlement generateSettlementSuggestions] Final suggestions:", JSON.stringify(suggestions));
+
+  if (iteration >= maxIterations && (debtors.length > 0 || creditors.length > 0)) {
+    console.warn("[SettlementSuggestions] Max iterations reached, but debts/credits might still exist. This could indicate an issue in the algorithm or floating point precision problems.");
+  }
+
+  console.log("[SettlementSuggestions] Final suggestions:", JSON.stringify(suggestions));
   return suggestions;
 }
 
 
 export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> = ({
   project,
-  memberProfilesOfProject, // Renamed from allUsersProfiles for clarity
+  memberProfilesOfProject: memberProfilesFromProp, // Renamed from allUsersProfiles for clarity
   detailedProjectExpenses: detailedProjectExpensesFromProp, // Renamed prop
 }) => {
   
-  // Ensure detailedProjectExpenses is always an array for internal use
+  const memberProfilesOfProject = Array.isArray(memberProfilesFromProp) ? memberProfilesFromProp : [];
   const detailedProjectExpenses = Array.isArray(detailedProjectExpensesFromProp) ? detailedProjectExpensesFromProp : [];
 
   if (!project || !project.members || project.members.length === 0) {
@@ -339,3 +361,4 @@ export const ProjectExpenseSettlement: React.FC<ProjectExpenseSettlementProps> =
     </Card>
   );
 };
+
