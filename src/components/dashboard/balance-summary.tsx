@@ -55,7 +55,9 @@ const calculateBalances = (
   detailedExpensesInput: ExpenseItem[] | undefined
 ): MemberBalance[] => {
   const project = projectInput;
+  // Ensure memberProfiles is always an array
   const memberProfiles = Array.isArray(memberProfilesInput) ? memberProfilesInput : [];
+  // Ensure detailedExpenses is always an array
   const detailedExpenses = Array.isArray(detailedExpensesInput) ? detailedExpensesInput : [];
 
   if (Array.isArray(memberProfiles) && memberProfiles.length > 0) {
@@ -74,41 +76,50 @@ const calculateBalances = (
      const fallbackShare = project.members.length > 0 ? (project.totalExpenses || 0) / project.members.length : 0;
      return project.members.map(memberUid => ({
         uid: memberUid,
-        name: memberUid,
-        balance: 0 - fallbackShare,
+        name: memberUid, // Will display UID as name
+        balance: 0 - fallbackShare, // Negative because they owe their share
         amountPaidEUR: 0,
         shareEUR: fallbackShare,
      }));
   }
 
   const getUserProfileByUid = (uid: string): AppUserType | undefined => memberProfiles.find(u => u.id === uid);
+  const getUserProfileByName = (name: string): AppUserType | undefined => {
+    const normalizedName = name.trim().toLowerCase();
+    return memberProfiles.find(u => u.name && u.name.trim().toLowerCase() === normalizedName);
+  };
 
   const totalPaidByMemberUidEUR: { [key: string]: number } = {};
   project.members.forEach(memberUid => {
     totalPaidByMemberUidEUR[memberUid] = 0;
   });
-
+  
+  // Calculate total expenses from detailedExpenses to ensure accuracy
+  let currentProjectTotalExpensesEUR = 0;
   detailedExpenses.forEach(expense => {
-    const amountToAdd = expense.amountEUR ?? 0;
-    if (expense.paidById && project.members.includes(expense.paidById)) {
-        totalPaidByMemberUidEUR[expense.paidById] = (totalPaidByMemberUidEUR[expense.paidById] || 0) + amountToAdd;
-        const payerProfile = getUserProfileByUid(expense.paidById);
-        console.log(`BalanceSummary (calculateBalances): Attributed ${amountToAdd} EUR to UID ${expense.paidById} (Name: ${payerProfile?.name || expense.paidById}) for expense "${expense.title}" in project "${project.name}"`);
-    } else if (expense.paidById) {
-         console.warn(`BalanceSummary (calculateBalances): Payer UID "${expense.paidById}" (from expense: "${expense.title}") not found in project members for project "${project.name}". Project Members UIDs: ${project.members.join(', ')}`);
+    const amountToAdd = expense.amountEUR ?? 0; // Use EUR amount, fallback to 0 if null
+    currentProjectTotalExpensesEUR += amountToAdd;
+
+    const payerName = expense.paidByName; // This is a name, e.g., "Hugues RABIER"
+    const payerProfile = getUserProfileByName(payerName);
+
+    if (payerProfile && project.members.includes(payerProfile.id)) {
+      totalPaidByMemberUidEUR[payerProfile.id] = (totalPaidByMemberUidEUR[payerProfile.id] || 0) + amountToAdd;
+      console.log(`BalanceSummary (calculateBalances): Attributed ${amountToAdd} EUR to UID ${payerProfile.id} (Name: ${payerProfile.name}) for expense "${expense.title}" in project "${project.name}"`);
+    } else {
+      console.warn(`BalanceSummary (calculateBalances): Payer "${payerName}" (from expense: "${expense.title}") not found among project members or user profiles, or name mismatch for project "${project.name}". PayerProfile found:`, payerProfile, "Project Members:", project.members.join(', '));
     }
   });
   console.log(`BalanceSummary (calculateBalances): totalPaidByMemberUidEUR for project "${project.name}":`, JSON.stringify(totalPaidByMemberUidEUR));
+  console.log(`BalanceSummary (calculateBalances): currentProjectTotalExpensesEUR (CALCULATED from detailedExpenses) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
-  const currentProjectTotalExpensesEUR = project.totalExpenses; // Use the authoritative total from the project document
-  console.log(`BalanceSummary (calculateBalances): currentProjectTotalExpensesEUR (FROM PROJECT DOC) for project "${project.name}": ${currentProjectTotalExpensesEUR}`);
 
   const sharePerMemberEUR = project.members.length > 0 ? currentProjectTotalExpensesEUR / project.members.length : 0;
   console.log(`BalanceSummary (calculateBalances): sharePerMemberEUR for project "${project.name}": ${sharePerMemberEUR}`);
 
   const balances = project.members.map(memberUid => {
     const memberProfile = getUserProfileByUid(memberUid);
-    let memberName = memberUid; 
+    let memberName = memberUid;
 
     if (memberProfile) {
         if (memberProfile.name && memberProfile.name.trim() !== '') {
@@ -128,7 +139,7 @@ const calculateBalances = (
       amountPaidEUR: amountPaid,
       shareEUR: sharePerMemberEUR,
     };
-  }).sort((a, b) => b.balance - a.balance); // Sort by balance descending (creditors first)
+  }).sort((a, b) => b.balance - a.balance);
   console.log(`BalanceSummary (calculateBalances): Calculated balances for project "${project.name}":`, JSON.stringify(balances));
   return balances;
 };
@@ -145,18 +156,18 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
   const suggestions: { from: string, to: string, amount: number }[] = [];
   const epsilon = 0.005; // Tolerance for floating point comparisons
 
-  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); // Sort by most negative first
-  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); // Sort by most positive first
+  let debtors = balances.filter(m => m.balance < -epsilon).sort((a, b) => a.balance - b.balance); 
+  let creditors = balances.filter(m => m.balance > epsilon).sort((a, b) => b.balance - a.balance); 
   
   console.log("[BalanceSummary generateSettlementSuggestions] Initial Debtors:", JSON.stringify(debtors.map(d => ({name: d.name, balance: d.balance}))));
   console.log("[BalanceSummary generateSettlementSuggestions] Initial Creditors:", JSON.stringify(creditors.map(c => ({name: c.name, balance: c.balance}))));
 
 
   while (debtors.length > 0 && creditors.length > 0) {
-    const debtor = debtors[0]; // Owes the most (most negative balance)
-    const creditor = creditors[0]; // Is owed the most
+    const debtor = debtors[0]; 
+    const creditor = creditors[0]; 
 
-    const amountToTransfer = Math.min(-debtor.balance, creditor.balance);
+    const amountToTransfer = Math.min(Math.abs(debtor.balance), creditor.balance);
 
     if (amountToTransfer > epsilon) {
       suggestions.push({
@@ -171,7 +182,6 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
       creditor.balance -= amountToTransfer;
     }
 
-    // Remove if balanced
     if (Math.abs(debtor.balance) < epsilon) {
       debtors.shift();
     }
@@ -179,7 +189,6 @@ const generateSettlementSuggestions = (balancesInput: MemberBalance[]): { from: 
       creditors.shift();
     }
     
-    // Re-sort if not removed, as balances changed
     debtors.sort((a, b) => a.balance - b.balance);
     creditors.sort((a, b) => b.balance - a.balance);
   }
@@ -193,13 +202,12 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
   detailedExpensesForBalance,
   memberProfilesForBalance,
 }) => {
-  console.log(`BalanceSummary Render: Project: ${projectDataForBalance?.name}, memberProfilesForBalance length: ${memberProfilesForBalance?.length}`);
-   if (Array.isArray(memberProfilesForBalance) && memberProfilesForBalance.length > 0) {
+  console.log(`BalanceSummary Render: Project: ${projectDataForBalance?.name}`);
+  if (Array.isArray(memberProfilesForBalance) && memberProfilesForBalance.length > 0) {
     console.log(`BalanceSummary Render: memberProfilesForBalance content:`, JSON.stringify(memberProfilesForBalance.map(u => ({id: u.id, name: u.name}))));
   } else {
-    console.warn(`BalanceSummary Render: memberProfilesForBalance is empty or undefined.`);
+    console.warn(`BalanceSummary Render: memberProfilesForBalance is empty.`);
   }
-
 
   if (!projectDataForBalance) {
     return (
@@ -265,7 +273,7 @@ export const BalanceSummary: React.FC<BalanceSummaryProps> = ({
             {memberBalances.map(({ uid, name, balance, amountPaidEUR, shareEUR }) => {
               const userProfileInList = Array.isArray(memberProfilesForBalance) ? memberProfilesForBalance.find(u=>u.id===uid) : undefined;
 
-              let displayName = name;
+              let displayName = name; // Default to name from memberBalances (which might be UID)
               if (userProfileInList) {
                 if (userProfileInList.name && userProfileInList.name.trim() !== '') {
                     displayName = userProfileInList.name.trim();
