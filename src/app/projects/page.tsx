@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -21,13 +22,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Icons } from '@/components/icons';
 import type { Project as ProjectType, User as AppUserType } from '@/data/mock-data';
+import type { ExpenseItem } from '@/app/expenses/page';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter as ModalDialogFooter, 
+  DialogFooter as ModalDialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -77,17 +79,17 @@ const getAvatarFallbackText = (name?: string | null, email?: string | null): str
   return '??';
 };
 
-const formatDateFromTimestamp = (timestamp: Timestamp | string | undefined | Date): string => {
-  if (!timestamp) return 'N/A';
+const formatDateFromTimestamp = (timestampInput: Timestamp | string | undefined | Date): string => {
+  if (!timestampInput) return 'N/A';
   let dateToFormat: Date;
-  if (timestamp instanceof Date) {
-    dateToFormat = timestamp;
-  } else if (typeof timestamp === 'string') {
+  if (timestampInput instanceof Date) {
+    dateToFormat = timestampInput;
+  } else if (typeof timestampInput === 'string') {
     try {
-      dateToFormat = new Date(timestamp);
+      dateToFormat = new Date(timestampInput);
     } catch (e) { return 'Date invalide'; }
-  } else if (timestamp instanceof Timestamp) {
-    dateToFormat = timestamp.toDate();
+  } else if (timestampInput instanceof Timestamp) {
+    dateToFormat = timestampInput.toDate();
   } else {
     return 'Date invalide';
   }
@@ -110,12 +112,13 @@ export default function ProjectsPage() {
   const [selectedProject, setSelectedProject] = useState<ProjectType | null>(null);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false);
 
-  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]);
-  const [isLoadingAllUserProfiles, setIsLoadingAllUserProfiles] = useState(true);
+  const [allUserProfiles, setAllUserProfiles] = useState<AppUserType[]>([]); 
+  const [isLoadingAllUserProfiles, setIsLoadingAllUserProfiles] = useState(true); 
 
   const [projectModalMemberProfiles, setProjectModalMemberProfiles] = useState<AppUserType[]>([]);
   const [isLoadingProjectModalMemberProfiles, setIsLoadingProjectModalMemberProfiles] = useState(false);
-
+  const [detailedModalExpenses, setDetailedModalExpenses] = useState<ExpenseItem[]>([]);
+  const [isLoadingDetailedModalExpenses, setIsLoadingDetailedModalExpenses] = useState(false);
 
   const [editingBudget, setEditingBudget] = useState(false);
   const [currentBudget, setCurrentBudget] = useState<number | string>('');
@@ -128,14 +131,12 @@ export default function ProjectsPage() {
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [isProcessingProjectAction, setIsProcessingProjectAction] = useState(false);
 
-
   const inviteMemberForm = useForm<InviteMemberFormValues>({
     resolver: zodResolver(inviteMemberFormSchema),
     defaultValues: {
       email: "",
     },
   });
-
 
   useEffect(() => {
     if (!authLoading && !currentUser) {
@@ -165,11 +166,11 @@ export default function ProjectsPage() {
       });
       
       const fetchedProjects = Array.from(projectsMap.values());
-      console.log("ProjectsPage: Fetched projects for user:", fetchedProjects.length, "items.");
+      console.log("[ProjectsPage fetchProjects] Fetched projects for user:", fetchedProjects.length, "items.");
       setProjects(fetchedProjects);
 
     } catch (error) {
-      console.error("Erreur lors de la récupération des projets: ", error);
+      console.error("[ProjectsPage fetchProjects] Erreur lors de la récupération des projets: ", error);
       toast({
         title: "Erreur de chargement",
         description: "Impossible de charger les projets.",
@@ -181,94 +182,48 @@ export default function ProjectsPage() {
     }
   }, [currentUser, toast]);
 
-  const fetchAllUserProfiles = useCallback(async () => {
-    if (!currentUser) {
-      console.warn("ProjectsPage: fetchAllUserProfiles called without currentUser.");
-      setAllUserProfiles([]);
+  const fetchAllSystemUsers = useCallback(async () => { 
+    if (!currentUser || !isAdmin) { 
       setIsLoadingAllUserProfiles(false);
+      setAllUserProfiles(userProfile ? [userProfile] : []); 
       return;
     }
-    console.log("ProjectsPage: fetchAllUserProfiles. isAdmin:", isAdmin, "isFetchingProjects:", isFetchingProjects, "projects.length:", projects.length);
-    
-    if (isAdmin) {
-      setIsLoadingAllUserProfiles(true);
-      try {
-        const usersCollectionRef = collection(db, "users");
-        const usersSnapshot = await getDocs(usersCollectionRef);
-        const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-        setAllUserProfiles(usersList);
-        console.log("ProjectsPage: Successfully fetched allUserProfiles (Admin):", usersList.length);
-      } catch (error: any) {
-        console.error("Erreur lors de la récupération de tous les profils utilisateurs (Admin): ", error);
-        toast({ title: "Erreur (Profils Admin)", description: `Impossible de charger tous les profils: ${error.message}`, variant: "destructive"});
-        setAllUserProfiles([]);
-      } finally {
-        setIsLoadingAllUserProfiles(false);
-      }
-    } else { // Not admin - fetch profiles for members of user's projects
-      if (isFetchingProjects) {
-        console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Waiting for projects to load.");
-        setAllUserProfiles(userProfile ? [userProfile] : []); // Minimal set while projects load
-        return;
-      }
-      if (projects.length > 0) {
-        setIsLoadingAllUserProfiles(true);
-        const relevantUIDs = new Set<string>();
-        projects.forEach(p => {
-          if (p.ownerId) relevantUIDs.add(p.ownerId);
-          p.members?.forEach(memberUid => relevantUIDs.add(memberUid));
-        });
-        if (currentUser.uid) relevantUIDs.add(currentUser.uid); // Ensure current user is included
-
-        console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Fetching profiles for UIDs:", Array.from(relevantUIDs));
-        if (relevantUIDs.size > 0) {
-          try {
-            const profilePromises = Array.from(relevantUIDs).map(uid => firestoreGetDoc(doc(db, "users", uid)));
-            const profileDocs = await Promise.all(profilePromises);
-            const fetchedProfiles = profileDocs
-              .filter(docSnap => docSnap.exists())
-              .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-            setAllUserProfiles(fetchedProfiles);
-            console.log("ProjectsPage: fetchAllUserProfiles (Non-Admin) - Successfully set profiles:", fetchedProfiles.length, "items.");
-          } catch (error: any) {
-            console.error("Erreur lors de la récupération des profils pour les projets (Non-Admin):", error);
-            toast({ title: "Erreur (Profils Non-Admin)", description: "Impossible de charger certains profils membres.", variant: "destructive"});
-            setAllUserProfiles(userProfile ? [userProfile] : []); // Fallback to self
-          } finally {
-            setIsLoadingAllUserProfiles(false);
-          }
-        } else {
-          setAllUserProfiles(userProfile ? [userProfile] : []);
-          setIsLoadingAllUserProfiles(false);
-        }
-      } else { // Non-admin and no projects
-        setAllUserProfiles(userProfile ? [userProfile] : []);
-        setIsLoadingAllUserProfiles(false);
-      }
+    console.log("[ProjectsPage fetchAllSystemUsers] Admin fetching all system users.");
+    setIsLoadingAllUserProfiles(true);
+    try {
+      const usersCollectionRef = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollectionRef);
+      const usersList = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
+      setAllUserProfiles(usersList);
+      console.log("[ProjectsPage fetchAllSystemUsers] Successfully fetched allUserProfiles (Admin):", usersList.length);
+    } catch (error: any) {
+      console.error("[ProjectsPage fetchAllSystemUsers] Erreur lors de la récupération de tous les profils utilisateurs (Admin): ", error);
+      toast({ title: "Erreur (Profils Admin)", description: `Impossible de charger tous les profils: ${error.message}`, variant: "destructive"});
+      setAllUserProfiles([]);
+    } finally {
+      setIsLoadingAllUserProfiles(false);
     }
-  }, [currentUser, isAdmin, userProfile, projects, isFetchingProjects, toast]);
+  }, [currentUser, isAdmin, userProfile, toast]);
 
  useEffect(() => {
     if (currentUser) {
       fetchProjects();
+      if (isAdmin) { 
+        fetchAllSystemUsers();
+      } else {
+        setIsLoadingAllUserProfiles(false); 
+      }
     } else {
       setProjects([]);
       setIsFetchingProjects(true);
-    }
-  }, [currentUser, fetchProjects]);
-
-  useEffect(() => {
-    if (currentUser && !isFetchingProjects) { // Fetch profiles once projects (and their member lists) are known
-      fetchAllUserProfiles();
-    } else if (!currentUser) {
       setAllUserProfiles([]);
       setIsLoadingAllUserProfiles(true);
     }
-  }, [currentUser, isFetchingProjects, projects, fetchAllUserProfiles]); // Add projects dependency
+  }, [currentUser, isAdmin, fetchProjects, fetchAllSystemUsers]);
 
 
   const handleViewProjectDetails = async (project: ProjectType) => {
-    console.log("ProjectsPage (handleViewProjectDetails): Viewing project:", JSON.stringify(project, null, 2));
+    console.log("[ProjectsPage handleViewProjectDetails] Viewing project:", JSON.stringify(project, null, 2));
     if (!currentUser) {
         toast({ title: "Erreur", description: "Utilisateur non connecté.", variant: "destructive" });
         return;
@@ -276,42 +231,69 @@ export default function ProjectsPage() {
     setSelectedProject(project);
     setCurrentBudget(project.budget != null ? project.budget : '');
     setCurrentNotes(project.notes || '');
+    
+    setIsLoadingProjectModalMemberProfiles(true);
+    setIsLoadingDetailedModalExpenses(true);
 
+    // Fetch member profiles
     if (project.members && project.members.length > 0) {
-      console.log("ProjectsPage (handleViewProjectDetails): Fetching profiles for member UIDs:", project.members.join(', '));
-      setIsLoadingProjectModalMemberProfiles(true);
-      const fetchedProfilesArray: AppUserType[] = [];
+      console.log(`[ProjectsPage handleViewProjectDetails] Fetching profiles for member UIDs: ${project.members.join(', ')}`);
       try {
-        for (const uid of project.members) {
-          console.log(`ProjectsPage (handleViewProjectDetails): Attempting to fetch profile for UID: ${uid}`);
-          const userDocRef = doc(db, "users", uid);
-          const docSnapshot = await firestoreGetDoc(userDocRef);
-          if (docSnapshot.exists()) {
-            const profileData = { id: docSnapshot.id, ...docSnapshot.data() } as AppUserType;
-            console.log(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} EXISTS. Data:`, JSON.stringify(profileData));
-            fetchedProfilesArray.push(profileData);
-          } else {
-            console.warn(`ProjectsPage (handleViewProjectDetails): Document for UID ${uid} DOES NOT EXIST in 'users' collection. Will use fallback.`);
-            fetchedProfilesArray.push({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)` , email: "N/A", isAdmin: false, avatarUrl: '' });
-          }
-        }
-        setProjectModalMemberProfiles(fetchedProfilesArray);
-        console.log("ProjectsPage (handleViewProjectDetails): Successfully set projectModalMemberProfiles:", JSON.stringify(fetchedProfilesArray.map(p => ({id: p.id, name: p.name})), null, 2));
-      } catch (error: any) {
-        console.error("Erreur lors de la récupération des profils des membres du projet pour la modale:", error.message, error.code, error);
-        toast({
-          title: "Erreur de chargement des membres",
-          description: `Impossible de charger les détails des membres du projet. Erreur: ${error.message}`,
-          variant: "destructive",
+        const profilePromises = project.members.map(uid => {
+          console.log(`[ProjectsPage handleViewProjectDetails] Attempting to fetch profile for UID: ${uid}`);
+          return firestoreGetDoc(doc(db, "users", uid));
         });
-        setProjectModalMemberProfiles([]);
+        const profileDocsSnapshots = await Promise.allSettled(profilePromises);
+        
+        const fetchedProfilesArray: AppUserType[] = [];
+        profileDocsSnapshots.forEach((result, index) => {
+          const uid = project.members[index];
+          if (result.status === 'fulfilled') {
+            const docSnapshot = result.value;
+            if (docSnapshot.exists()) {
+              fetchedProfilesArray.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
+            } else {
+              console.warn(`[ProjectsPage handleViewProjectDetails] Document for UID ${uid} DOES NOT EXIST in 'users' collection. Adding fallback.`);
+              fetchedProfilesArray.push({ id: uid, name: `Utilisateur Inconnu (ID: ${uid.substring(0,6)}...)` , email: "N/A", isAdmin: false, avatarUrl: '' });
+            }
+          } else {
+            console.error(`[ProjectsPage handleViewProjectDetails] Error fetching profile for UID ${uid}:`, result.reason);
+            fetchedProfilesArray.push({ id: uid, name: `Erreur Chargement (ID: ${uid.substring(0,6)}...)` , email: "N/A", isAdmin: false, avatarUrl: '' });
+          }
+        });
+        setProjectModalMemberProfiles(fetchedProfilesArray);
+        console.log(`[ProjectsPage handleViewProjectDetails] Fetched ${fetchedProfilesArray.length} member profiles for modal.`, fetchedProfilesArray.map(p=>({id:p.id, name:p.name})));
+      } catch (error: any) {
+        console.error("[ProjectsPage handleViewProjectDetails] Outer error fetching member profiles for modal:", error.message, error);
+        setProjectModalMemberProfiles([]); 
       } finally {
         setIsLoadingProjectModalMemberProfiles(false);
       }
     } else {
-      console.log("ProjectsPage (handleViewProjectDetails): Project has no members or members array is invalid.");
+      console.log("[ProjectsPage handleViewProjectDetails] Project has no members.");
       setProjectModalMemberProfiles([]);
       setIsLoadingProjectModalMemberProfiles(false);
+    }
+
+    // Fetch detailed expenses for the project
+    if (project.id) {
+      console.log(`[ProjectsPage handleViewProjectDetails] Fetching detailed expenses for project ${project.name} (ID: ${project.id})`);
+      try {
+        const expensesQuery = query(collection(db, "expenses"), where("projectId", "==", project.id));
+        const expensesSnapshot = await getDocs(expensesQuery);
+        const fetchedExpenses = expensesSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as ExpenseItem));
+        setDetailedModalExpenses(fetchedExpenses);
+        console.log(`[ProjectsPage handleViewProjectDetails] Fetched ${fetchedExpenses.length} detailed expenses for project ${project.name}:`, fetchedExpenses.map(e => ({title: e.title, amount: e.amount, amountEUR: e.amountEUR })));
+      } catch (error: any) {
+        console.error(`[ProjectsPage handleViewProjectDetails] Erreur lors de la récupération des dépenses détaillées pour le projet ${project.name}:`, error);
+        setDetailedModalExpenses([]); 
+      } finally {
+        setIsLoadingDetailedModalExpenses(false);
+      }
+    } else {
+      console.warn("[ProjectsPage handleViewProjectDetails] Project ID is missing, cannot fetch detailed expenses.");
+      setDetailedModalExpenses([]);
+      setIsLoadingDetailedModalExpenses(false);
     }
   };
 
@@ -320,7 +302,11 @@ export default function ProjectsPage() {
     setSelectedProject(null);
     setEditingBudget(false);
     setEditingNotes(false);
+    // Reset modal specific data to avoid showing stale data on next open
     setProjectModalMemberProfiles([]);
+    setDetailedModalExpenses([]);
+    setIsLoadingProjectModalMemberProfiles(false);
+    setIsLoadingDetailedModalExpenses(false);
     inviteMemberForm.reset();
   };
 
@@ -412,15 +398,6 @@ export default function ProjectsPage() {
     }
   };
 
-  const getAnyUserProfileById = (uid: string): AppUserType | undefined => {
-    const profilesToSearch = projectModalMemberProfiles.length > 0 ? projectModalMemberProfiles : allUserProfiles;
-    const profile = profilesToSearch.find(p => p.id === uid);
-    if (!profile && !isLoadingAllUserProfiles && !isLoadingProjectModalMemberProfiles) { 
-        console.warn(`ProjectsPage (getAnyUserProfileById): Profile for UID ${uid} not found. projectModalMemberProfiles count: ${projectModalMemberProfiles.length}, allUserProfiles count: ${allUserProfiles.length}`);
-    }
-    return profile;
-  };
-
   const handleOpenAddMemberDialog = async () => {
     if (!selectedProject || !currentUser) {
         toast({ title: "Erreur", description: "Aucun projet sélectionné ou utilisateur non connecté.", variant: "destructive" });
@@ -431,23 +408,18 @@ export default function ProjectsPage() {
       return;
     }
     
-    setIsLoadingAllUserProfiles(true); // Show loading in dialog while fetching full user list
-    try {
-      const usersCollectionRef = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      const allSystemUsers = usersSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as AppUserType));
-      
-      const currentMemberIds = new Set(selectedProject.members);
-      const available = allSystemUsers.filter(user => !currentMemberIds.has(user.id));
-      setAvailableUsersForProject(available);
-      setUsersToAddToProject([]); 
-      setIsAddMemberDialogOpen(true);
-    } catch(e) {
-      console.error("Error fetching all users for add member dialog", e);
-      toast({title: "Erreur", description: "Impossible de charger la liste des utilisateurs.", variant: "destructive"});
-    } finally {
-      setIsLoadingAllUserProfiles(false);
+    // Ensure allUserProfiles is populated if admin, otherwise it's handled by main useEffect
+    if (isAdmin && allUserProfiles.length === 0 && !isLoadingAllUserProfiles){
+        await fetchAllSystemUsers(); 
     }
+    // After ensuring allUserProfiles is populated (especially for admin)
+    const currentMemberIds = new Set(selectedProject.members);
+    const systemUsersToFilterFrom = isAdmin ? allUserProfiles : (userProfile ? [userProfile] : []); // Non-admin cannot add others via this dialog.
+    
+    const available = systemUsersToFilterFrom.filter(user => !currentMemberIds.has(user.id));
+    setAvailableUsersForProject(available);
+    setUsersToAddToProject([]); 
+    setIsAddMemberDialogOpen(true);
   };
 
   const handleToggleUserForAddition = (userId: string) => {
@@ -476,6 +448,7 @@ export default function ProjectsPage() {
       setSelectedProject(updatedProjectData);
       setProjects(prevProjects => prevProjects.map(p => p.id === selectedProject.id ? updatedProjectData : p));
 
+      // Refresh projectModalMemberProfiles with new members
       const newModalProfiles: AppUserType[] = [];
       for (const uid of updatedMembers) {
           const userDocRef = doc(db, "users", uid);
@@ -483,7 +456,7 @@ export default function ProjectsPage() {
           if (docSnapshot.exists()) {
             newModalProfiles.push({ id: docSnapshot.id, ...docSnapshot.data() } as AppUserType);
           } else {
-            newModalProfiles.push({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)`, email: "N/A", isAdmin: false, avatarUrl: '' });
+            newModalProfiles.push({ id: uid, name: `Utilisateur Inconnu (ID: ${uid.substring(0,6)}...)`, email: "N/A", isAdmin: false, avatarUrl: '' });
           }
       }
       setProjectModalMemberProfiles(newModalProfiles);
@@ -623,7 +596,7 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {isFetchingProjects || isLoadingAllUserProfiles ? (
+        {isFetchingProjects ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1,2,3].map(i => (
                     <Card key={i} className="flex flex-col">
@@ -640,15 +613,18 @@ export default function ProjectsPage() {
         ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
-              const ownerProfile = allUserProfiles.find(user => user.id === project.ownerId);
-              // ADD DIAGNOSTIC LOG HERE
-              console.log(`[ProjectsPage Card Render] Project: ${project.name}, Owner ID: ${project.ownerId}, Found Owner Profile:`, ownerProfile ? {id: ownerProfile.id, name: ownerProfile.name} : undefined);
-              const ownerName = ownerProfile?.name && ownerProfile.name.trim() !== '' ? ownerProfile.name : project.ownerId;
+              // Ensure allUserProfiles is available before trying to find owner profile
+              const ownerProfile = !isLoadingAllUserProfiles && allUserProfiles.find(user => user.id === project.ownerId);
+              console.log(`[ProjectsPage Card Render] Project: ${project.name}, Owner ID: ${project.ownerId}, Found Owner Profile:`, ownerProfile ? {id: ownerProfile.id, name: ownerProfile.name} : undefined, "isLoadingAllUserProfiles:", isLoadingAllUserProfiles);
+              const ownerName = (ownerProfile?.name && ownerProfile.name.trim() !== '') ? ownerProfile.name : project.ownerId;
 
-              const displayableMemberProfilesOnCard = project.members.map(uid => {
-                const profile = allUserProfiles.find(p => p.id === uid);
-                return profile || ({ id: uid, name: `UID: ${uid.substring(0,6)}... (profil manquant)` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
-              }).filter(Boolean) as AppUserType[];
+              // Ensure allUserProfiles is available for member avatars
+              const displayableMemberProfilesOnCard = !isLoadingAllUserProfiles 
+                ? project.members.map(uid => {
+                    const profile = allUserProfiles.find(p => p.id === uid);
+                    return profile || ({ id: uid, name: `Inconnu (ID: ${uid.substring(0,6)}...)` , email: "", isAdmin: false, avatarUrl: '' } as AppUserType);
+                  }).filter(Boolean) as AppUserType[]
+                : [];
 
               return (
               <Card key={project.id} className="hover:shadow-lg transition-shadow duration-300 flex flex-col">
@@ -732,204 +708,235 @@ export default function ProjectsPage() {
               <DialogTitle className="text-2xl">{selectedProject.name}</DialogTitle>
               <DialogDescription>{selectedProject.description}</DialogDescription>
             </DialogHeader>
+            
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-4 overflow-y-auto flex-grow pr-2">
-               <div className="lg:col-span-2 space-y-6">
-                 <ProjectExpenseSettlement
-                    project={selectedProject}
-                    memberProfilesOfProject={projectModalMemberProfiles}
-                />
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Dépenses Récentes</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {(selectedProject.recentExpenses || []).length > 0 ? (
-                      <ul className="space-y-3">
-                        {(selectedProject.recentExpenses || []).slice(0,3).map((expense, index) => (
-                          <li key={expense.id || index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                            <div>
-                              <p className="font-medium">{expense.name}</p>
-                              <p className="text-sm text-muted-foreground">{formatDateFromTimestamp(expense.date)}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold">{expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
-                              {expense.payer && <p className="text-xs text-muted-foreground">Payé par: {expense.payer}</p>}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-muted-foreground text-sm">Aucune dépense récente pour ce projet.</p>
+              {console.log("[ProjectsPage Rendering DialogContent] Props for ProjectExpenseSettlement: project:", selectedProject ? selectedProject.id : 'null', "memberProfiles count:", projectModalMemberProfiles.length, "detailedExpenses count:", detailedModalExpenses.length, "isLoadingMembers:", isLoadingProjectModalMemberProfiles, "isLoadingExpenses:", isLoadingDetailedModalExpenses)}
+              {(isLoadingProjectModalMemberProfiles || isLoadingDetailedModalExpenses) ? (
+                <div className="lg:col-span-3 text-center py-10">
+                  <Icons.loader className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">Chargement des détails du projet...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="lg:col-span-2 space-y-6">
+                    {selectedProject && projectModalMemberProfiles.length > 0 && detailedModalExpenses.length > 0 && (
+                       <ProjectExpenseSettlement
+                          project={selectedProject}
+                          memberProfilesOfProject={projectModalMemberProfiles}
+                          detailedProjectExpenses={detailedModalExpenses}
+                        />
                     )}
-                    {(selectedProject.recentExpenses || []).length > 3 && (
-                         <Button variant="link" className="mt-4 w-full text-primary" onClick={() => router.push(`/expenses?projectId=${selectedProject.id}`)}>
-                           Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
-                         </Button>
+                    {(selectedProject && (projectModalMemberProfiles.length === 0 || detailedModalExpenses.length === 0) && !isLoadingProjectModalMemberProfiles && !isLoadingDetailedModalExpenses) && (
+                        <Card>
+                            <CardHeader><CardTitle className="text-lg">Répartition des Paiements</CardTitle></CardHeader>
+                            <CardContent><p className="text-sm text-muted-foreground">Données insuffisantes pour calculer la répartition (membres ou dépenses manquants pour ce projet).</p></CardContent>
+                        </Card>
                     )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="lg:col-span-1 space-y-6">
-                 <Card>
-                  <CardHeader>
-                    <CardTitle>Statistiques</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <Label className="text-sm text-muted-foreground">Budget total</Label>
-                      {editingBudget ? (
-                        <div className="flex items-center gap-2 mt-1">
-                          <Input
-                            type="number"
-                            value={currentBudget}
-                            onChange={(e) => setCurrentBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                            className="h-8"
-                            data-ai-hint="budget input"
-                            disabled={isProcessingProjectAction}
-                          />
-                          <Button size="sm" onClick={handleSaveBudget} disabled={isProcessingProjectAction}><Icons.check className="h-4 w-4"/></Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget || 0);}} disabled={isProcessingProjectAction}><Icons.x className="h-4 w-4"/></Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between mt-1">
-                          <p className="font-semibold text-lg">
-                            {(typeof currentBudget === 'number' ? currentBudget : (selectedProject.budget || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                          </p>
-                          {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isProcessingProjectAction}>
-                                <Icons.edit className="h-4 w-4"/>
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Dépenses totales</p>
-                      <p className="font-semibold text-lg">{(selectedProject.totalExpenses || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
-                    </div>
-                    {(selectedProject.budget || 0) > 0 && (
-                      <>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Budget restant</p>
-                          <p className={`font-semibold text-lg ${(selectedProject.budget || 0) - (selectedProject.totalExpenses || 0) < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                            {((selectedProject.budget || 0) - (selectedProject.totalExpenses || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Pourcentage utilisé</p>
-                          <Progress value={((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100} className="mt-1 h-2.5" />
-                           <p className="text-right text-sm font-medium mt-1">{(((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100).toFixed(0)}%</p>
-                        </div>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Membres ({isLoadingProjectModalMemberProfiles ? "..." : projectModalMemberProfiles.length})</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 max-h-48 overflow-y-auto">
-                    {isLoadingProjectModalMemberProfiles ? (
-                      <div className="text-center py-2"><Icons.loader className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
-                    ) : (
-                      projectModalMemberProfiles.map((member) => (
-                          <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage
-                                src={member?.avatarUrl && member.avatarUrl.trim() !== '' ? member.avatarUrl : undefined}
-                                alt={member?.name || 'Membre'}
-                                data-ai-hint="member avatar small"
-                              />
-                              <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name, member?.email)}</AvatarFallback>
-                            </Avatar>
-                            <p className="font-medium text-sm">{member?.name || member.id}</p>
-                          </div>
-                        ))
-                    )}
-                     {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                       <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isProcessingProjectAction || isLoadingAllUserProfiles }>
-                           <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre existant
-                       </Button>
-                     )}
-                  </CardContent>
-                </Card>
-
-                 {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Inviter un nouveau membre</CardTitle>
-                      <CardDescription>
-                        Envoyer une invitation par e-mail.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Form {...inviteMemberForm}>
-                        <form onSubmit={inviteMemberForm.handleSubmit(onInviteMemberSubmit)} className="space-y-4">
-                          <FormField
-                            control={inviteMemberForm.control}
-                            name="email"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Adresse e-mail</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="exemple@email.com" {...field} data-ai-hint="invite email input"/>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <Button type="submit" className="w-full" disabled={isSendingInvite || isProcessingProjectAction}>
-                            {isSendingInvite ? (
-                              <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Icons.mail className="mr-2 h-4 w-4" />
-                            )}
-                            Envoyer l'invitation
-                          </Button>
-                        </form>
-                      </Form>
-                    </CardContent>
-                  </Card>
-                )}
-
-              </div>
-                 <div className="lg:col-span-3">
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle>Notes du projet</CardTitle>
-                             {!editingNotes && (selectedProject.ownerId === currentUser?.uid || isAdmin) && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isProcessingProjectAction}>
+                      <CardHeader>
+                        <CardTitle>Dépenses Récentes</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {(detailedModalExpenses || []).length > 0 ? (
+                          <ul className="space-y-3">
+                            {(detailedModalExpenses || []).slice(0,3).map((expense, index) => (
+                              <li key={expense.id || index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                                <div>
+                                  <p className="font-medium">{expense.title}</p>
+                                  <p className="text-sm text-muted-foreground">{formatDateFromTimestamp(expense.expenseDate)}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-semibold">
+                                    {expense.amount.toLocaleString('fr-FR', { style: 'currency', currency: expense.currency })}
+                                    {expense.currency !== 'EUR' && expense.amountEUR != null && (
+                                      <span className="block text-xs text-muted-foreground font-normal">
+                                        (env. {expense.amountEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})
+                                      </span>
+                                    )}
+                                    {expense.currency !== 'EUR' && expense.amountEUR == null && (
+                                      <span className="block text-xs text-muted-foreground font-normal">
+                                        (env. N/A)
+                                      </span>
+                                    )}
+                                  </p>
+                                  {expense.paidByName && <p className="text-xs text-muted-foreground">Payé par: {expense.paidByName}</p>}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-muted-foreground text-sm">Aucune dépense récente pour ce projet.</p>
+                        )}
+                        {(detailedModalExpenses || []).length > 3 && (
+                            <Button variant="link" className="mt-4 w-full text-primary" onClick={() => router.push(`/expenses?projectId=${selectedProject.id}`)}>
+                              Voir toutes les dépenses <Icons.arrowRight className="ml-1 h-4 w-4" />
+                            </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="lg:col-span-1 space-y-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Statistiques</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <Label className="text-sm text-muted-foreground">Budget total</Label>
+                          {editingBudget ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <Input
+                                type="number"
+                                value={currentBudget}
+                                onChange={(e) => setCurrentBudget(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                className="h-8"
+                                data-ai-hint="budget input"
+                                disabled={isProcessingProjectAction}
+                              />
+                              <Button size="sm" onClick={handleSaveBudget} disabled={isProcessingProjectAction}><Icons.check className="h-4 w-4"/></Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setEditingBudget(false); setCurrentBudget(selectedProject.budget || 0);}} disabled={isProcessingProjectAction}><Icons.x className="h-4 w-4"/></Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between mt-1">
+                              <p className="font-semibold text-lg">
+                                {(typeof currentBudget === 'number' ? currentBudget : (selectedProject.budget || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                              </p>
+                              {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingBudget(true)} disabled={isProcessingProjectAction}>
                                     <Icons.edit className="h-4 w-4"/>
                                 </Button>
-                            )}
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Dépenses totales</p>
+                          <p className="font-semibold text-lg">{(selectedProject.totalExpenses || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
+                        </div>
+                        {(selectedProject.budget || 0) > 0 && (
+                          <>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Budget restant</p>
+                              <p className={`font-semibold text-lg ${(selectedProject.budget || 0) - (selectedProject.totalExpenses || 0) < 0 ? 'text-destructive' : 'text-green-600'}`}>
+                                {((selectedProject.budget || 0) - (selectedProject.totalExpenses || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Pourcentage utilisé</p>
+                              <Progress value={((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100} className="mt-1 h-2.5" />
+                              <p className="text-right text-sm font-medium mt-1">{(((selectedProject.totalExpenses || 0) / (selectedProject.budget || 1)) * 100).toFixed(0)}%</p>
+                            </div>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Membres ({isLoadingProjectModalMemberProfiles ? "..." : projectModalMemberProfiles.length})</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3 max-h-48 overflow-y-auto">
+                        {isLoadingProjectModalMemberProfiles ? (
+                          <div className="text-center py-2"><Icons.loader className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
+                        ) : (
+                          projectModalMemberProfiles.map((member) => (
+                              <div key={member.id} className="flex items-center space-x-3 p-2 bg-muted/50 rounded-lg">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarImage
+                                    src={member?.avatarUrl && member.avatarUrl.trim() !== '' ? member.avatarUrl : undefined}
+                                    alt={member?.name || 'Membre'}
+                                    data-ai-hint="member avatar small"
+                                  />
+                                  <AvatarFallback className="text-xs">{getAvatarFallbackText(member?.name, member?.email)}</AvatarFallback>
+                                </Avatar>
+                                <p className="font-medium text-sm">{member?.name || member.id}</p>
+                              </div>
+                            ))
+                        )}
+                        {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                          <Button variant="link" className="mt-2 w-full text-primary text-sm" onClick={handleOpenAddMemberDialog} disabled={isProcessingProjectAction || isLoadingAllUserProfiles }>
+                              <Icons.plus className="mr-1 h-4 w-4" /> Ajouter un membre existant
+                          </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {(selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Inviter un nouveau membre</CardTitle>
+                          <CardDescription>
+                            Envoyer une invitation par e-mail.
+                          </CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {editingNotes ? (
-                                <div className="space-y-2">
-                                    <Textarea
-                                        value={currentNotes}
-                                        onChange={(e) => setCurrentNotes(e.target.value)}
-                                        rows={5}
-                                        className="text-sm"
-                                        placeholder="Ajoutez des notes pour ce projet..."
-                                        data-ai-hint="project notes input"
-                                        disabled={isProcessingProjectAction}
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}} disabled={isProcessingProjectAction}>Annuler</Button>
-                                        <Button size="sm" onClick={handleSaveNotes} disabled={isProcessingProjectAction}>Enregistrer Notes</Button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="prose max-w-none text-sm text-muted-foreground min-h-[50px]">
-                                    {currentNotes || "Aucune note pour ce projet."}
-                                </div>
-                            )}
+                          <Form {...inviteMemberForm}>
+                            <form onSubmit={inviteMemberForm.handleSubmit(onInviteMemberSubmit)} className="space-y-4">
+                              <FormField
+                                control={inviteMemberForm.control}
+                                name="email"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Adresse e-mail</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="exemple@email.com" {...field} data-ai-hint="invite email input"/>
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <Button type="submit" className="w-full" disabled={isSendingInvite || isProcessingProjectAction}>
+                                {isSendingInvite ? (
+                                  <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Icons.mail className="mr-2 h-4 w-4" />
+                                )}
+                                Envoyer l'invitation
+                              </Button>
+                            </form>
+                          </Form>
                         </CardContent>
-                    </Card>
-                </div>
+                      </Card>
+                    )}
+                  </div>
+                  <div className="lg:col-span-3">
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between">
+                                <CardTitle>Notes du projet</CardTitle>
+                                {!editingNotes && (selectedProject.ownerId === currentUser?.uid || isAdmin) && (
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNotes(true)} disabled={isProcessingProjectAction}>
+                                        <Icons.edit className="h-4 w-4"/>
+                                    </Button>
+                                )}
+                            </CardHeader>
+                            <CardContent>
+                                {editingNotes ? (
+                                    <div className="space-y-2">
+                                        <Textarea
+                                            value={currentNotes}
+                                            onChange={(e) => setCurrentNotes(e.target.value)}
+                                            rows={5}
+                                            className="text-sm"
+                                            placeholder="Ajoutez des notes pour ce projet..."
+                                            data-ai-hint="project notes input"
+                                            disabled={isProcessingProjectAction}
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                            <Button size="sm" variant="ghost" onClick={() => {setEditingNotes(false); setCurrentNotes(selectedProject.notes || '');}} disabled={isProcessingProjectAction}>Annuler</Button>
+                                            <Button size="sm" onClick={handleSaveNotes} disabled={isProcessingProjectAction}>Enregistrer Notes</Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="prose max-w-none text-sm text-muted-foreground min-h-[50px]">
+                                        {currentNotes || "Aucune note pour ce projet."}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
+                </>
+              )}
             </div>
             <ModalDialogFooter className="border-t pt-4 flex flex-col sm:flex-row sm:justify-between">
                <div>
