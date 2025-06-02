@@ -794,6 +794,7 @@ export default function DashboardPage() {
             >
                 <Icons.logOut className="mr-2 h-4 w-4" /> Déconnexion
           </Button>
+          <p className="text-xs text-center text-white/70 mt-2">Version 2.01</p>
         </SidebarFooter>
       </Sidebar>
 
