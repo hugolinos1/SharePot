@@ -474,7 +474,7 @@ export default function AdminProjectsPage() {
                         <CardHeader>
                             <CardTitle>Configuration OCR & IA</CardTitle>
                             <CardDescription>
-                                Paramétrez l'IA via OpenRouter (Qwen 3 Next 80B).
+                                Paramétrez l'IA via OpenRouter (Gemini 1.5 Flash).
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -497,8 +497,7 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Catégories : qwen/qwen3-next-80b-a3b-instruct:free<br/>
-                                                    OCR : qwen/qwen-2-vl-7b-instruct:free
+                                                    Modèle stable utilisé : google/gemini-flash-1.5:free
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>

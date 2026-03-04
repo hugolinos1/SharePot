@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview Un agent IA qui suggère une catégorie thématique pour une dépense.
- * Utilise OpenRouter avec Qwen 3 Next 80B (Free) et la clé API stockée dans Firestore.
+ * Utilise OpenRouter avec Gemini 1.5 Flash (Free) pour une stabilité maximale.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -33,7 +33,6 @@ const tagExpenseFlow = ai.defineFlow(
     console.log('[tagExpenseFlow] Début de catégorisation pour:', input.description);
 
     try {
-      // 1. Récupération de la clé API depuis Firestore
       let apiKey = process.env.OPENROUTER_API_KEY;
       try {
         const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
@@ -51,7 +50,6 @@ const tagExpenseFlow = ai.defineFlow(
         return "Erreur : Clé API manquante. Configurez-la dans l'onglet Admin.";
       }
 
-      // 2. Préparation du prompt expert
       const prompt = `Tu es un expert comptable français. Analyse la description d'une dépense et renvoie UNIQUEMENT le nom de la catégorie la plus appropriée.
       
       LISTE DES CATÉGORIES AUTORISÉES :
@@ -76,7 +74,6 @@ const tagExpenseFlow = ai.defineFlow(
       Description : "${input.description}"
       Catégorie :`;
 
-      // 3. Appel à OpenRouter avec Qwen 3 Next 80B
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -86,7 +83,7 @@ const tagExpenseFlow = ai.defineFlow(
           "X-Title": "SharePot"
         },
         body: JSON.stringify({
-          "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+          "model": "google/gemini-flash-1.5:free",
           "messages": [{ "role": "user", "content": prompt }],
           "temperature": 0.1,
           "max_tokens": 20
@@ -94,7 +91,7 @@ const tagExpenseFlow = ai.defineFlow(
       });
 
       if (response.status === 429) {
-        return "Erreur 429 : L'IA est saturée. Réessayez dans quelques secondes.";
+        return "Erreur 429 : L'IA est saturée. Réessayez dans 10 secondes.";
       }
 
       if (!response.ok) {

@@ -21,7 +21,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Données image manquantes' }, { status: 400 });
     }
 
-    // Récupération de la clé API depuis Firestore
     let apiKey = process.env.OPENROUTER_API_KEY;
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
@@ -39,7 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clé API OpenRouter non configurée dans l\'onglet Admin.' }, { status: 500 });
     }
 
-    // On utilise Qwen 2 VL pour l'analyse d'image car Qwen 3 (text-only) ne supporte pas la vision.
+    // Utilisation de Gemini 1.5 Flash (Free) pour sa grande stabilité sur OpenRouter
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -49,7 +48,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "SharePot"
       },
       body: JSON.stringify({
-        "model": "qwen/qwen-2-vl-7b-instruct:free",
+        "model": "google/gemini-flash-1.5:free",
         "messages": [
           {
             "role": "user",
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (response.status === 429) {
-      return NextResponse.json({ error: "L'IA est temporairement surchargée (Erreur 429). Veuillez patienter 10 secondes et réessayer." }, { status: 429 });
+      return NextResponse.json({ error: "L'IA est temporairement surchargée (Erreur 429). Veuillez patienter 10 secondes." }, { status: 429 });
     }
 
     if (!response.ok) {
