@@ -55,17 +55,37 @@ const tagExpenseFlow = ai.defineFlow(
       }
 
       // 2. Préparation du prompt pour OpenRouter
-      const prompt = `Tu es un assistant IA spécialisé dans la catégorisation des dépenses, et tu dois répondre en FRANÇAIS.
-      Basé sur la description de la dépense fournie ci-dessous, génère une SEULE catégorie thématique, concise et pertinente.
-      Exemples de catégories : Alimentation, Transport, Alcool, Restaurant, Divertissement, Hébergement, Bar, Produits d'entretien, Sport, Shopping, Utilitaires, Loyer, Voyage, Santé, Éducation, Cadeaux, Animaux, Non catégorisé.
-      Sors UNIQUEMENT le nom de la catégorie sous forme de chaîne de caractères simple, sans formatage JSON ni texte supplémentaire.
+      const prompt = `Tu es un expert en comptabilité personnelle et gestion de budget, spécialisé dans la classification automatique des dépenses.
+      
+      TA MISSION :
+      Analyser la description d'une dépense et retourner UNE SEULE catégorie thématique concise et pertinente.
+      
+      LISTE DE RÉFÉRENCE DES CATÉGORIES (Utilise celles-ci en priorité) :
+      - Alimentation (Courses, Supermarché, Épicerie)
+      - Restaurant & Café (Resto, Fast-food, Déjeuner, Dîner)
+      - Bar & Vie nocturne (Bars, Pubs, Boîtes de nuit, Alcool)
+      - Transport (Essence, Parking, Train, Avion, Uber, Bus, Péage)
+      - Logement & Énergie (Loyer, Charges, Électricité, Assurances)
+      - Culture & Loisirs (Musée, Cinéma, Concert, Théâtre, Activités touristiques, Billetterie)
+      - Sport (Salle de sport, Équipement sportif, Match)
+      - Shopping (Vêtements, Accessoires, Déco, High-tech)
+      - Santé (Pharmacie, Médecin, Optique)
+      - Services & Abonnements (Internet, Streaming, Téléphone, SaaS)
+      - Cadeaux & Dons (Cadeaux, Charité)
+      - Divers (Autres, Imprévus)
 
-      Description de la dépense : ${input.description}
+      CONSIGNES STRICTES :
+      1. Réponds UNIQUEMENT par le nom de la catégorie (ex: "Culture & Loisirs").
+      2. Pas de ponctuation à la fin, pas de phrases, pas de bloc de code Markdown.
+      3. Si la description correspond à un lieu ou une institution (ex: "Musée de la mer"), déduis l'activité associée (dans ce cas : Culture & Loisirs).
+      4. Si tu hésites vraiment, utilise la catégorie "Divers".
+      5. La réponse doit être en FRANÇAIS.
 
-      Catégorie suggérée :`;
+      DESCRIPTION DE LA DÉPENSE : "${input.description}"
+
+      CATÉGORIE :`;
 
       // 3. Appel à OpenRouter avec un modèle gratuit
-      // Nous utilisons google/gemini-2.0-flash-exp:free qui est très performant et gratuit
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
