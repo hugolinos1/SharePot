@@ -1,108 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    /**
-     * FIREBASE SECURITY RULES DOCUMENTATION
-     *
-     * Core Philosophy:
-     * This ruleset implements a robust, multi-tier authorization model combining Ownership, 
-     * Role-Based Access Control (RBAC), and Shared Access via membership. It prioritizes 
-     * security and performance through data denormalization.
-     *
-     * Data Structure:
-     * The database uses a flat, top-level collection structure (/userProfiles, /projects, /expenses).
-     * This avoids deeply nested subcollections, making querying and rule application more predictable.
-     *
-     * Key Security Decisions:
-     * 1. Admin Override: A global 'isAdmin' flag on user profiles grants full CRUD access across 
-     *    the database, supporting management and maintenance.
-     * 2. Denormalization for Authorization: To ensure "Authorization Independence," Expense 
-     *    documents include a 'projectMemberIds' array. This allows the rules to verify a user's 
-     *    right to view or edit an expense without performing a cross-collection 'get()' to the Project.
-     * 3. Path-to-Data Consistency: For user profiles, we strictly enforce that the document ID 
-     *    matches the Firebase Auth UID.
-     * 4. Secure Defaults: All writes are protected by identity checks. No collection allows 
-     *    unauthenticated writes.
-     *
-     * Structural Segregation:
-     * While data is flat, visibility is strictly controlled. Users can only list projects they 
-     * are members of and expenses they either created or are authorized to view via project membership.
-     */
-
-    // --- Global Helper Functions ---
-
-    /** Checks if the user is authenticated. */
+    // Vérifie si l'utilisateur est connecté
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /** Checks if the authenticated user's UID matches the provided ID. */
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    /** 
-     * Checks if the current user has administrative privileges.
-     * Fetches the user's own profile to verify the 'isAdmin' boolean.
-     */
+    // Vérifie si l'utilisateur est administrateur
     function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.isAdmin == true;
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
-    /** Verifies a user is an owner and the document exists before modification. */
-    function isExistingOwner(userId) {
-      return resource != null && isOwner(userId);
-    }
-
-    /** Verifies the authenticated user is included in a specific list/array of member UIDs. */
-    function isMember(memberList) {
-      return isSignedIn() && (request.auth.uid in memberList);
-    }
-
-    // --- Collection Rules ---
-
-    /**
-     * @description Rules for the UserProfile collection. Controls who can manage identity data.
-     * @path /userProfiles/{userId}
-     * @allow (get) Any user can view their own profile; admins can view all.
-     * @allow (create) An authenticated user can create their own profile with a matching UID.
-     * @deny (create) Mismatched userId in path vs auth token.
-     * @principle Ownership and Role-Based Access Control.
-     */
-    match /userProfiles/{userId} {
-      allow get, list: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if (isExistingOwner(userId) || isAdmin()) && (request.resource.data.id == resource.data.id);
+    // Règles pour les profils utilisateurs
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow delete: if isAdmin();
     }
 
-    /**
-     * @description Rules for Projects. Projects are managed by admins but visible to members.
-     * @path /projects/{projectId}
-     * @allow (list) Users can list projects where their UID is in 'memberIds'.
-     * @deny (update) Non-admin users attempting to change project settings.
-     * @principle Shared Access (Closed Collaborators).
-     */
+    // Règles pour les projets
     match /projects/{projectId} {
-      allow get, list: if isAdmin() || isMember(resource.data.memberIds);
-      allow create: if isAdmin() && request.resource.data.id == projectId;
-      allow update: if isAdmin() && resource != null && (request.resource.data.id == resource.data.id);
-      allow delete: if isAdmin() && resource != null;
+      allow read, write: if isSignedIn();
     }
 
-    /**
-     * @description Rules for Expenses. Uses denormalized project membership for fast authorization.
-     * @path /expenses/{expenseId}
-     * @allow (create) User is a member of the project and sets themselves as 'createdBy'.
-     * @deny (delete) A user who is a member of the project but did not create the specific expense.
-     * @principle Denormalization for Authorization Independence.
-     */
+    // Règles pour les dépenses
     match /expenses/{expenseId} {
-      allow get, list: if isAdmin() || isMember(resource.data.projectMemberIds);
-      allow create: if (isAdmin() || (isMember(request.resource.data.projectMemberIds) && request.resource.data.createdBy == request.auth.uid)) && request.resource.data.id == expenseId;
-      allow update: if resource != null && (isAdmin() || (isOwner(resource.data.createdBy) && isMember(request.resource.data.projectMemberIds))) && (request.resource.data.id == resource.data.id && request.resource.data.createdBy == resource.data.createdBy);
-      allow delete: if resource != null && (isAdmin() || isOwner(resource.data.createdBy));
+      allow read, write: if isSignedIn();
     }
   }
 }
