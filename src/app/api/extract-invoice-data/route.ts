@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clé API OpenRouter non configurée. Veuillez la saisir dans les paramètres Admin.' }, { status: 500 });
     }
 
-    console.log("[OCR Route] Calling OpenRouter with model: google/gemini-2.0-flash-lite-preview-02-05:free");
+    // Note: On utilise qwen/qwen-2-vl-7b-instruct:free car c'est le modèle Qwen vision-langage gratuit
+    // stable pour l'OCR. Le modèle textuel seul ne pourrait pas lire l'image.
+    console.log("[OCR Route] Calling OpenRouter with model: qwen/qwen-2-vl-7b-instruct:free");
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -51,7 +53,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "SharePot"
       },
       body: JSON.stringify({
-        "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "model": "qwen/qwen-2-vl-7b-instruct:free",
         "messages": [
           {
             "role": "user",

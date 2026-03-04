@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
- * It uses OpenRouter with Gemini 2.0 Flash Lite (Free Tier) and the API key stored in Firestore settings.
+ * It uses OpenRouter with Qwen 3 Next 80B (Free) and the API key stored in Firestore settings.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -64,7 +64,7 @@ const tagExpenseFlow = ai.defineFlow(
       Description : "${input.description}"
       Catégorie :`;
 
-      // 3. Appel à OpenRouter avec Gemini 2.0 Flash Lite (Modèle gratuit stable)
+      // 3. Appel à OpenRouter avec Qwen 3 Next 80B
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -74,7 +74,7 @@ const tagExpenseFlow = ai.defineFlow(
           "X-Title": "SharePot"
         },
         body: JSON.stringify({
-          "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+          "model": "qwen/qwen3-next-80b-a3b-instruct:free",
           "messages": [{ "role": "user", "content": prompt }],
           "temperature": 0.1,
           "max_tokens": 20

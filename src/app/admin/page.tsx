@@ -497,7 +497,7 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Modèle stable utilisé : Gemini 2.0 Flash Lite (Free)
+                                                    Modèle stable utilisé : Qwen 3 Next 80B (Free)
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>
@@ -559,7 +559,7 @@ export default function AdminProjectsPage() {
                 <Form {...editForm}>
                     <form onSubmit={editForm.handleSubmit(handleSaveProjectEdit)} className="space-y-4 py-4">
                         <FormField
-                            control={editForm.control}
+                            control={editProjectFormSchema}
                             name="name"
                             render={({ field }) => (
                                 <FormItem>
@@ -572,7 +572,7 @@ export default function AdminProjectsPage() {
                             )}
                         />
                         <FormField
-                            control={editForm.control}
+                            control={editProjectFormSchema}
                             name="description"
                             render={({ field }) => (
                                 <FormItem>
@@ -585,7 +585,7 @@ export default function AdminProjectsPage() {
                             )}
                         />
                         <FormField
-                            control={editForm.control}
+                            control={editProjectFormSchema}
                             name="status"
                             render={({ field }) => (
                                 <FormItem>
@@ -619,7 +619,7 @@ export default function AdminProjectsPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Êtes-vous sûr de vouloir supprimer le projet "{projectToDelete?.name}"? Cette action est irréversible.
+                        Êtes-vous sûr de vouloir supprimer le projet "{projectToEdit?.name}"? Cette action est irréversible.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
