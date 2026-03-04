@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -28,11 +27,13 @@ export async function POST(req: NextRequest) {
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
       if (settingsDoc.exists()) {
-        apiKey = settingsDoc.data().apiKey || apiKey;
+        const storedKey = settingsDoc.data().apiKey;
+        if (storedKey) {
+          apiKey = storedKey.trim(); // Nettoyage de la clé
+        }
       }
     } catch (dbError: any) {
       console.error("[OCR Route] Error fetching key from Firestore:", dbError.message);
-      // We continue with env variable if available
     }
 
     if (!apiKey) {
@@ -73,8 +74,8 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[OpenRouter Error]", errorText);
-      return NextResponse.json({ error: `Erreur API OpenRouter: ${response.statusText}` }, { status: 500 });
+      console.error("[OCR Route] OpenRouter Error:", response.status, errorText);
+      return NextResponse.json({ error: `Erreur API OpenRouter (${response.status}): ${errorText.substring(0, 100)}` }, { status: response.status });
     }
 
     const data = await response.json();

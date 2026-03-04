@@ -38,18 +38,18 @@ const tagExpenseFlow = ai.defineFlow(
       try {
         const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
         if (settingsDoc.exists()) {
-          apiKey = settingsDoc.data().apiKey || apiKey;
-          console.log("[tagExpenseFlow] API Key retrieved from Firestore.");
-        } else {
-          console.warn("[tagExpenseFlow] No settings doc found in Firestore at settings/openrouter");
+          const storedKey = settingsDoc.data().apiKey;
+          if (storedKey) {
+            apiKey = storedKey.trim(); // Nettoyage crucial des espaces
+            console.log("[tagExpenseFlow] API Key retrieved and trimmed from Firestore.");
+          }
         }
       } catch (dbError: any) {
         console.error("[tagExpenseFlow] Error fetching key from Firestore:", dbError.message);
       }
 
       if (!apiKey) {
-        console.warn("[tagExpenseFlow] No API Key available.");
-        return "Non catégorisé";
+        return "Erreur : Clé API manquante. Configurez-la dans l'onglet Admin.";
       }
 
       // 2. Préparation du prompt
@@ -57,8 +57,6 @@ const tagExpenseFlow = ai.defineFlow(
       
       Description : "${input.description}"
       Catégorie :`;
-
-      console.log("[tagExpenseFlow] Calling OpenRouter...");
 
       // 3. Appel à OpenRouter
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -80,24 +78,21 @@ const tagExpenseFlow = ai.defineFlow(
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[tagExpenseFlow] OpenRouter API Error:", response.status, errorText);
-        return "Erreur API";
+        return `Erreur API (${response.status}) : ${errorText.substring(0, 100)}`;
       }
 
       const data = await response.json();
-      console.log("[tagExpenseFlow] OpenRouter Response Data:", JSON.stringify(data));
-      
       const content = data.choices?.[0]?.message?.content;
 
       if (!content) {
-        console.warn("[tagExpenseFlow] Empty response from AI.");
-        return "Non catégorisé";
+        return "Erreur : Réponse vide de l'IA";
       }
 
       return content.trim().replace(/[".]/g, '');
 
     } catch (error: any) {
       console.error("[tagExpenseFlow] Global error:", error.message);
-      return "Erreur système";
+      return `Erreur système : ${error.message}`;
     }
   }
 );

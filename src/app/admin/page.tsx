@@ -244,7 +244,7 @@ export default function AdminProjectsPage() {
         setIsSavingOCR(true);
         try {
             await setDoc(doc(db, "settings", "openrouter"), {
-                apiKey: values.openRouterKey,
+                apiKey: values.openRouterKey.trim(), // On trim avant de sauvegarder
                 updatedAt: serverTimestamp(),
             }, { merge: true });
             toast({ title: "Configuration enregistrée", description: "La clé API OpenRouter a été stockée en toute sécurité." });
@@ -262,11 +262,15 @@ export default function AdminProjectsPage() {
         try {
             const result = await tagExpense({ description: "Musée de la mer" });
             setAiTestResult(result);
-            toast({ title: "Test terminé", description: `L'IA a répondu : ${result}` });
+            if (result.includes("Erreur")) {
+                toast({ title: "Échec du test", description: result, variant: "destructive" });
+            } else {
+                toast({ title: "Test réussi", description: `Catégorie : ${result}` });
+            }
         } catch (error: any) {
-            console.error("Erreur test IA:", error);
-            setAiTestResult("Erreur: " + error.message);
-            toast({ title: "Échec du test", description: error.message, variant: "destructive" });
+            console.error("Erreur fatale test IA:", error);
+            setAiTestResult("Erreur critique : " + error.message);
+            toast({ title: "Erreur critique", description: error.message, variant: "destructive" });
         } finally {
             setIsTestingIA(false);
         }
@@ -532,7 +536,7 @@ export default function AdminProjectsPage() {
                             </Button>
                             
                             {aiTestResult && (
-                                <div className="p-3 bg-muted rounded-md border text-sm font-mono break-all">
+                                <div className={`p-3 rounded-md border text-sm font-mono break-all ${aiTestResult.includes('Erreur') ? 'bg-destructive/10 border-destructive/20 text-destructive' : 'bg-muted border-border'}`}>
                                     <p className="text-xs text-muted-foreground mb-1 font-sans">Réponse du modèle :</p>
                                     {aiTestResult}
                                 </div>
