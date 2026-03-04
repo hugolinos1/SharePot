@@ -263,7 +263,7 @@ export default function AdminProjectsPage() {
             const result = await tagExpense({ description: "Musée de la mer" });
             setAiTestResult(result);
             if (result.includes("Erreur")) {
-                toast({ title: "Échec du test", description: result, variant: "destructive" });
+                toast({ title: "Alerte IA", description: result, variant: result.includes('429') ? "default" : "destructive" });
             } else {
                 toast({ title: "Test réussi", description: `Catégorie : ${result}` });
             }
@@ -474,7 +474,7 @@ export default function AdminProjectsPage() {
                         <CardHeader>
                             <CardTitle>Configuration OCR & IA</CardTitle>
                             <CardDescription>
-                                Paramétrez l'IA pour l'analyse des factures et catégories.
+                                Paramétrez l'IA via OpenRouter (Qwen 3 Next 80B).
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -497,7 +497,8 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Modèle stable utilisé : Qwen 3 Next 80B (Free)
+                                                    Catégories : qwen/qwen3-next-80b-a3b-instruct:free<br/>
+                                                    OCR : qwen/qwen-2-vl-7b-instruct:free
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>
@@ -517,7 +518,7 @@ export default function AdminProjectsPage() {
                         <CardHeader>
                             <CardTitle>Diagnostic IA</CardTitle>
                             <CardDescription>
-                                Testez la connexion et la réponse de l'IA (Catégorisation).
+                                Testez la connexion (En cas d'erreur 429, patientez quelques secondes).
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">

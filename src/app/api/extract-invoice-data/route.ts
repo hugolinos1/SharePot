@@ -2,28 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const PROMPT_TEXT = `Extract technical financial data from this invoice image. 
-Return ONLY a valid JSON object with the following keys:
-- montant_total_ttc: (number or string with currency, e.g., 123.45 or "123.45 EUR")
-- date_facture: (string in YYYY-MM-DD format)
-- nom_client: (string)
-- numero_facture: (string)
-- nom_fournisseur: (string)
+const PROMPT_TEXT = `Analyse cette image de facture et extrais les données techniques.
+Renvoie UNIQUEMENT un objet JSON valide avec ces clés :
+- montant_total_ttc: (nombre ou chaîne avec devise, ex: 123.45 ou "123.45 EUR")
+- date_facture: (chaîne au format YYYY-MM-DD)
+- nom_client: (chaîne)
+- numero_facture: (chaîne)
+- nom_fournisseur: (chaîne)
 
-If a field is missing, use null. No preamble, no explanation. Just JSON.`;
+Si un champ est manquant, utilise null. Pas de texte avant ou après, juste le JSON.`;
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { base64Image, fileType } = body;
+    const { base64Image } = body;
 
     if (!base64Image) {
-      return NextResponse.json({ error: 'Missing image data' }, { status: 400 });
+      return NextResponse.json({ error: 'Données image manquantes' }, { status: 400 });
     }
 
-    // Fetch API Key from Firestore settings
+    // Récupération de la clé API depuis Firestore
     let apiKey = process.env.OPENROUTER_API_KEY;
-    
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
       if (settingsDoc.exists()) {
@@ -33,17 +32,14 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (dbError: any) {
-      console.error("[OCR Route] Error fetching key from Firestore:", dbError.message);
+      console.error("[OCR Route] Erreur Firestore:", dbError.message);
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'Clé API OpenRouter non configurée. Veuillez la saisir dans les paramètres Admin.' }, { status: 500 });
+      return NextResponse.json({ error: 'Clé API OpenRouter non configurée dans l\'onglet Admin.' }, { status: 500 });
     }
 
-    // Note: On utilise qwen/qwen-2-vl-7b-instruct:free car c'est le modèle Qwen vision-langage gratuit
-    // stable pour l'OCR. Le modèle textuel seul ne pourrait pas lire l'image.
-    console.log("[OCR Route] Calling OpenRouter with model: qwen/qwen-2-vl-7b-instruct:free");
-
+    // On utilise Qwen 2 VL pour l'analyse d'image car Qwen 3 (text-only) ne supporte pas la vision.
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -58,26 +54,21 @@ export async function POST(req: NextRequest) {
           {
             "role": "user",
             "content": [
-              {
-                "type": "text",
-                "text": PROMPT_TEXT
-              },
-              {
-                "type": "image_url",
-                "image_url": {
-                  "url": base64Image
-                }
-              }
+              { "type": "text", "text": PROMPT_TEXT },
+              { "type": "image_url", "image_url": { "url": base64Image } }
             ]
           }
         ]
       })
     });
 
+    if (response.status === 429) {
+      return NextResponse.json({ error: "L'IA est temporairement surchargée (Erreur 429). Veuillez patienter 10 secondes et réessayer." }, { status: 429 });
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[OCR Route] OpenRouter Error:", response.status, errorText);
-      return NextResponse.json({ error: `Erreur API OpenRouter (${response.status}): ${errorText.substring(0, 100)}` }, { status: response.status });
+      return NextResponse.json({ error: `Erreur API (${response.status}): ${errorText.substring(0, 100)}` }, { status: response.status });
     }
 
     const data = await response.json();
@@ -87,7 +78,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Réponse vide de l'IA" }, { status: 500 });
     }
 
-    // Extraction du JSON au cas où le modèle ajoute des blocs de code markdown
     let jsonStr = content.trim();
     if (jsonStr.includes('```json')) {
       jsonStr = jsonStr.split('```json')[1].split('```')[0].trim();
@@ -97,15 +87,12 @@ export async function POST(req: NextRequest) {
 
     try {
       const extractedData = JSON.parse(jsonStr);
-      console.log("[OCR Route] Extraction réussie:", extractedData);
       return NextResponse.json(extractedData);
     } catch (parseError) {
-      console.error("[Parse Error] Content was:", content);
-      return NextResponse.json({ error: "Impossible de lire le format JSON de l'IA", raw: content }, { status: 500 });
+      return NextResponse.json({ error: "Format JSON invalide reçu de l'IA", raw: content }, { status: 500 });
     }
 
   } catch (error: any) {
-    console.error("[OCR Route Error]", error);
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Erreur interne' }, { status: 500 });
   }
 }

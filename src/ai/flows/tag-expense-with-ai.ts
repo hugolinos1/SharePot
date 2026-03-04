@@ -1,8 +1,8 @@
 'use server';
 
 /**
- * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
- * It uses OpenRouter with Qwen 3 Next 80B (Free) and the API key stored in Firestore settings.
+ * @fileOverview Un agent IA qui suggère une catégorie thématique pour une dépense.
+ * Utilise OpenRouter avec Qwen 3 Next 80B (Free) et la clé API stockée dans Firestore.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -11,15 +11,15 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 const TagExpenseInputSchema = z.object({
-  description: z.string().describe('The description of the expense.'),
+  description: z.string().describe('La description de la dépense.'),
 });
 export type TagExpenseInput = z.infer<typeof TagExpenseInputSchema>;
 
-const TagExpenseOutputSchema = z.string().describe('A single thematic category for the expense.');
+const TagExpenseOutputSchema = z.string().describe('Une catégorie thématique unique pour la dépense.');
 export type TagExpenseOutput = z.infer<typeof TagExpenseOutputSchema>;
 
 export async function tagExpense(input: TagExpenseInput): Promise<TagExpenseOutput> {
-  console.log('[tagExpenseFlow] Input received:', input);
+  console.log('[tagExpenseFlow] Entrée reçue:', input);
   return tagExpenseFlow(input);
 }
 
@@ -30,7 +30,7 @@ const tagExpenseFlow = ai.defineFlow(
     outputSchema: TagExpenseOutputSchema,
   },
   async (input: TagExpenseInput) => {
-    console.log('[tagExpenseFlow] Starting categorization for:', input.description);
+    console.log('[tagExpenseFlow] Début de catégorisation pour:', input.description);
 
     try {
       // 1. Récupération de la clé API depuis Firestore
@@ -41,25 +41,37 @@ const tagExpenseFlow = ai.defineFlow(
           const storedKey = settingsDoc.data().apiKey;
           if (storedKey) {
             apiKey = storedKey.trim();
-            console.log("[tagExpenseFlow] API Key retrieved and trimmed from Firestore.");
           }
         }
       } catch (dbError: any) {
-        console.error("[tagExpenseFlow] Error fetching key from Firestore:", dbError.message);
+        console.error("[tagExpenseFlow] Erreur Firestore:", dbError.message);
       }
 
       if (!apiKey) {
         return "Erreur : Clé API manquante. Configurez-la dans l'onglet Admin.";
       }
 
-      // 2. Préparation du prompt
-      const prompt = `Tu es un expert en comptabilité. Analyse la description d'une dépense et renvoie UNIQUEMENT le nom de la catégorie la plus appropriée parmi la liste suivante : 
-      Alimentation, Restaurant & Café, Bar & Vie nocturne, Transport, Logement & Énergie, Culture & Loisirs, Sport, Shopping, Santé, Services & Abonnements, Cadeaux & Dons, Divers.
+      // 2. Préparation du prompt expert
+      const prompt = `Tu es un expert comptable français. Analyse la description d'une dépense et renvoie UNIQUEMENT le nom de la catégorie la plus appropriée.
       
-      Instructions :
-      - Si c'est un lieu culturel (musée, cinéma, théâtre, monument), choisis "Culture & Loisirs".
-      - Si c'est un déplacement (essence, train, bus, parking, péage), choisis "Transport".
-      - Renvoie uniquement le mot de la catégorie, sans ponctuation ni explication.
+      LISTE DES CATÉGORIES AUTORISÉES :
+      - Alimentation (Courses, supermarché)
+      - Restaurant & Café (Sorties, repas, café)
+      - Bar & Vie nocturne (Boissons, soirées)
+      - Transport (Train, Uber, Essence, Parking, Bus)
+      - Logement & Énergie (Loyer, Airbnb, Hôtel, Électricité)
+      - Culture & Loisirs (Musée, Cinéma, Concert, Monument, Activité)
+      - Sport (Salle de sport, équipement)
+      - Shopping (Vêtements, électronique)
+      - Santé (Pharmacie, médecin)
+      - Services & Abonnements (Netflix, Internet, logiciel)
+      - Cadeaux & Dons
+      - Divers (Si rien d'autre ne correspond)
+
+      RÈGLES :
+      - Si c'est un musée ou une visite culturelle, choisis "Culture & Loisirs".
+      - Réponds UNIQUEMENT avec le nom de la catégorie exacte.
+      - Pas de phrase, pas de ponctuation.
 
       Description : "${input.description}"
       Catégorie :`;
@@ -81,10 +93,13 @@ const tagExpenseFlow = ai.defineFlow(
         })
       });
 
+      if (response.status === 429) {
+        return "Erreur 429 : L'IA est saturée. Réessayez dans quelques secondes.";
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("[tagExpenseFlow] OpenRouter API Error:", response.status, errorText);
-        return `Erreur API (${response.status}) : ${errorText.substring(0, 100)}`;
+        return `Erreur API (${response.status}) : ${errorText.substring(0, 50)}`;
       }
 
       const data = await response.json();
@@ -97,7 +112,7 @@ const tagExpenseFlow = ai.defineFlow(
       return content.trim().replace(/[".]/g, '');
 
     } catch (error: any) {
-      console.error("[tagExpenseFlow] Global error:", error.message);
+      console.error("[tagExpenseFlow] Erreur globale:", error.message);
       return `Erreur système : ${error.message}`;
     }
   }
