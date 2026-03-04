@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
- * It uses OpenRouter with Mistral Small 24B Instruct and the API key stored in Firestore settings.
+ * It uses OpenRouter with Gemini 2.0 Flash Exp (Free Tier) and the API key stored in Firestore settings.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -53,12 +53,18 @@ const tagExpenseFlow = ai.defineFlow(
       }
 
       // 2. Préparation du prompt
-      const prompt = `Tu es un expert en comptabilité. Analyse la description et renvoie UNIQUEMENT le nom de la catégorie parmi la liste : Alimentation, Restaurant & Café, Bar & Vie nocturne, Transport, Logement & Énergie, Culture & Loisirs, Sport, Shopping, Santé, Services & Abonnements, Cadeaux & Dons, Divers.
+      const prompt = `Tu es un expert en comptabilité. Analyse la description d'une dépense et renvoie UNIQUEMENT le nom de la catégorie la plus appropriée parmi la liste suivante : 
+      Alimentation, Restaurant & Café, Bar & Vie nocturne, Transport, Logement & Énergie, Culture & Loisirs, Sport, Shopping, Santé, Services & Abonnements, Cadeaux & Dons, Divers.
       
+      Instructions :
+      - Si c'est un lieu culturel (musée, cinéma, théâtre, monument), choisis "Culture & Loisirs".
+      - Si c'est un déplacement (essence, train, bus, parking, péage), choisis "Transport".
+      - Renvoie uniquement le mot de la catégorie, sans ponctuation ni explication.
+
       Description : "${input.description}"
       Catégorie :`;
 
-      // 3. Appel à OpenRouter
+      // 3. Appel à OpenRouter avec Gemini 2.0 Flash Exp (Modèle gratuit stable)
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -68,7 +74,7 @@ const tagExpenseFlow = ai.defineFlow(
           "X-Title": "SharePot"
         },
         body: JSON.stringify({
-          "model": "mistralai/mistral-small-24b-instruct-2501:free",
+          "model": "google/gemini-2.0-flash-exp:free",
           "messages": [{ "role": "user", "content": prompt }],
           "temperature": 0.1,
           "max_tokens": 20

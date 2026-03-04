@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clé API OpenRouter non configurée. Veuillez la saisir dans les paramètres Admin.' }, { status: 500 });
     }
 
-    console.log("[OCR Route] Calling OpenRouter with model: nvidia/nemotron-nano-12b-v2-vl:free");
+    console.log("[OCR Route] Calling OpenRouter with model: google/gemini-2.0-flash-exp:free");
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "SharePot"
       },
       body: JSON.stringify({
-        "model": "nvidia/nemotron-nano-12b-v2-vl:free",
+        "model": "google/gemini-2.0-flash-exp:free",
         "messages": [
           {
             "role": "user",

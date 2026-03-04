@@ -306,7 +306,7 @@ export default function AdminProjectsPage() {
         toast({ title: "Déconnexion réussie" });
       } catch (error) {
         console.error("Erreur de deconnexion:", error);
-        toast({ title: "Erreur de déconnexion", variant: "destructive" });
+        toast({ title: "Erreur de deconnexion", variant: "destructive" });
       }
     };
 
@@ -497,7 +497,7 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Modèles : Nemotron (OCR) et Mistral (Catégories)
+                                                    Modèle stable utilisé : Gemini 2.0 Flash Exp (Free)
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>
