@@ -1,12 +1,15 @@
+
 "use client";
 
 import type { User as FirebaseUserType } from 'firebase/auth';
 import { createContext, useContext, useEffect, useState, ReactNode, Dispatch, SetStateAction } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import type { User as AppUserType } from '@/data/mock-data';
 import { generateAvatar } from '@/ai/flows/generate-avatar-flow';
+
+const SUPER_ADMIN_EMAIL = "hugues.rabier@gmail.com";
 
 interface AuthContextType {
   currentUser: FirebaseUserType | null;
@@ -29,42 +32,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        console.log('[AuthContext] User authenticated. UID:', user.uid);
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
           let profileDataToSet: AppUserType;
 
+          const isSuperAdmin = user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+
           if (userDocSnap.exists()) {
             profileDataToSet = { id: userDocSnap.id, ...userDocSnap.data() } as AppUserType;
+            
+            // Fail-safe: Si l'email correspond au super admin mais que Firestore dit non, on corrige
+            if (isSuperAdmin && !profileDataToSet.isAdmin) {
+              profileDataToSet.isAdmin = true;
+              await updateDoc(userDocRef, { isAdmin: true });
+            }
           } else {
             profileDataToSet = {
               id: user.uid,
-              name: user.displayName || user.email?.split('@')[0] || "Nouvel Utilisateur",
+              name: user.displayName || user.email?.split('@')[0] || "Utilisateur",
               email: user.email || "",
-              isAdmin: false,
+              isAdmin: isSuperAdmin,
               avatarUrl: user.photoURL || '',
             };
+            await setDoc(userDocRef, profileDataToSet);
           }
 
-          // On définit le profil immédiatement pour ne pas bloquer l'UI
           setUserProfile(profileDataToSet);
           setIsAdmin(profileDataToSet.isAdmin || false);
           setLoading(false);
 
-          // Puis on gère la génération d'avatar en arrière-plan si nécessaire
+          // Génération d'avatar en arrière-plan
           const needsAvatarGeneration = !profileDataToSet.avatarUrl || profileDataToSet.avatarUrl === '' || profileDataToSet.avatarUrl.startsWith('https://ui-avatars.com');
           
           if (needsAvatarGeneration) {
             const seedText = profileDataToSet.name || profileDataToSet.email || user.uid;
             generateAvatar({ seedText }).then(async (generatedUrl) => {
               if (generatedUrl && !generatedUrl.includes('placehold.co')) {
-                // Mise à jour de l'état local
                 setUserProfile(prev => prev ? { ...prev, avatarUrl: generatedUrl } : null);
-                // Sauvegarde dans Firestore pour la prochaine fois
                 await updateDoc(userDocRef, { avatarUrl: generatedUrl });
               }
-            }).catch(err => console.error("[AuthContext] Background avatar generation failed:", err));
+            }).catch(err => console.error("[AuthContext] Avatar generation failed:", err));
           }
         } catch (error) {
           console.error("[AuthContext] Error loading user profile:", error);

@@ -17,7 +17,7 @@ import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc 
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const ADMIN_EMAIL = "hugues.rabie@gmail.com";
+const ADMIN_EMAIL = "hugues.rabier@gmail.com";
 
 const registerSchema = z.object({
   name: z.string().min(2, { message: "Le nom doit contenir au moins 2 caractères." }),
@@ -47,14 +47,9 @@ export default function RegisterPage() {
     const projectId = searchParams.get('projectId');
     const invitedEmail = searchParams.get('invitedEmail');
 
-    console.log("[RegisterPage onSubmit] Attempting registration for:", data.email);
-    console.log("[RegisterPage onSubmit] projectId from URL:", projectId);
-    console.log("[RegisterPage onSubmit] invitedEmail from URL:", invitedEmail);
-
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const user = userCredential.user;
-      console.log("[RegisterPage onSubmit] Firebase Auth user created successfully. UID:", user.uid);
 
       await updateProfile(user, { displayName: data.name });
 
@@ -69,7 +64,6 @@ export default function RegisterPage() {
         avatarStoragePath: '',
       };
       await setDoc(userDocRef, userDocData);
-      console.log("[RegisterPage onSubmit] Firestore user document created for UID:", user.uid, "Data:", JSON.stringify(userDocData));
 
       toast({
         title: "Inscription réussie",
@@ -77,63 +71,34 @@ export default function RegisterPage() {
       });
 
       if (projectId && invitedEmail && user.email) {
-        console.log(`[RegisterPage onSubmit] Checking invitation conditions: User email: ${user.email.toLowerCase()}, Invited email from URL: ${invitedEmail.toLowerCase()}`);
         if (user.email.toLowerCase() === invitedEmail.toLowerCase()) {
-          console.log(`[RegisterPage onSubmit] Email match! Attempting to add user ${user.uid} to project ${projectId}.`);
           try {
             const projectRef = doc(db, "projects", projectId);
             const projectDocSnap = await getDoc(projectRef);
 
-            if (!projectDocSnap.exists()) {
-              console.error(`[RegisterPage onSubmit] Project ${projectId} does not exist. Cannot add member.`);
-              toast({
-                title: "Erreur d'ajout au projet",
-                description: "Le projet invité n'existe plus.",
-                variant: "destructive",
-              });
-            } else {
+            if (projectDocSnap.exists()) {
               const projectData = projectDocSnap.data();
-              console.log(`[RegisterPage onSubmit] Project data for ${projectId}:`, projectData);
               const membersArray = projectData.members || [];
-              if (membersArray.includes(user.uid)) {
-                console.log(`[RegisterPage onSubmit] User ${user.uid} is ALREADY a member of project ${projectId}. Skipping updateDoc.`);
-                toast({
-                  title: "Déjà membre",
-                  description: "Vous êtes déjà membre de ce projet.",
-                });
-              } else {
-                const projectUpdateData = {
+              if (!membersArray.includes(user.uid)) {
+                await updateDoc(projectRef, {
                   members: arrayUnion(user.uid),
                   updatedAt: serverTimestamp(),
-                };
-                console.log(`[RegisterPage onSubmit] Attempting to update project. Project ID: ${projectId}, User UID to add: ${user.uid}, Update data:`, JSON.stringify(projectUpdateData));
-                await updateDoc(projectRef, projectUpdateData);
+                });
                 toast({
                   title: "Projet rejoint",
                   description: "Vous avez été automatiquement ajouté au projet invité.",
                 });
-                console.log(`[RegisterPage onSubmit] Successfully added user ${user.uid} to project ${projectId}.`);
               }
             }
           } catch (projectAddError: any) {
-            console.error(`[RegisterPage onSubmit] Error adding user to project ${projectId}:`, projectAddError.message, projectAddError);
-            toast({
-              title: "Erreur d'ajout au projet",
-              description: `Impossible de vous ajouter automatiquement au projet invité: ${projectAddError.message}. Vérifiez les règles Firestore ou si le projet existe.`,
-              variant: "destructive",
-              duration: 7000,
-            });
+            console.error(`Error adding user to project:`, projectAddError);
           }
-        } else {
-          console.warn(`[RegisterPage onSubmit] Email mismatch. User email from form: ${data.email.toLowerCase()}, Invited email from URL: ${invitedEmail.toLowerCase()}. User not added to project.`);
         }
-      } else {
-        console.log("[RegisterPage onSubmit] No projectId or invitedEmail in URL, or user.email is null. Skipping project auto-join.");
       }
 
       router.push('/dashboard');
     } catch (error: any) {
-      console.error("[RegisterPage onSubmit] Erreur d'inscription générale:", error.message, error);
+      console.error("Erreur d'inscription:", error);
       let errorMessage = "Une erreur est survenue lors de l'inscription.";
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = "Cette adresse e-mail est déjà utilisée.";
