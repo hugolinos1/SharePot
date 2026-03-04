@@ -1,8 +1,9 @@
+
 'use server';
 
 /**
  * @fileOverview Un agent IA qui suggère une catégorie thématique pour une dépense.
- * Utilise OpenRouter avec Gemini 1.5 Flash (Free) pour une stabilité maximale.
+ * Utilise OpenRouter avec le nouveau modèle Gemini 2.5 Flash pour une performance optimale.
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -83,7 +84,7 @@ const tagExpenseFlow = ai.defineFlow(
           "X-Title": "SharePot"
         },
         body: JSON.stringify({
-          "model": "google/gemini-flash-1.5:free",
+          "model": "google/gemini-2.5-flash",
           "messages": [{ "role": "user", "content": prompt }],
           "temperature": 0.1,
           "max_tokens": 20

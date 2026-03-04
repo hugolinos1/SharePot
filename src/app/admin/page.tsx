@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -474,7 +475,7 @@ export default function AdminProjectsPage() {
                         <CardHeader>
                             <CardTitle>Configuration OCR & IA</CardTitle>
                             <CardDescription>
-                                Paramétrez l'IA via OpenRouter (Gemini 1.5 Flash).
+                                Paramétrez l'IA via OpenRouter (Gemini 2.5 Flash).
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -497,7 +498,7 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Modèle stable utilisé : google/gemini-flash-1.5:free
+                                                    Modèle stable utilisé : google/gemini-2.5-flash
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>
@@ -517,7 +518,7 @@ export default function AdminProjectsPage() {
                         <CardHeader>
                             <CardTitle>Diagnostic IA</CardTitle>
                             <CardDescription>
-                                Testez la connexion (En cas d'erreur 429, patientez quelques secondes).
+                                Testez la connexion (Modèle: google/gemini-2.5-flash).
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">

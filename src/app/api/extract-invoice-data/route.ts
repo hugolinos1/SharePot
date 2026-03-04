@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clé API OpenRouter non configurée dans l\'onglet Admin.' }, { status: 500 });
     }
 
-    // Utilisation de Gemini 1.5 Flash (Free) pour sa grande stabilité sur OpenRouter
+    // Utilisation de Gemini 2.5 Flash pour l'OCR visuel
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "SharePot"
       },
       body: JSON.stringify({
-        "model": "google/gemini-flash-1.5:free",
+        "model": "google/gemini-2.5-flash",
         "messages": [
           {
             "role": "user",
