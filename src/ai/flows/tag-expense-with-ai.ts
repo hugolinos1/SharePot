@@ -3,7 +3,7 @@
 
 /**
  * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
- * It uses OpenRouter with a free model and the API key stored in Firestore settings.
+ * It uses OpenRouter with Mistral Small 24B Instruct and the API key stored in Firestore settings.
  *
  * - tagExpense - A function that handles the expense category suggestion.
  * - TagExpenseInput - The input type for the tagExpense function.
@@ -54,13 +54,13 @@ const tagExpenseFlow = ai.defineFlow(
         return "Non catégorisé";
       }
 
-      // 2. Préparation du prompt pour OpenRouter
+      // 2. Préparation du prompt pour Mistral
       const prompt = `Tu es un expert en comptabilité personnelle et gestion de budget, spécialisé dans la classification automatique des dépenses.
       
       TA MISSION :
-      Analyser la description d'une dépense et retourner UNE SEULE catégorie thématique concise et pertinente.
+      Analyser la description d'une dépense et retourner UNE SEULE catégorie thématique concise et pertinente parmi la liste ci-dessous.
       
-      LISTE DE RÉFÉRENCE DES CATÉGORIES (Utilise celles-ci en priorité) :
+      LISTE DE RÉFÉRENCE DES CATÉGORIES :
       - Alimentation (Courses, Supermarché, Épicerie)
       - Restaurant & Café (Resto, Fast-food, Déjeuner, Dîner)
       - Bar & Vie nocturne (Bars, Pubs, Boîtes de nuit, Alcool)
@@ -75,17 +75,17 @@ const tagExpenseFlow = ai.defineFlow(
       - Divers (Autres, Imprévus)
 
       CONSIGNES STRICTES :
-      1. Réponds UNIQUEMENT par le nom de la catégorie (ex: "Culture & Loisirs").
-      2. Pas de ponctuation à la fin, pas de phrases, pas de bloc de code Markdown.
-      3. Si la description correspond à un lieu ou une institution (ex: "Musée de la mer"), déduis l'activité associée (dans ce cas : Culture & Loisirs).
-      4. Si tu hésites vraiment, utilise la catégorie "Divers".
+      1. Réponds UNIQUEMENT par le nom de la catégorie exacte choisie dans la liste (ex: "Culture & Loisirs").
+      2. Pas de ponctuation, pas de phrases, pas de blabla.
+      3. Si la description correspond à une activité culturelle ou un lieu de visite (ex: "Musée de la mer"), choisis "Culture & Loisirs".
+      4. Si tu hésites, utilise la catégorie "Divers".
       5. La réponse doit être en FRANÇAIS.
 
       DESCRIPTION DE LA DÉPENSE : "${input.description}"
 
       CATÉGORIE :`;
 
-      // 3. Appel à OpenRouter avec un modèle gratuit
+      // 3. Appel à OpenRouter avec Mistral Small 24B
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -95,13 +95,14 @@ const tagExpenseFlow = ai.defineFlow(
           "X-Title": "SharePot"
         },
         body: JSON.stringify({
-          "model": "google/gemini-2.0-flash-exp:free",
+          "model": "mistralai/mistral-small-24b-instruct-2501:free",
           "messages": [
             {
               "role": "user",
               "content": prompt
             }
-          ]
+          ],
+          "temperature": 0.1 // Très bas pour assurer la cohérence du choix de catégorie
         })
       });
 
