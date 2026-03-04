@@ -1,17 +1,15 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Vérifie si l'utilisateur est connecté
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Vérifie si l'utilisateur est administrateur
     function isAdmin() {
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
-    // Règles pour les profils utilisateurs (collection 'users' selon context.md)
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == userId;
@@ -19,12 +17,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Règles pour les projets
+    match /settings/{settingId} {
+      allow read: if isSignedIn(); // Necessary for API routes to read settings
+      allow write: if isAdmin();
+    }
+
     match /projects/{projectId} {
       allow read, write: if isSignedIn();
     }
 
-    // Règles pour les dépenses
     match /expenses/{expenseId} {
       allow read, write: if isSignedIn();
     }

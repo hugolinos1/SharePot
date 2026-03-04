@@ -53,7 +53,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, getDoc, setDoc } from 'firebase/firestore';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -98,6 +98,10 @@ const editProjectFormSchema = z.object({
 });
 type EditProjectFormValues = z.infer<typeof editProjectFormSchema>;
 
+const ocrConfigSchema = z.object({
+  openRouterKey: z.string().min(1, { message: "La clé API est requise." }),
+});
+type OCRConfigValues = z.infer<typeof ocrConfigSchema>;
 
 export default function AdminProjectsPage() {
     const router = useRouter();
@@ -116,12 +120,21 @@ export default function AdminProjectsPage() {
     const [isDeleteProjectConfirmModalOpen, setIsDeleteProjectConfirmModalOpen] = useState(false);
     const [isDeletingProject, setIsDeletingProject] = useState(false);
 
+    const [isSavingOCR, setIsSavingOCR] = useState(false);
+
     const editForm = useForm<EditProjectFormValues>({
         resolver: zodResolver(editProjectFormSchema),
         defaultValues: {
           name: "",
           description: "",
           status: "Actif",
+        },
+    });
+
+    const ocrForm = useForm<OCRConfigValues>({
+        resolver: zodResolver(ocrConfigSchema),
+        defaultValues: {
+          openRouterKey: "",
         },
     });
 
@@ -160,12 +173,26 @@ export default function AdminProjectsPage() {
         setIsLoadingProjects(false);
       }
     }, [isAdmin, toast]);
+
+    const fetchOCRConfig = useCallback(async () => {
+      if (!isAdmin) return;
+      try {
+        const docRef = doc(db, "settings", "openrouter");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          ocrForm.setValue("openRouterKey", docSnap.data().apiKey || "");
+        }
+      } catch (error) {
+        console.error("Erreur chargement config OCR:", error);
+      }
+    }, [isAdmin, ocrForm]);
   
     useEffect(() => {
       if (isAdmin) { 
         fetchProjects();
+        fetchOCRConfig();
       }
-    }, [isAdmin, fetchProjects]);
+    }, [isAdmin, fetchProjects, fetchOCRConfig]);
 
      const filteredProjects = useMemo(() => {
          if (isLoadingProjects) return [];
@@ -210,6 +237,23 @@ export default function AdminProjectsPage() {
         }
     };
 
+    const handleSaveOCRConfig = async (values: OCRConfigValues) => {
+        if (!isAdmin) return;
+        setIsSavingOCR(true);
+        try {
+            await setDoc(doc(db, "settings", "openrouter"), {
+                apiKey: values.openRouterKey,
+                updatedAt: serverTimestamp(),
+            }, { merge: true });
+            toast({ title: "Configuration enregistrée", description: "La clé API OpenRouter a été stockée en toute sécurité." });
+        } catch (error) {
+            console.error("Erreur sauvegarde OCR:", error);
+            toast({ title: "Erreur", description: "Impossible d'enregistrer la clé API.", variant: "destructive" });
+        } finally {
+            setIsSavingOCR(false);
+        }
+    };
+
     const handleOpenDeleteProjectModal = (project: Project) => {
         setProjectToDelete(project);
         setIsDeleteProjectConfirmModalOpen(true);
@@ -239,7 +283,7 @@ export default function AdminProjectsPage() {
         router.push('/login');
         toast({ title: "Déconnexion réussie" });
       } catch (error) {
-        console.error("Erreur de déconnexion:", error);
+        console.error("Erreur de deconnexion:", error);
         toast({ title: "Erreur de déconnexion", variant: "destructive" });
       }
     };
@@ -310,9 +354,9 @@ export default function AdminProjectsPage() {
         <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 flex-grow">
              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
                  <div>
-                     <h1 className="text-3xl font-bold mb-1">Gestion des Projets (Admin)</h1>
+                     <h1 className="text-3xl font-bold mb-1">Gestion de la Plateforme (Admin)</h1>
                      <p className="text-lg text-muted-foreground">
-                        Gérez tous les projets de la plateforme.
+                        Gérez les projets et la configuration technique.
                      </p>
                  </div>
                  <div className="flex items-center gap-4 mt-4 md:mt-0">
@@ -337,90 +381,115 @@ export default function AdminProjectsPage() {
                  </div>
              </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Liste des Projets ({isLoadingProjects ? '...' : filteredProjects.length})</CardTitle>
-                    <CardDescription>
-                    Vue complète de tous les projets.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="overflow-x-auto">
-                        <Table>
-                        <TableHeader>
-                            <TableRow>
-                            <TableHead>Nom du Projet</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead>Statut</TableHead>
-                            <TableHead>Membres</TableHead>
-                            <TableHead>Tags</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {isLoadingProjects && (
-                            <TableRow>
-                                <TableCell colSpan={6} className="text-center text-muted-foreground py-10">
-                                <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
-                                Chargement des projets...
-                                </TableCell>
-                            </TableRow>
-                            )}
-                            {!isLoadingProjects && filteredProjects.map((project) => (
-                            <TableRow key={project.id}>
-                                <TableCell className="font-medium">{project.name}</TableCell>
-                                <TableCell className="text-muted-foreground truncate max-w-xs">{project.description}</TableCell>
-                                <TableCell>
-                                    <Badge variant={project.status === 'Actif' ? 'default' : project.status === 'Terminé' ? 'outline' : 'secondary'}>
-                                        {project.status}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex -space-x-2 overflow-hidden" title={(project.members || []).join(', ')}>
-                                    {(project.members || []).slice(0, 3).map((member, index) => (
-                                        <Avatar key={index} className="h-6 w-6 border-2 border-card">
-                                            <AvatarImage src={/* member.avatarUrl - need to fetch profile */ `https://ui-avatars.com/api/?name=${encodeURIComponent(member)}&background=random&color=fff&size=32`} alt={member} data-ai-hint="member avatar"/>
-                                            <AvatarFallback>{getAvatarFallbackText(member)}</AvatarFallback>
-                                        </Avatar>
-                                    ))}
-                                    {(project.members || []).length > 3 && (
-                                        <Avatar className="h-6 w-6 border-2 border-card bg-muted text-muted-foreground">
-                                            <AvatarFallback className="text-xs">+{ (project.members || []).length - 3}</AvatarFallback>
-                                        </Avatar>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Liste des Projets ({isLoadingProjects ? '...' : filteredProjects.length})</CardTitle>
+                        <CardDescription>
+                        Vue complète de tous les projets.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="overflow-x-auto">
+                            <Table>
+                            <TableHeader>
+                                <TableRow>
+                                <TableHead>Nom du Projet</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead>Statut</TableHead>
+                                <TableHead>Membres</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoadingProjects && (
+                                <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground py-10">
+                                    <Icons.loader className="mx-auto h-8 w-8 animate-spin" />
+                                    Chargement des projets...
+                                    </TableCell>
+                                </TableRow>
+                                )}
+                                {!isLoadingProjects && filteredProjects.map((project) => (
+                                <TableRow key={project.id}>
+                                    <TableCell className="font-medium">{project.name}</TableCell>
+                                    <TableCell className="text-muted-foreground truncate max-w-xs">{project.description}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={project.status === 'Actif' ? 'default' : project.status === 'Terminé' ? 'outline' : 'secondary'}>
+                                            {project.status}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge variant="outline">{project.members?.length || 0}</Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleOpenEditProjectModal(project)}>
+                                        <Icons.edit className="h-4 w-4" />
+                                            <span className="sr-only">Modifier</span>
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleOpenDeleteProjectModal(project)}>
+                                        <Icons.trash className="h-4 w-4" />
+                                            <span className="sr-only">Supprimer</span>
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                                ))}
+                                {!isLoadingProjects && filteredProjects.length === 0 && (
+                                <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+                                    Aucun projet trouvé.
+                                    </TableCell>
+                                </TableRow>
+                                )}
+                            </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Configuration OCR</CardTitle>
+                        <CardDescription>
+                            Paramétrez l'IA pour l'analyse des factures (OpenRouter).
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Form {...ocrForm}>
+                            <form onSubmit={ocrForm.handleSubmit(handleSaveOCRConfig)} className="space-y-4">
+                                <FormField
+                                    control={ocrForm.control}
+                                    name="openRouterKey"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Clé API OpenRouter</FormLabel>
+                                            <FormControl>
+                                                <div className="relative">
+                                                    <Input 
+                                                        type="password" 
+                                                        placeholder="sk-or-v1-..." 
+                                                        {...field} 
+                                                        data-ai-hint="openrouter api key input"
+                                                    />
+                                                </div>
+                                            </FormControl>
+                                            <FormDescription className="text-xs">
+                                                Modèle utilisé : nvidia/nemotron-nano-12b-v2-vl:free
+                                            </FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
                                     )}
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex flex-wrap gap-1">
-                                        {(project.tags || []).map(tag => (
-                                            <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                                        ))}
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    <Button variant="ghost" size="icon" className="mr-1 h-8 w-8" onClick={() => handleOpenEditProjectModal(project)}>
-                                    <Icons.edit className="h-4 w-4" />
-                                        <span className="sr-only">Modifier</span>
-                                    </Button>
-                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/90 h-8 w-8" onClick={() => handleOpenDeleteProjectModal(project)}>
-                                    <Icons.trash className="h-4 w-4" />
-                                        <span className="sr-only">Supprimer</span>
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                            ))}
-                            {!isLoadingProjects && filteredProjects.length === 0 && (
-                            <TableRow>
-                                <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
-                                Aucun projet trouvé.
-                                </TableCell>
-                            </TableRow>
-                            )}
-                        </TableBody>
-                        </Table>
-                    </div>
-                </CardContent>
-            </Card>
+                                />
+                                <Button type="submit" className="w-full" disabled={isSavingOCR}>
+                                    {isSavingOCR && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                                    <Icons.save className="mr-2 h-4 w-4" />
+                                    Enregistrer la clé
+                                </Button>
+                            </form>
+                        </Form>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
 
         {/* Edit Project Modal */}
@@ -467,8 +536,7 @@ export default function AdminProjectsPage() {
                                 <FormItem>
                                     <FormLabel>Statut</FormLabel>
                                     <FormControl>
-                                        {/* For simplicity, using Input. A Select would be better for predefined statuses */}
-                                        <Input placeholder="Ex: Actif, Terminé, En attente" {...field} />
+                                        <Input placeholder="Ex: Actif, Terminé" {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -497,7 +565,6 @@ export default function AdminProjectsPage() {
                     <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
                     <AlertDialogDescription>
                         Êtes-vous sûr de vouloir supprimer le projet "{projectToDelete?.name}"? Cette action est irréversible.
-                        Les dépenses associées à ce projet ne seront pas supprimées mais pourraient devenir orphelines.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -512,4 +579,3 @@ export default function AdminProjectsPage() {
     </div>
     );
 }
-
