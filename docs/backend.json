@@ -1,0 +1,219 @@
+{
+  "entities": {
+    "UserProfile": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "UserProfile",
+      "type": "object",
+      "description": "Represents a user profile within the application, storing basic information, administrative status, and the projects they are associated with. This entity is linked to an external authentication system (Firebase).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the UserProfile entity, corresponding to the external authentication system's user ID."
+        },
+        "name": {
+          "type": "string",
+          "description": "The display name of the user."
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Indicates whether the user has administrative privileges (e.g., managing users and projects)."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the user profile was created.",
+          "format": "date-time"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "Optional URL to the user's avatar image.",
+          "format": "uri"
+        },
+        "projectIds": {
+          "type": "array",
+          "description": "References to Projects this user is a member of, allowing a user to belong to multiple projects. (Relationship: UserProfile N:N Project)",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "isAdmin",
+        "createdAt",
+        "projectIds"
+      ]
+    },
+    "Project": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Project",
+      "type": "object",
+      "description": "Represents a project to which expenses can be linked and tracked. Projects are created and managed by administrators and can include multiple user members.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Project entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the project."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Reference to the UserProfile who initially created this project. (Relationship: UserProfile 1:N Project - creator)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the project was created.",
+          "format": "date-time"
+        },
+        "memberIds": {
+          "type": "array",
+          "description": "References to UserProfiles who are members of this project. Members can view and add expenses to the project. (Relationship: UserProfile N:N Project)",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "createdBy",
+        "createdAt",
+        "memberIds"
+      ]
+    },
+    "Expense": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Expense",
+      "type": "object",
+      "description": "Represents an individual financial transaction or cost recorded by a user, associated with a specific project. It supports currency conversion, AI-generated tags, and receipt image uploads with OCR capabilities.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Expense entity."
+        },
+        "amount": {
+          "type": "number",
+          "description": "The monetary amount of the expense, typically after any currency conversion to the default currency (e.g., EUR)."
+        },
+        "currency": {
+          "type": "string",
+          "description": "The primary currency of the expense (e.g., EUR, USD, CZK). Default is EUR."
+        },
+        "description": {
+          "type": "string",
+          "description": "A textual description of the expense, used for AI classification and tagging."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Reference to the UserProfile who created this expense. This can be the user themselves or an administrator creating it on behalf of another user. (Relationship: UserProfile 1:N Expense)"
+        },
+        "projectId": {
+          "type": "string",
+          "description": "Reference to the Project this expense belongs to. (Relationship: Project 1:N Expense)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the expense was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the expense was last updated. Automatically updated on modification.",
+          "format": "date-time"
+        },
+        "tags": {
+          "type": "array",
+          "description": "An array of thematic tags (e.g., food, transport, entertainment) associated with the expense. These tags are often generated or suggested by an AI.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "receiptImageUrl": {
+          "type": "string",
+          "description": "Optional URL to the uploaded receipt image (photo or scan) associated with this expense. Used for OCR extraction of amount, currency, date, and description.",
+          "format": "uri"
+        },
+        "originalCurrencyAmount": {
+          "type": "number",
+          "description": "The original monetary amount of the expense before any currency conversion, if different from the primary 'amount' field."
+        },
+        "originalCurrency": {
+          "type": "string",
+          "description": "The original currency of the expense before any conversion, if different from the primary 'currency' field."
+        }
+      },
+      "required": [
+        "id",
+        "amount",
+        "currency",
+        "description",
+        "createdBy",
+        "projectId",
+        "createdAt",
+        "updatedAt",
+        "tags"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/userProfiles/{userId}",
+        "definition": {
+          "entityName": "UserProfile",
+          "schema": {
+            "$ref": "#/backend/entities/UserProfile"
+          },
+          "description": "Stores individual user profile information. The document ID matches the user's Firebase Auth UID. Includes 'isAdmin' for administrative role checks and 'projectIds' for quick lookup of projects the user is a member of. Users can read/update their own profile. Admins can read/update/delete any profile.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user profile, corresponding to the Firebase Authentication UID."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/projects/{projectId}",
+        "definition": {
+          "entityName": "Project",
+          "schema": {
+            "$ref": "#/backend/entities/Project"
+          },
+          "description": "Contains details for each project. The 'memberIds' array denormalizes project membership, ensuring Authorization Independence for project access rules. Admins can create, modify, and delete projects. Project members (listed in 'memberIds') can read project details.",
+          "params": [
+            {
+              "name": "projectId",
+              "description": "The unique identifier for the project."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/expenses/{expenseId}",
+        "definition": {
+          "entityName": "Expense",
+          "schema": {
+            "$ref": "#/backend/entities/Expense"
+          },
+          "description": "Stores individual expense records. For Authorization Independence and QAPs, this document includes denormalized 'projectMemberIds' (a copy of the associated project's 'memberIds') and 'createdBy' (the user who created the expense). Regular users can create, modify, and delete their own expenses if they are a member of the linked project. All project members can view expenses within their projects. Admins have full CRUD access to all expenses.",
+          "params": [
+            {
+              "name": "expenseId",
+              "description": "The unique identifier for the expense."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The recommended Firestore structure utilizes top-level collections for 'userProfiles', 'projects', and 'expenses'. This approach ensures simplicity in security rules and adherence to the core design principles, especially Authorization Independence and enabling Query-All-Privileges (QAPs).\n\n1.  **User Profiles (`/userProfiles/{userId}`)**: This collection stores individual user profile data. Each document's ID (`userId`) directly corresponds to the Firebase Authentication UID, making path-based ownership (`request.auth.uid == userId`) straightforward. The `isAdmin` field within this document serves as the database-backed authorization role for administrators, adhering to the DBAC principle. Access to one's own profile is directly determined by the path, while admin access to all profiles is determined by checking the current user's `isAdmin` status, which is an invariant check of `request.auth.uid`'s own document.\n\n2.  **Projects (`/projects/{projectId}`)**: This collection stores project-related information. Each `Project` document includes a `memberIds` array, which lists the UIDs of all users associated with that project. This directly implements the 'Membership Map' strategy for collaborative data and is crucial for **Authorization Independence**: security rules for projects can check `request.auth.uid in resource.data.memberIds` without requiring a `get()` call to another document, simplifying atomic operations and debugging. For QAPs, users can list only the projects where their `uid` is present in the `memberIds` array, enabling secure queries like `where('memberIds', 'array-contains', request.auth.uid)`.\n\n3.  **Expenses (`/expenses/{expenseId}`)**: This collection stores individual expense records. To achieve **Authorization Independence** for expenses, each `Expense` document **denormalizes** key authorization context from its associated `Project`. Specifically, the `Expense` document will include `projectMemberIds` (a direct copy of the `memberIds` array from the `Project` it belongs to) and `createdBy` (the UID of the user who recorded the expense). This denormalization is critical: it allows security rules for 'expenses' to evaluate access permissions (e.g., if the user is a member of the project, or if they created the expense) solely based on the `Expense` document itself, without needing to perform `get()` operations on the parent `Project` document. This enables robust QAPs, as users can securely list expenses for projects they are members of (`where('projectMemberIds', 'array-contains', request.auth.uid)`) or expenses they personally created (`where('createdBy', '==', request.auth.uid)`).\n\n**Overall Security and Debuggability**: This structure explicitly separates data based on its security posture (e.g., user-owned, collaborative, transactional) and denormalizes authorization data where necessary. This minimizes the complexity of security rules, as each rule can primarily inspect the `resource.data` of the document being accessed, leading to more atomic, predictable, and debuggable authorization logic. The consistent use of `userId`, `projectId`, and `expenseId` as document IDs (matching the respective entity's 'id' field) further enhances clarity and predictability. The application leverages Firebase Authentication (email/password) as specified, and the DBAC principle is fully supported by storing all roles and memberships within Firestore documents."
+  }
+}
