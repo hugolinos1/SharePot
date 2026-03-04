@@ -17,7 +17,7 @@ import { setDoc, doc, serverTimestamp, Timestamp, updateDoc, arrayUnion, getDoc 
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const ADMIN_EMAIL = "hugues.rabier@gmail.com";
+const ADMIN_EMAIL = "hugues.rabie@gmail.com";
 
 const registerSchema = z.object({
   name: z.string().min(2, { message: "Le nom doit contenir au moins 2 caractères." }),
@@ -299,5 +299,3 @@ export default function RegisterPage() {
     </div>
   );
 }
-
-    
