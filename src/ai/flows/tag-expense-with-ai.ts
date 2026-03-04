@@ -3,74 +3,110 @@
 
 /**
  * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
+ * It uses OpenRouter with a free model and the API key stored in Firestore settings.
  *
  * - tagExpense - A function that handles the expense category suggestion.
  * - TagExpenseInput - The input type for the tagExpense function.
- * - TagExpenseOutput - The return type for the tagExpense function.
+ * - TagExpenseOutput - The return type for the tagExpense function (a single string).
  */
 
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const TagExpenseInputSchema = z.object({
   description: z.string().describe('The description of the expense.'),
 });
 export type TagExpenseInput = z.infer<typeof TagExpenseInputSchema>;
 
-// The output is now a single category string directly, not an object.
 const TagExpenseOutputSchema = z.string().describe('A single thematic category for the expense.');
-export type TagExpenseOutput = TagExpenseOutputSchema; // z.infer is not needed for a direct Zod type
+export type TagExpenseOutput = z.infer<typeof TagExpenseOutputSchema>;
 
 export async function tagExpense(input: TagExpenseInput): Promise<TagExpenseOutput> {
   console.log('[tagExpenseFlow] Input received:', input);
   return tagExpenseFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'tagExpensePrompt',
-  input: {
-    schema: TagExpenseInputSchema, // Input remains an object with 'description'
-  },
-  output: {
-    // The model should output a simple string, not a JSON object.
-    // We will parse the text() from the model response directly.
-    // No Zod schema is needed here if the model is instructed to return plain text.
-  },
-  // Updated prompt to ask for a single category string directly and include examples
-  prompt: `Tu es un assistant IA spécialisé dans la catégorisation des dépenses, et tu dois répondre en FRANÇAIS.
-  Basé sur la description de la dépense fournie ci-dessous, génère une SEULE catégorie thématique, concise et pertinente.
-  Exemples de catégories : Alimentation, Transport, Alcool, Restaurant, Divertissement, Hébergement, Bar, Produits d'entretien, Sport, Shopping, Utilitaires, Loyer, Voyage, Santé, Éducation, Cadeaux, Animaux, Non catégorisé.
-  Sors UNIQUEMENT le nom de la catégorie sous forme de chaîne de caractères simple, sans formatage JSON ni texte supplémentaire.
-
-  Description de la dépense : {{{description}}}
-
-  Catégorie suggérée :`,
-});
-
 const tagExpenseFlow = ai.defineFlow(
   {
     name: 'tagExpenseFlow',
     inputSchema: TagExpenseInputSchema,
-    // Output is a plain string, matching TagExpenseOutputSchema
     outputSchema: TagExpenseOutputSchema,
   },
   async (input: TagExpenseInput) => {
-    console.log('[tagExpenseFlow] Calling AI model with description:', input.description);
-    const {text, usage} = await prompt(input); // Get the raw text response
-    const modelOutput = text; // The model should return a plain string.
-    
-    console.log('[tagExpenseFlow] Raw model output (text):', modelOutput);
-    console.log('[tagExpenseFlow] Usage:', usage);
+    console.log('[tagExpenseFlow] Starting categorization for:', input.description);
 
-    if (!modelOutput || modelOutput.trim() === '') {
-      console.warn('[tagExpenseFlow] Model returned empty or whitespace string.');
-      // Decide on a fallback, e.g., an empty string or a specific "Uncategorized"
-      return "Non catégorisé"; 
+    try {
+      // 1. Récupération de la clé API depuis Firestore
+      let apiKey = process.env.OPENROUTER_API_KEY;
+      try {
+        const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
+        if (settingsDoc.exists()) {
+          apiKey = settingsDoc.data().apiKey || apiKey;
+        }
+      } catch (dbError: any) {
+        console.error("[tagExpenseFlow] Erreur lors de la récupération de la clé dans Firestore:", dbError.message);
+      }
+
+      if (!apiKey) {
+        console.warn("[tagExpenseFlow] Aucune clé API configurée. Repli sur 'Non catégorisé'.");
+        return "Non catégorisé";
+      }
+
+      // 2. Préparation du prompt pour OpenRouter
+      const prompt = `Tu es un assistant IA spécialisé dans la catégorisation des dépenses, et tu dois répondre en FRANÇAIS.
+      Basé sur la description de la dépense fournie ci-dessous, génère une SEULE catégorie thématique, concise et pertinente.
+      Exemples de catégories : Alimentation, Transport, Alcool, Restaurant, Divertissement, Hébergement, Bar, Produits d'entretien, Sport, Shopping, Utilitaires, Loyer, Voyage, Santé, Éducation, Cadeaux, Animaux, Non catégorisé.
+      Sors UNIQUEMENT le nom de la catégorie sous forme de chaîne de caractères simple, sans formatage JSON ni texte supplémentaire.
+
+      Description de la dépense : ${input.description}
+
+      Catégorie suggérée :`;
+
+      // 3. Appel à OpenRouter avec un modèle gratuit
+      // Nous utilisons google/gemini-2.0-flash-exp:free qui est très performant et gratuit
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://sharepot.app",
+          "X-Title": "SharePot"
+        },
+        body: JSON.stringify({
+          "model": "google/gemini-2.0-flash-exp:free",
+          "messages": [
+            {
+              "role": "user",
+              "content": prompt
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[tagExpenseFlow] Erreur API OpenRouter:", errorText);
+        return "Non catégorisé";
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content || content.trim() === '') {
+        console.warn("[tagExpenseFlow] Réponse vide de l'IA.");
+        return "Non catégorisé";
+      }
+
+      const suggestedCategory = content.trim();
+      console.log('[tagExpenseFlow] Catégorie suggérée avec succès:', suggestedCategory);
+      
+      return suggestedCategory;
+
+    } catch (error: any) {
+      console.error("[tagExpenseFlow] Erreur globale lors de la suggestion:", error.message);
+      return "Non catégorisé";
     }
-    
-    // The output of the flow is now the direct string.
-    // No need to access a 'category' property from an object.
-    return modelOutput.trim();
   }
 );
-
