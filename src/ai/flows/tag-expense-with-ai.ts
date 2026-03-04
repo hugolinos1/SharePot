@@ -1,13 +1,8 @@
-
 'use server';
 
 /**
  * @fileOverview An AI agent that suggests a single thematic category for an expense based on its description.
  * It uses OpenRouter with Mistral Small 24B Instruct and the API key stored in Firestore settings.
- *
- * - tagExpense - A function that handles the expense category suggestion.
- * - TagExpenseInput - The input type for the tagExpense function.
- * - TagExpenseOutput - The return type for the tagExpense function (a single string).
  */
 
 import {ai} from '@/ai/ai-instance';
@@ -44,48 +39,28 @@ const tagExpenseFlow = ai.defineFlow(
         const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
         if (settingsDoc.exists()) {
           apiKey = settingsDoc.data().apiKey || apiKey;
+          console.log("[tagExpenseFlow] API Key retrieved from Firestore.");
+        } else {
+          console.warn("[tagExpenseFlow] No settings doc found in Firestore at settings/openrouter");
         }
       } catch (dbError: any) {
-        console.error("[tagExpenseFlow] Erreur lors de la récupération de la clé dans Firestore:", dbError.message);
+        console.error("[tagExpenseFlow] Error fetching key from Firestore:", dbError.message);
       }
 
       if (!apiKey) {
-        console.warn("[tagExpenseFlow] Aucune clé API configurée. Repli sur 'Non catégorisé'.");
+        console.warn("[tagExpenseFlow] No API Key available.");
         return "Non catégorisé";
       }
 
-      // 2. Préparation du prompt pour Mistral
-      const prompt = `Tu es un expert en comptabilité personnelle et gestion de budget, spécialisé dans la classification automatique des dépenses.
+      // 2. Préparation du prompt
+      const prompt = `Tu es un expert en comptabilité. Analyse la description et renvoie UNIQUEMENT le nom de la catégorie parmi la liste : Alimentation, Restaurant & Café, Bar & Vie nocturne, Transport, Logement & Énergie, Culture & Loisirs, Sport, Shopping, Santé, Services & Abonnements, Cadeaux & Dons, Divers.
       
-      TA MISSION :
-      Analyser la description d'une dépense et retourner UNE SEULE catégorie thématique concise et pertinente parmi la liste ci-dessous.
-      
-      LISTE DE RÉFÉRENCE DES CATÉGORIES :
-      - Alimentation (Courses, Supermarché, Épicerie)
-      - Restaurant & Café (Resto, Fast-food, Déjeuner, Dîner)
-      - Bar & Vie nocturne (Bars, Pubs, Boîtes de nuit, Alcool)
-      - Transport (Essence, Parking, Train, Avion, Uber, Bus, Péage)
-      - Logement & Énergie (Loyer, Charges, Électricité, Assurances)
-      - Culture & Loisirs (Musée, Cinéma, Concert, Théâtre, Activités touristiques, Billetterie)
-      - Sport (Salle de sport, Équipement sportif, Match)
-      - Shopping (Vêtements, Accessoires, Déco, High-tech)
-      - Santé (Pharmacie, Médecin, Optique)
-      - Services & Abonnements (Internet, Streaming, Téléphone, SaaS)
-      - Cadeaux & Dons (Cadeaux, Charité)
-      - Divers (Autres, Imprévus)
+      Description : "${input.description}"
+      Catégorie :`;
 
-      CONSIGNES STRICTES :
-      1. Réponds UNIQUEMENT par le nom de la catégorie exacte choisie dans la liste (ex: "Culture & Loisirs").
-      2. Pas de ponctuation, pas de phrases, pas de blabla.
-      3. Si la description correspond à une activité culturelle ou un lieu de visite (ex: "Musée de la mer"), choisis "Culture & Loisirs".
-      4. Si tu hésites, utilise la catégorie "Divers".
-      5. La réponse doit être en FRANÇAIS.
+      console.log("[tagExpenseFlow] Calling OpenRouter...");
 
-      DESCRIPTION DE LA DÉPENSE : "${input.description}"
-
-      CATÉGORIE :`;
-
-      // 3. Appel à OpenRouter avec Mistral Small 24B
+      // 3. Appel à OpenRouter
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -96,38 +71,33 @@ const tagExpenseFlow = ai.defineFlow(
         },
         body: JSON.stringify({
           "model": "mistralai/mistral-small-24b-instruct-2501:free",
-          "messages": [
-            {
-              "role": "user",
-              "content": prompt
-            }
-          ],
-          "temperature": 0.1 // Très bas pour assurer la cohérence du choix de catégorie
+          "messages": [{ "role": "user", "content": prompt }],
+          "temperature": 0.1,
+          "max_tokens": 20
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("[tagExpenseFlow] Erreur API OpenRouter:", errorText);
-        return "Non catégorisé";
+        console.error("[tagExpenseFlow] OpenRouter API Error:", response.status, errorText);
+        return "Erreur API";
       }
 
       const data = await response.json();
+      console.log("[tagExpenseFlow] OpenRouter Response Data:", JSON.stringify(data));
+      
       const content = data.choices?.[0]?.message?.content;
 
-      if (!content || content.trim() === '') {
-        console.warn("[tagExpenseFlow] Réponse vide de l'IA.");
+      if (!content) {
+        console.warn("[tagExpenseFlow] Empty response from AI.");
         return "Non catégorisé";
       }
 
-      const suggestedCategory = content.trim();
-      console.log('[tagExpenseFlow] Catégorie suggérée avec succès:', suggestedCategory);
-      
-      return suggestedCategory;
+      return content.trim().replace(/[".]/g, '');
 
     } catch (error: any) {
-      console.error("[tagExpenseFlow] Erreur globale lors de la suggestion:", error.message);
-      return "Non catégorisé";
+      console.error("[tagExpenseFlow] Global error:", error.message);
+      return "Erreur système";
     }
   }
 );

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -64,6 +63,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { tagExpense } from '@/ai/flows/tag-expense-with-ai';
 
 const getAvatarFallbackText = (name?: string | null, email?: string | null): string => {
   if (name) {
@@ -121,6 +121,8 @@ export default function AdminProjectsPage() {
     const [isDeletingProject, setIsDeletingProject] = useState(false);
 
     const [isSavingOCR, setIsSavingOCR] = useState(false);
+    const [isTestingAI, setIsTestingIA] = useState(false);
+    const [aiTestResult, setAiTestResult] = useState<string | null>(null);
 
     const editForm = useForm<EditProjectFormValues>({
         resolver: zodResolver(editProjectFormSchema),
@@ -251,6 +253,22 @@ export default function AdminProjectsPage() {
             toast({ title: "Erreur", description: "Impossible d'enregistrer la clé API.", variant: "destructive" });
         } finally {
             setIsSavingOCR(false);
+        }
+    };
+
+    const handleTestAI = async () => {
+        setIsTestingIA(true);
+        setAiTestResult(null);
+        try {
+            const result = await tagExpense({ description: "Musée de la mer" });
+            setAiTestResult(result);
+            toast({ title: "Test terminé", description: `L'IA a répondu : ${result}` });
+        } catch (error: any) {
+            console.error("Erreur test IA:", error);
+            setAiTestResult("Erreur: " + error.message);
+            toast({ title: "Échec du test", description: error.message, variant: "destructive" });
+        } finally {
+            setIsTestingIA(false);
         }
     };
 
@@ -447,48 +465,81 @@ export default function AdminProjectsPage() {
                     </CardContent>
                 </Card>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Configuration OCR</CardTitle>
-                        <CardDescription>
-                            Paramétrez l'IA pour l'analyse des factures (OpenRouter).
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <Form {...ocrForm}>
-                            <form onSubmit={ocrForm.handleSubmit(handleSaveOCRConfig)} className="space-y-4">
-                                <FormField
-                                    control={ocrForm.control}
-                                    name="openRouterKey"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Clé API OpenRouter</FormLabel>
-                                            <FormControl>
-                                                <div className="relative">
-                                                    <Input 
-                                                        type="password" 
-                                                        placeholder="sk-or-v1-..." 
-                                                        {...field} 
-                                                        data-ai-hint="openrouter api key input"
-                                                    />
-                                                </div>
-                                            </FormControl>
-                                            <FormDescription className="text-xs">
-                                                Modèle utilisé : nvidia/nemotron-nano-12b-v2-vl:free
-                                            </FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <Button type="submit" className="w-full" disabled={isSavingOCR}>
-                                    {isSavingOCR && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
-                                    <Icons.save className="mr-2 h-4 w-4" />
-                                    Enregistrer la clé
-                                </Button>
-                            </form>
-                        </Form>
-                    </CardContent>
-                </Card>
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Configuration OCR & IA</CardTitle>
+                            <CardDescription>
+                                Paramétrez l'IA pour l'analyse des factures et catégories.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Form {...ocrForm}>
+                                <form onSubmit={ocrForm.handleSubmit(handleSaveOCRConfig)} className="space-y-4">
+                                    <FormField
+                                        control={ocrForm.control}
+                                        name="openRouterKey"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Clé API OpenRouter</FormLabel>
+                                                <FormControl>
+                                                    <div className="relative">
+                                                        <Input 
+                                                            type="password" 
+                                                            placeholder="sk-or-v1-..." 
+                                                            {...field} 
+                                                            data-ai-hint="openrouter api key input"
+                                                        />
+                                                    </div>
+                                                </FormControl>
+                                                <FormDescription className="text-xs">
+                                                    Modèles : Nemotron (OCR) et Mistral (Catégories)
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <Button type="submit" className="w-full" disabled={isSavingOCR}>
+                                        {isSavingOCR && <Icons.loader className="mr-2 h-4 w-4 animate-spin" />}
+                                        <Icons.save className="mr-2 h-4 w-4" />
+                                        Enregistrer la clé
+                                    </Button>
+                                </form>
+                            </Form>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Diagnostic IA</CardTitle>
+                            <CardDescription>
+                                Testez la connexion et la réponse de l'IA (Catégorisation).
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <Button 
+                                variant="outline" 
+                                className="w-full" 
+                                onClick={handleTestAI} 
+                                disabled={isTestingAI}
+                            >
+                                {isTestingAI ? (
+                                    <Icons.loader className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Icons.sparkles className="mr-2 h-4 w-4" />
+                                )}
+                                Tester "Musée de la mer"
+                            </Button>
+                            
+                            {aiTestResult && (
+                                <div className="p-3 bg-muted rounded-md border text-sm font-mono break-all">
+                                    <p className="text-xs text-muted-foreground mb-1 font-sans">Réponse du modèle :</p>
+                                    {aiTestResult}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </div>
 
