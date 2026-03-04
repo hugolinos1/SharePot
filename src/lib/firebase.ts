@@ -5,12 +5,21 @@ import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 import { firebaseConfig } from '@/firebase/config';
 
-// Initialize Firebase using the config from @/firebase/config
+// Vérification de la validité de la configuration
+// Pendant le build Next.js sur Netlify, les variables d'environnement peuvent être manquantes
+const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined";
+
 let app: FirebaseApp;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
-} else {
+
+if (getApps().length) {
   app = getApp();
+} else {
+  // Si la config est invalide (build phase), on utilise une clé factice pour éviter de faire planter le build
+  const configToUse = isConfigValid 
+    ? firebaseConfig 
+    : { ...firebaseConfig, apiKey: "AIza-build-fallback-ignore-me" };
+    
+  app = initializeApp(configToUse);
 }
 
 const auth: Auth = getAuth(app);
@@ -18,7 +27,7 @@ const db: Firestore = getFirestore(app);
 const storage: FirebaseStorage = getStorage(app);
 let analytics: Analytics | null = null;
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && isConfigValid) {
   isSupported().then((supported) => {
     if (supported) {
       analytics = getAnalytics(app);
