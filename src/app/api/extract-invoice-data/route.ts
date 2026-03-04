@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       if (settingsDoc.exists()) {
         const storedKey = settingsDoc.data().apiKey;
         if (storedKey) {
-          apiKey = storedKey.trim(); // Nettoyage de la clé
+          apiKey = storedKey.trim();
         }
       }
     } catch (dbError: any) {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clé API OpenRouter non configurée. Veuillez la saisir dans les paramètres Admin.' }, { status: 500 });
     }
 
-    console.log("[OCR Route] Calling OpenRouter with model: google/gemini-2.0-flash-exp:free");
+    console.log("[OCR Route] Calling OpenRouter with model: google/gemini-2.0-flash-lite-preview-02-05:free");
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "SharePot"
       },
       body: JSON.stringify({
-        "model": "google/gemini-2.0-flash-exp:free",
+        "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
         "messages": [
           {
             "role": "user",

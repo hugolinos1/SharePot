@@ -244,7 +244,7 @@ export default function AdminProjectsPage() {
         setIsSavingOCR(true);
         try {
             await setDoc(doc(db, "settings", "openrouter"), {
-                apiKey: values.openRouterKey.trim(), // On trim avant de sauvegarder
+                apiKey: values.openRouterKey.trim(),
                 updatedAt: serverTimestamp(),
             }, { merge: true });
             toast({ title: "Configuration enregistrée", description: "La clé API OpenRouter a été stockée en toute sécurité." });
@@ -497,7 +497,7 @@ export default function AdminProjectsPage() {
                                                     </div>
                                                 </FormControl>
                                                 <FormDescription className="text-xs">
-                                                    Modèle stable utilisé : Gemini 2.0 Flash Exp (Free)
+                                                    Modèle stable utilisé : Gemini 2.0 Flash Lite (Free)
                                                 </FormDescription>
                                                 <FormMessage />
                                             </FormItem>
