@@ -1,4 +1,3 @@
-
 import {
   ArrowRight,
   Check,
@@ -32,6 +31,7 @@ import {
   Repeat,
   Users,
   Eye,
+  EyeOff,
   DollarSign,
   LayoutDashboard,
   Receipt,
@@ -94,6 +94,8 @@ const Icons = {
   repeat: Repeat,
   users: Users, 
   eye: Eye,
+  eyeOff: EyeOff,
+  eyeSlash: EyeOff,
   dollarSign: DollarSign,
   layoutDashboard: LayoutDashboard,
   receipt: Receipt,
