@@ -5,24 +5,27 @@ import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 import { firebaseConfig } from '@/firebase/config';
 
-// Vérification de la validité de la configuration
-// NEXT_PUBLIC_FIREBASE_API_KEY doit être présente en production (Netlify)
-const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined" && !firebaseConfig.apiKey.includes('PLACEHOLDER');
+// Vérification stricte de la configuration pour éviter les erreurs de build
+const isConfigValid = typeof firebaseConfig.apiKey === 'string' && 
+                      firebaseConfig.apiKey.startsWith('AIza') && 
+                      !firebaseConfig.apiKey.includes('PLACEHOLDER');
 
 let app: FirebaseApp;
 
 if (getApps().length) {
   app = getApp();
 } else {
-  // Pendant le build Next.js (analyse statique), les variables d'env peuvent manquer.
-  // On utilise une config factice pour éviter l'erreur bloquante auth/invalid-api-key.
+  // Pendant le build (CI/CD), on injecte une config factice avec un format valide
+  // pour que getAuth() et initializeApp() ne lèvent pas d'exception fatale.
   const configToUse = isConfigValid 
     ? firebaseConfig 
     : { 
-        ...firebaseConfig, 
-        apiKey: "AIza-build-fallback-ignore-me",
+        apiKey: "AIza-BUILD-TIME-FAKE-KEY-IGNORE-ME",
         authDomain: "build-fallback.firebaseapp.com",
-        projectId: "build-fallback"
+        projectId: "build-fallback",
+        storageBucket: "build-fallback.appspot.com",
+        messagingSenderId: "123456789",
+        appId: "1:123456789:web:abcdef"
       };
     
   app = initializeApp(configToUse);
