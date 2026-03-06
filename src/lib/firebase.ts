@@ -5,23 +5,26 @@ import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { firebaseConfig } from '@/firebase/config';
 
-// Patterns Lazy pour éviter l'initialisation au moment du build Next.js
-let app: FirebaseApp;
-
+/**
+ * Initialise l'application Firebase de manière paresseuse (lazy).
+ * Cela empêche le build de planter si les variables d'environnement sont absentes
+ * lors de l'analyse statique de Next.js.
+ */
 function getFirebaseApp(): FirebaseApp {
   if (getApps().length) {
     return getApp();
   }
 
-  // Vérification de sécurité pour le build
-  const isConfigValid = typeof firebaseConfig.apiKey === 'string' && firebaseConfig.apiKey.length > 10;
+  // Vérifie si la clé API semble valide (commence par AIza pour Firebase)
+  const isConfigValid = typeof firebaseConfig.apiKey === 'string' && firebaseConfig.apiKey.startsWith('AIza');
 
   if (isConfigValid) {
     return initializeApp(firebaseConfig);
   } else {
-    // Fallback silencieux uniquement pour la phase de build statique de Next.js
+    // Retourne une application factice pour sécuriser la phase de build
+    // Elle sera remplacée par la vraie app en production grâce aux variables d'environnement
     return initializeApp({
-      apiKey: "AIza-BUILD-TIME-FALLBACK",
+      apiKey: "AIza-BUILD-TIME-FALLBACK-IGNORE",
       authDomain: "build-fallback.firebaseapp.com",
       projectId: "build-fallback",
       storageBucket: "build-fallback.appspot.com",
@@ -31,12 +34,12 @@ function getFirebaseApp(): FirebaseApp {
   }
 }
 
-// Exports via des getters ou initialisation différée
+// Exports via fonctions pour assurer l'exécution différée
 export const getFirebaseAuth = (): Auth => getAuth(getFirebaseApp());
 export const getDb = (): Firestore => getFirestore(getFirebaseApp());
 export const getFirebaseStorage = (): FirebaseStorage => getStorage(getFirebaseApp());
 
-// On garde les exports directs pour la compatibilité existante, mais ils appellent getFirebaseApp()
-export const auth = getAuth(getFirebaseApp());
+// Exports directs pour la compatibilité avec les composants existants
+export const auth = getFirebaseAuth();
 export const db = getDb();
-export const storage = getStorage(getFirebaseApp());
+export const storage = getFirebaseStorage();
