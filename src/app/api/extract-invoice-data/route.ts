@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase';
+import { getDb } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 const PROMPT_TEXT = `Analyse cette image de facture et extrais les données techniques.
@@ -22,7 +22,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Données image manquantes' }, { status: 400 });
     }
 
+    const db = getDb();
     let apiKey = process.env.OPENROUTER_API_KEY;
+    
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "openrouter"));
       if (settingsDoc.exists()) {
@@ -36,10 +38,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'Clé API OpenRouter non configurée dans l\'onglet Admin.' }, { status: 500 });
+      return NextResponse.json({ error: 'Clé API OpenRouter non configurée.' }, { status: 500 });
     }
 
-    // Utilisation de Gemini 2.5 Flash pour l'OCR visuel
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -62,13 +63,9 @@ export async function POST(req: NextRequest) {
       })
     });
 
-    if (response.status === 429) {
-      return NextResponse.json({ error: "L'IA est temporairement surchargée (Erreur 429). Veuillez patienter 10 secondes." }, { status: 429 });
-    }
-
     if (!response.ok) {
       const errorText = await response.text();
-      return NextResponse.json({ error: `Erreur API (${response.status}): ${errorText.substring(0, 100)}` }, { status: response.status });
+      return NextResponse.json({ error: `Erreur API : ${errorText.substring(0, 100)}` }, { status: response.status });
     }
 
     const data = await response.json();
@@ -89,7 +86,7 @@ export async function POST(req: NextRequest) {
       const extractedData = JSON.parse(jsonStr);
       return NextResponse.json(extractedData);
     } catch (parseError) {
-      return NextResponse.json({ error: "Format JSON invalide reçu de l'IA", raw: content }, { status: 500 });
+      return NextResponse.json({ error: "Format JSON invalide", raw: content }, { status: 500 });
     }
 
   } catch (error: any) {

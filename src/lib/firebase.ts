@@ -3,25 +3,25 @@ import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
-import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 import { firebaseConfig } from '@/firebase/config';
 
-// Vérification stricte pour éviter les erreurs bloquantes lors du build statique
-const isConfigValid = typeof firebaseConfig.apiKey === 'string' && 
-                      firebaseConfig.apiKey.startsWith('AIza');
-
+// Patterns Lazy pour éviter l'initialisation au moment du build Next.js
 let app: FirebaseApp;
 
-if (getApps().length) {
-  app = getApp();
-} else {
-  // En production/build, on utilise la config si elle est valide, sinon un fallback neutre
+function getFirebaseApp(): FirebaseApp {
+  if (getApps().length) {
+    return getApp();
+  }
+
+  // Vérification de sécurité pour le build
+  const isConfigValid = typeof firebaseConfig.apiKey === 'string' && firebaseConfig.apiKey.length > 10;
+
   if (isConfigValid) {
-    app = initializeApp(firebaseConfig);
+    return initializeApp(firebaseConfig);
   } else {
-    // Fallback factice indispensable pour que le build Next.js ne plante pas
-    app = initializeApp({ 
-      apiKey: "AIza-BUILD-TIME-FALLBACK-IGNORE",
+    // Fallback silencieux uniquement pour la phase de build statique de Next.js
+    return initializeApp({
+      apiKey: "AIza-BUILD-TIME-FALLBACK",
       authDomain: "build-fallback.firebaseapp.com",
       projectId: "build-fallback",
       storageBucket: "build-fallback.appspot.com",
@@ -31,17 +31,12 @@ if (getApps().length) {
   }
 }
 
-const auth: Auth = getAuth(app);
-const db: Firestore = getFirestore(app);
-const storage: FirebaseStorage = getStorage(app);
-let analytics: Analytics | null = null;
+// Exports via des getters ou initialisation différée
+export const getFirebaseAuth = (): Auth => getAuth(getFirebaseApp());
+export const getDb = (): Firestore => getFirestore(getFirebaseApp());
+export const getFirebaseStorage = (): FirebaseStorage => getStorage(getFirebaseApp());
 
-if (typeof window !== 'undefined' && isConfigValid) {
-  isSupported().then((supported) => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  });
-}
-
-export { app, auth, db, storage, analytics };
+// On garde les exports directs pour la compatibilité existante, mais ils appellent getFirebaseApp()
+export const auth = getAuth(getFirebaseApp());
+export const db = getDb();
+export const storage = getStorage(getFirebaseApp());
