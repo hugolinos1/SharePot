@@ -6,16 +6,16 @@ import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 import { firebaseConfig } from '@/firebase/config';
 
 // Vérification de la validité de la configuration
-// Pendant le build Next.js sur Netlify, les variables d'environnement peuvent être manquantes
-const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined";
+// NEXT_PUBLIC_FIREBASE_API_KEY doit être présente en production (Netlify)
+const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined" && !firebaseConfig.apiKey.includes('PLACEHOLDER');
 
 let app: FirebaseApp;
 
 if (getApps().length) {
   app = getApp();
 } else {
-  // Si la config est invalide (build phase), on utilise une clé factice pour éviter de faire planter le build
-  // car Next.js importe ce module lors de la génération statique.
+  // Pendant le build Next.js (analyse statique), les variables d'env peuvent manquer.
+  // On utilise une config factice pour éviter l'erreur bloquante auth/invalid-api-key.
   const configToUse = isConfigValid 
     ? firebaseConfig 
     : { 
