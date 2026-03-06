@@ -1,3 +1,4 @@
+
 import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
@@ -5,30 +6,29 @@ import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getAnalytics, type Analytics, isSupported } from 'firebase/analytics';
 import { firebaseConfig } from '@/firebase/config';
 
-// Vérification stricte de la configuration pour éviter les erreurs de build
+// Vérification stricte pour éviter les erreurs bloquantes lors du build statique
 const isConfigValid = typeof firebaseConfig.apiKey === 'string' && 
-                      firebaseConfig.apiKey.startsWith('AIza') && 
-                      !firebaseConfig.apiKey.includes('PLACEHOLDER');
+                      firebaseConfig.apiKey.startsWith('AIza');
 
 let app: FirebaseApp;
 
 if (getApps().length) {
   app = getApp();
 } else {
-  // Pendant le build (CI/CD), on injecte une config factice avec un format valide
-  // pour que getAuth() et initializeApp() ne lèvent pas d'exception fatale.
-  const configToUse = isConfigValid 
-    ? firebaseConfig 
-    : { 
-        apiKey: "AIza-BUILD-TIME-FAKE-KEY-IGNORE-ME",
-        authDomain: "build-fallback.firebaseapp.com",
-        projectId: "build-fallback",
-        storageBucket: "build-fallback.appspot.com",
-        messagingSenderId: "123456789",
-        appId: "1:123456789:web:abcdef"
-      };
-    
-  app = initializeApp(configToUse);
+  // En production/build, on utilise la config si elle est valide, sinon un fallback neutre
+  if (isConfigValid) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    // Fallback factice indispensable pour que le build Next.js ne plante pas
+    app = initializeApp({ 
+      apiKey: "AIza-BUILD-TIME-FALLBACK-IGNORE",
+      authDomain: "build-fallback.firebaseapp.com",
+      projectId: "build-fallback",
+      storageBucket: "build-fallback.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    });
+  }
 }
 
 const auth: Auth = getAuth(app);
