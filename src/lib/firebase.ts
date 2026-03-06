@@ -15,9 +15,15 @@ if (getApps().length) {
   app = getApp();
 } else {
   // Si la config est invalide (build phase), on utilise une clé factice pour éviter de faire planter le build
+  // car Next.js importe ce module lors de la génération statique.
   const configToUse = isConfigValid 
     ? firebaseConfig 
-    : { ...firebaseConfig, apiKey: "AIza-build-fallback-ignore-me" };
+    : { 
+        ...firebaseConfig, 
+        apiKey: "AIza-build-fallback-ignore-me",
+        authDomain: "build-fallback.firebaseapp.com",
+        projectId: "build-fallback"
+      };
     
   app = initializeApp(configToUse);
 }
